@@ -1,0 +1,8 @@
+node_modules/
+dist/
+release/
+*.log
+snapshot-*.png
+
+# Local Claude Code tooling config
+.claude/
