@@ -22,6 +22,15 @@ export function predictPasses(satrec, observer, opts = {}) {
   let prevT = start;
   let prevEl = elAt(satrec, observer, start);
 
+  // If the satellite is already above the horizon at the window start, we're
+  // mid-pass — open the pass now (AOS = start) so an in-progress pass isn't missed
+  // (e.g. launching the pass scheduler while a satellite is overhead).
+  if (prevEl >= minEl) {
+    inPass = true;
+    aos = start;
+    peak = { el: -Infinity, t: 0, az: 0 };
+  }
+
   for (let t = start + stepMs; t <= end && passes.length < count; t += stepMs) {
     const el = elAt(satrec, observer, t);
     if (!inPass && el >= minEl && prevEl < minEl) {

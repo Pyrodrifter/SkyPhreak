@@ -259,7 +259,10 @@ export function createUI(handlers) {
       }));
     }
 
-    // Catalog box: the loaded group, filtered by search (capped).
+    // Catalog box: the loaded group, filtered by search (capped). Preserve the
+    // scroll position — renderList runs on every state change (incl. selecting a
+    // satellite), and rebuilding the list would otherwise jump it back to the top.
+    const savedScroll = listEl.scrollTop;
     listEl.innerHTML = '';
     let pool = catalog;
     if (searchTerm) pool = catalog.filter((s) => s.name.toLowerCase().includes(searchTerm) || s.noradId.includes(searchTerm));
@@ -274,6 +277,7 @@ export function createUI(handlers) {
         favorite: favIds.has(s.noradId), selected: st.selected === s.noradId, color: colorFor(s.noradId, st.tracked),
       }));
     }
+    listEl.scrollTop = savedScroll;
   }
 
   function updateClock(date) {
