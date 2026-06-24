@@ -20,6 +20,7 @@ function createWindow() {
     minHeight: 680,
     backgroundColor: '#0a0e14',
     title: 'SkyPhreak',
+    icon: path.join(__dirname, '..', 'public', 'icon.png'),
     autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),

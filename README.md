@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/logo.png" alt="SkyPhreak" width="280" />
+</p>
+
 # SkyPhreak
 
 A clean, high-resolution sky tracker — satellites, the Moon, planets and deep-sky
