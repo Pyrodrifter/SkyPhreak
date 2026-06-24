@@ -38,7 +38,10 @@ export function createUI(handlers) {
   const btn3d = h('button', { onclick: () => store.patch({ view: '3d' }) }, '3D Globe');
 
   const topbar = h('div', { class: 'topbar' }, [
-    h('div', { class: 'brand', html: 'Sky<span>Phreak</span>' }),
+    h('div', { class: 'brand' }, [
+      h('img', { class: 'brand-logo', src: './icon.png', alt: '' }),
+      h('span', { class: 'brand-text', html: 'Sky<span>Phreak</span>' }),
+    ]),
     clockEl,
     h('div', { class: 'spacer' }),
     selReadout,
@@ -112,8 +115,22 @@ export function createUI(handlers) {
   }, styleLabel(store.get().mapStyle));
   const resetBtn = h('button', { class: 'btn sm', onclick: () => handlers.resetView() }, 'Reset view');
   const tools = h('div', { class: 'stage-tools' }, [mapStyleBtn, resetBtn]);
+
+  // Quick-access auto-track controls on the map: the three tracking modes + a
+  // rotor connection light (red = disconnected, green = connected).
+  const trackBtns = {};
+  const trackModes = [['off', 'Off'], ['selected', 'Selected'], ['schedule', 'Schedule']];
+  const trackBar = h('div', { class: 'toggle' }, trackModes.map(([m, label]) =>
+    (trackBtns[m] = h('button', { title: trackTitle(m), onclick: () => store.patchIn('hw.rotator', { autoMode: m }) }, label))));
+  const rotorDot = h('span', { class: 'rotor-dot', title: 'Rotor disconnected' });
+  const trackCluster = h('div', { class: 'track-cluster' }, [
+    h('span', { class: 'track-label' }, 'Auto-track'),
+    trackBar,
+    h('span', { class: 'rotor-status' }, [rotorDot, h('span', { class: 'rotor-text' }, 'Rotor')]),
+  ]);
+
   const hint = h('div', { class: 'view-hint' }, 'Scroll to zoom · drag to pan · click a satellite to select');
-  const stage = h('main', { class: 'stage' }, [view2d, view3d, tools, hint]);
+  const stage = h('main', { class: 'stage' }, [view2d, view3d, trackCluster, tools, hint]);
 
   /* ----------------------------- Right panel ----------------------------- */
   const tabPanes = {};
@@ -417,6 +434,19 @@ export function createUI(handlers) {
 
   function setTleStamp(text) { tleStamp.textContent = text; }
 
+  // Sync the on-map auto-track buttons + the Hardware-pane dropdown to the store.
+  function syncAutoMode() {
+    const mode = store.get().hw.rotator.autoMode || 'off';
+    for (const [m] of trackModes) trackBtns[m].classList.toggle('active', m === mode);
+    if (hwRefs.autoModeSel) hwRefs.autoModeSel.value = mode;
+  }
+
+  // Rotor connection light on the map (red = disconnected, green = connected).
+  function setRotorConnected(connected) {
+    rotorDot.classList.toggle('on', !!connected);
+    rotorDot.title = connected ? 'Rotor connected' : 'Rotor disconnected';
+  }
+
   // Update which tracked rows are flagged stale; re-render only on change.
   function setStaleIds(set) {
     if (set.size === staleIds.size && [...set].every((id) => staleIds.has(id))) return;
@@ -438,9 +468,15 @@ export function createUI(handlers) {
   return {
     view2d, view3d,
     renderList, updateClock, updateInfo, updatePasses, setActiveView, setTleStamp,
-    setStaleIds, setTleStatus,
+    setStaleIds, setTleStatus, syncAutoMode, setRotorConnected,
     hw: hwRefs,
   };
+}
+
+function trackTitle(m) {
+  return m === 'off' ? 'Manual — rotator not auto-driven'
+    : m === 'selected' ? 'Auto-track the selected target'
+    : 'Auto-track scheduled passes across all tracked satellites';
 }
 
 /* ----------------------------- Station pane ----------------------------- */
@@ -607,7 +643,7 @@ function buildHwPane(pane, handlers) {
 
   renderRotDynamic();
 
-  return { rotPill, radPill, rotConnect, radConnect, rotTarget, radFreqLive };
+  return { rotPill, radPill, rotConnect, radConnect, rotTarget, radFreqLive, autoModeSel: autoMode };
 }
 
 /* -------------------------------- helpers ------------------------------- */

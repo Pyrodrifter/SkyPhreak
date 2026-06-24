@@ -58,10 +58,12 @@ let lastRotSend = 0;
 let lastRadSend = 0;
 
 // Smooth continuous-motion controller (SuperRot path). Streams velocity setpoints
-// at its own high rate; the 1 Hz tick only feeds it fresh targets + feedforward.
+// at its own high rate; a fast 10 Hz loop feeds it fresh targets + feedforward
+// (the 1 Hz tick only decides *which* target and handles the views).
 let motion = null;
 let motionRunning = false;
 let rotTelemetry = null; // last { az, el, azRate, elRate } reported by SuperRot firmware
+let activeTrackId = null; // id the rotator is actively tracking (null when parked/idle)
 
 window.addEventListener('error', (e) => console.error(e.error || e.message));
 window.addEventListener('unhandledrejection', (e) => console.error('unhandledrejection:', e.reason));
@@ -113,6 +115,7 @@ async function boot() {
 
   ui.setActiveView(store.get().view);
   setInterval(tick, 1000);
+  setInterval(streamRotatorFast, 100); // 10 Hz SuperRot setpoint refresh
   tick();
 }
 
@@ -272,6 +275,7 @@ let lastView = null;
 let lastMapStyle = null;
 function onState(state) {
   ui.renderList();
+  ui.syncAutoMode(); // keep the on-map track buttons + HW dropdown in sync
   if (state.view !== lastView) {
     ui.setActiveView(state.view);
     lastView = state.view;
@@ -492,6 +496,7 @@ function wireHardwareStatus() {
     const where = s.path ? s.path : `${s.host || ''}:${s.port || ''}`;
     ui.hw.rotPill._set(s.connected, s.connected ? `Rotator connected ${where}` : (s.error ? 'Rotator: ' + s.error : 'Rotator disconnected'));
     ui.hw.rotConnect.textContent = s.connected ? 'Disconnect' : 'Connect';
+    ui.setRotorConnected(s.connected); // on-map rotor light
   });
   window.pyro.radio.onStatus((s) => {
     radConnected = s.connected;
@@ -610,6 +615,28 @@ function driveToTarget(track, date, rot) {
   }
 }
 
+// 10 Hz refresh of the smooth controller's target (SuperRot only). The 1 Hz tick
+// chooses the target; this re-samples its true az/el + feedforward 10× as often so
+// the controller corrects far more frequently — much tighter through the zenith
+// keyhole — without re-rendering the views at 10 Hz. Cheap: one/two SGP4 calls per
+// iteration, and only while actively tracking.
+function streamRotatorFast() {
+  if (!motionRunning || activeTrackId == null) return;
+  if ((store.get().hw.rotator.protocol || 'hamlib') !== 'superrot') return;
+  const now = Date.now();
+  const look = sampleTargetLook(activeTrackId, new Date(now));
+  if (!look) return;
+  const dt = 0.2; // s — finite-difference horizon for the velocity feedforward
+  const ahead = sampleTargetLook(activeTrackId, new Date(now + dt * 1000));
+  let azRate = 0;
+  let elRate = 0;
+  if (ahead) {
+    azRate = wrap180(ahead.az - look.az) / dt;
+    elRate = (ahead.el - look.el) / dt;
+  }
+  motion.setTarget(look.az, Math.max(0, look.el), azRate, elRate);
+}
+
 function driveHardware(frame, date) {
   const state = store.get();
   const rot = state.hw.rotator;
@@ -651,17 +678,21 @@ function driveHardware(frame, date) {
   }
 
   // Drive the rotator: track when there's a target, park once when there isn't.
+  // The SuperRot setpoint is refreshed at 10 Hz by streamRotatorFast(); here we
+  // just decide the target and publish its id for that loop.
   if (rotConnected && mode !== 'off') {
     if (track) {
       driveToTarget(track, date, rot);
       parkedByAuto = false;
-    } else if (!parkedByAuto) {
-      parkNow();
-      parkedByAuto = true;
+      activeTrackId = rot.protocol === 'superrot' ? track.id : null;
+    } else {
+      activeTrackId = null;
+      if (!parkedByAuto) { parkNow(); parkedByAuto = true; }
     }
   } else {
     if (motionRunning) { motion.stop(); motionRunning = false; }
     parkedByAuto = false;
+    activeTrackId = null;
   }
 
   // Radio Doppler — follows the tracked satellite (or the selected one). Only
