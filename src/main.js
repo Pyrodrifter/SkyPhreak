@@ -1,6 +1,6 @@
 import './style.css';
 import { store } from './core/store.js';
-import { parseTle } from './core/tle.js';
+import { parseCatalog } from './core/tle.js';
 import { subPoint, lookAngles, makeSatrec, tleAgeDays } from './core/propagate.js';
 import { moonState, moonLook } from './core/moon.js';
 import { planetState, raDecToAzEl, subPointOf } from './core/bodies.js';
@@ -225,7 +225,7 @@ async function doRefreshPersistedTles() {
     if (cur && cur.satrec && tleAgeDays(cur.satrec) <= maxDays) continue; // cached copy still fresh enough
     try {
       const res = await window.pyro.tle.fetchOne(id);
-      const parsed = parseTle(res.text);
+      const parsed = parseCatalog(res.text);
       const s = parsed[0];
       if (s) {
         store.setStoredTle(id, { name: s.name, line1: s.line1, line2: s.line2 });
@@ -243,7 +243,7 @@ async function doRefreshPersistedTles() {
 }
 
 function applyTle(text, fetchedAt) {
-  const sats = parseTle(text);
+  const sats = parseCatalog(text);
   catalogById = new Map(sats.map((s) => [s.noradId, s]));
 
   // Keep cached TLEs (favorites + tracked) fresh from this group, then make sure

@@ -1,4 +1,15 @@
 import { makeSatrec } from './propagate.js';
+import { parseOmm } from './omm.js';
+
+/**
+ * Parse a Celestrak satellite catalog, auto-detecting the format: OMM (JSON,
+ * starts with [ or {) or classic TLE text. Both yield the same entry shape
+ * { name, noradId, line1, line2, satrec }, so callers don't care which it was.
+ */
+export function parseCatalog(text) {
+  const t = (text || '').trimStart();
+  return t.startsWith('[') || t.startsWith('{') ? parseOmm(text) : parseTle(text);
+}
 
 /**
  * Parse a Celestrak/NORAD 2- or 3-line TLE blob into satellite descriptors.
