@@ -129,22 +129,32 @@ function httpGet(url) {
   });
 }
 
+// Fetch satellite elements from Celestrak, preferring OMM (JSON) — the modern,
+// robust-to-parse format — and falling back to classic TLE text if JSON isn't
+// available. The renderer auto-detects which format it got.
+async function fetchGp(query) {
+  try {
+    const json = await httpGet(`https://celestrak.org/NORAD/elements/gp.php?${query}&FORMAT=json`);
+    const t = json.trimStart();
+    if ((t.startsWith('[') && t.length > 2) || t.startsWith('{')) return json;
+  } catch { /* fall back to TLE */ }
+  return httpGet(`https://celestrak.org/NORAD/elements/gp.php?${query}&FORMAT=tle`);
+}
+
 // Fetch a Celestrak group (e.g. "active", "amateur", "weather", "stations").
 ipcMain.handle('tle:fetch', async (_e, group) => {
   const safe = String(group || 'active').replace(/[^a-z0-9-]/gi, '');
-  const url = `https://celestrak.org/NORAD/elements/gp.php?GROUP=${safe}&FORMAT=tle`;
-  const text = await httpGet(url);
+  const text = await fetchGp(`GROUP=${safe}`);
   const cache = readJson(tleCachePath(), {});
   cache[safe] = { fetchedAt: Date.now(), text };
   writeJson(tleCachePath(), cache);
   return { group: safe, fetchedAt: cache[safe].fetchedAt, text };
 });
 
-// Fetch a single satellite's current TLE by NORAD catalog number.
+// Fetch a single satellite's current elements by NORAD catalog number.
 ipcMain.handle('tle:fetchOne', async (_e, id) => {
   const safe = String(id || '').replace(/[^0-9]/g, '');
-  const url = `https://celestrak.org/NORAD/elements/gp.php?CATNR=${safe}&FORMAT=tle`;
-  const text = await httpGet(url);
+  const text = await fetchGp(`CATNR=${safe}`);
   return { id: safe, text };
 });
 
