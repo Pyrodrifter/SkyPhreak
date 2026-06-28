@@ -1,6 +1,6 @@
 {
-  "name": "pyrosattrack",
-  "version": "0.1.0",
+  "name": "skyphreak",
+  "version": "0.2.0-rc.1",
   "description": "SkyPhreak — clean, high-resolution sky tracker: satellites, the Moon, planets and deep-sky objects on a live 2D map and 3D globe, with pass prediction and smooth rotator/radio control.",
   "author": "Allan Snelder",
   "license": "MIT",
