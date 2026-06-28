@@ -26,6 +26,13 @@ const DEFAULTS = {
   maxVel: { az: 12, el: 8 }, // °/s ceiling (also the zenith-keyhole clamp)
   maxAccel: { az: 20, el: 15 }, // °/s² — how fast velocity may change
   maxJerk: { az: 120, el: 90 }, // °/s³ — how fast acceleration may change (S-curve)
+  // Absolute azimuth range. We emit CONTINUOUS (unwrapped) az into this range — the
+  // host owns trajectory continuity, the rotator positions absolutely — so a north
+  // crossing keeps turning the same direction instead of unwinding 358°. azMax > 360
+  // is the cable-overlap region. Elevation ceiling is elMax (90, or up to 180).
+  azMin: 0,
+  azMax: 450,
+  elMax: 90,
 };
 
 export class MotionController {
@@ -95,6 +102,20 @@ export class MotionController {
     this.lastSetT = 0;
   }
 
+  /**
+   * Seed the continuous-azimuth accumulator from a known actual position (e.g. the
+   * rotator's reported telemetry az) so the first setTarget unwraps relative to where
+   * the mount really is, not an assumed 0. `az` is continuous (may exceed 360).
+   */
+  seed(az, el) {
+    if (!Number.isFinite(az)) return;
+    this.cmd = { az, el: Number.isFinite(el) ? el : this.cmd?.el ?? 0 };
+    this.tgt = null;
+    this.lastSetT = 0;
+    this.vel = { az: 0, el: 0 };
+    this.acc = { az: 0, el: 0 };
+  }
+
   /** One control-loop iteration: extrapolate target, compute + limit velocity, integrate, emit. */
   _step() {
     const t = now();
@@ -107,7 +128,7 @@ export class MotionController {
     // the gaps between the slow setpoint updates.
     this.tgt.az += this.tgt.azRate * dt;
     this.tgt.el += this.tgt.elRate * dt;
-    this.tgt.el = clamp(this.tgt.el, 0, 90);
+    this.tgt.el = clamp(this.tgt.el, 0, this.cfg.elMax);
 
     for (const ax of ['az', 'el']) {
       const ff = this.tgt[ax + 'Rate'];
@@ -127,10 +148,16 @@ export class MotionController {
       this.vel[ax] = clamp(this.vel[ax], -this.cfg.maxVel[ax], this.cfg.maxVel[ax]);
       this.cmd[ax] += this.vel[ax] * dt;
     }
-    this.cmd.el = clamp(this.cmd.el, 0, 90);
+
+    // Clamp to the rotator's absolute travel. Azimuth is CONTINUOUS (not wrapped) —
+    // it may exceed 360 in the overlap region. Anti-windup: if we're pinned at a
+    // bound, zero any velocity still pushing into it so we can leave cleanly.
+    if (this.cmd.az < this.cfg.azMin) { this.cmd.az = this.cfg.azMin; if (this.vel.az < 0) { this.vel.az = 0; this.acc.az = 0; } }
+    else if (this.cmd.az > this.cfg.azMax) { this.cmd.az = this.cfg.azMax; if (this.vel.az > 0) { this.vel.az = 0; this.acc.az = 0; } }
+    this.cmd.el = clamp(this.cmd.el, 0, this.cfg.elMax);
 
     this.send({
-      az: wrap360(this.cmd.az),
+      az: this.cmd.az, // continuous / unwrapped — host owns trajectory continuity
       el: this.cmd.el,
       azRate: this.vel.az,
       elRate: this.vel.el,
@@ -141,7 +168,6 @@ export class MotionController {
 /* ------------------------------ angle helpers ------------------------------ */
 const now = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
 const clamp = (x, lo, hi) => (x < lo ? lo : x > hi ? hi : x);
-const wrap360 = (d) => ((d % 360) + 360) % 360;
 const wrap180 = (d) => {
   let x = ((d + 180) % 360 + 360) % 360 - 180;
   return x;

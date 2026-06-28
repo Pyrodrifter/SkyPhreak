@@ -34,6 +34,13 @@ const DEFAULTS = {
       // Smooth-controller motion limits (only used by the 'superrot' path).
       maxVelAz: 12, // °/s
       maxVelEl: 8,
+      // SuperRot absolute azimuth range. The host streams CONTINUOUS (unwrapped) az
+      // into this range so a north crossing keeps turning the same way instead of
+      // unwinding; azMax > 360 gives cable-overlap before a manual unwind is needed.
+      azMin: 0,
+      azMax: 450,
+      // Elevation ceiling — 90 for standard mounts, up to 180 for flip-over passes.
+      elMax: 90,
     },
     radio: { host: '127.0.0.1', port: 4532, downlinkHz: 145800000, doppler: false },
   },

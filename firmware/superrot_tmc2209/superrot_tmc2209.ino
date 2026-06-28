@@ -70,6 +70,14 @@ static const float MAX_DEG_S   = 15.0f;   // ceiling angular velocity
 static const float ACCEL_DEG_S2 = 30.0f;  // ramp rate
 static const unsigned long WATCHDOG_MS = 2000; // stop if no A/V stream for this long
 
+// Absolute travel range. Azimuth is CONTINUOUS (the host sends unwrapped az that may
+// exceed 360); we position absolutely over this range, with ~90° of overlap past a
+// full turn so a north crossing doesn't immediately hit the limit (operator unwinds
+// the cable by hand). We do NOT shortest-path / wrap — that would fight the host.
+static const float AZ_MIN_DEG = 0.0f;
+static const float AZ_MAX_DEG = 450.0f;
+static const float EL_MAX_DEG = 90.0f;    // raise toward 180 for flip-over passes
+
 /* ------------------------------- Globals --------------------------------- */
 TMC2209Stepper azDrv(&TMC_UART, R_SENSE, AZ_ADDR);
 TMC2209Stepper elDrv(&TMC_UART, R_SENSE, EL_ADDR);
@@ -131,14 +139,20 @@ void setup() {
 }
 
 /* ----------------------------- Command exec ------------------------------ */
-// Azimuth target in steps, taking the SHORTEST path from the current position so
-// motion never unwinds ~359° across the 0/360 (north) boundary. Stateless: it works
-// the move out relative to where the axis actually is, so it's also correct after a
-// velocity jog. `targetDeg` is the host's wrapped azimuth in [0,360).
+// Azimuth target in steps. ABSOLUTE positioning over the extended range — the host
+// sends CONTINUOUS (unwrapped) azimuth, so we drive straight to it and must NOT wrap
+// or shortest-path (that would fight the host's continuity). Clamp to travel limits.
 int32_t azTargetSteps(float targetDeg) {
-  float curDeg = azStep->getCurrentPosition() / AZ_SPD;
-  float tgtDeg = curDeg + remainderf(targetDeg - curDeg, 360.0f); // remainderf ∈ [-180,180]
-  return (int32_t)lroundf(tgtDeg * AZ_SPD);
+  if (targetDeg < AZ_MIN_DEG) targetDeg = AZ_MIN_DEG;
+  else if (targetDeg > AZ_MAX_DEG) targetDeg = AZ_MAX_DEG;
+  return (int32_t)lroundf(targetDeg * AZ_SPD);
+}
+
+// Elevation target in steps, clamped to [0, EL_MAX_DEG].
+int32_t elTargetSteps(float targetDeg) {
+  if (targetDeg < 0.0f) targetDeg = 0.0f;
+  else if (targetDeg > EL_MAX_DEG) targetDeg = EL_MAX_DEG;
+  return (int32_t)lroundf(targetDeg * EL_SPD);
 }
 
 // Slew one axis toward an absolute step target at a speed set from the feed-forward
@@ -173,25 +187,25 @@ void handleLine(String line, Stream& out) {
   switch (cmd) {
     case 'A': // track setpoint: position + feed-forward velocity (streamed)
       axisMove(azStep, azTargetSteps(a), c, AZ_SPD);
-      axisMove(elStep, (int32_t)lroundf(b * EL_SPD), d, EL_SPD);
+      axisMove(elStep, elTargetSteps(b), d, EL_SPD);
       lastStreamMs = millis(); streaming = true; // arm comms watchdog
       reply(out, "OK"); break;
     case 'V': // velocity slew (streamed / manual jog)
       axisVel(azStep, a, AZ_SPD); axisVel(elStep, b, EL_SPD);
       lastStreamMs = millis(); streaming = true;
       reply(out, "OK"); break;
-    case 'P': // goto + hold (one-shot, not watched). Full speed, shortest-path az.
+    case 'P': // goto + hold (one-shot, not watched). Full speed, absolute az.
       azStep->setSpeedInHz((uint32_t)(MAX_DEG_S * AZ_SPD));
       elStep->setSpeedInHz((uint32_t)(MAX_DEG_S * EL_SPD));
       azStep->moveTo(azTargetSteps(a));
-      elStep->moveTo((int32_t)lroundf(b * EL_SPD));
+      elStep->moveTo(elTargetSteps(b));
       streaming = false; reply(out, "OK"); break;
     case 'S': azStep->stopMove(); elStep->stopMove(); streaming = false; reply(out, "OK"); break;
-    case 'K': // park (one-shot): shortest-path az to 0, el to 90.
+    case 'K': // park (one-shot): az to 0, el to 90.
       azStep->setSpeedInHz((uint32_t)(MAX_DEG_S * AZ_SPD));
       elStep->setSpeedInHz((uint32_t)(MAX_DEG_S * EL_SPD));
       azStep->moveTo(azTargetSteps(0));
-      elStep->moveTo((int32_t)lroundf(90 * EL_SPD));
+      elStep->moveTo(elTargetSteps(90));
       streaming = false; reply(out, "OK"); break;
     case '?': break; // telemetry sent in loop
     default:  reply(out, "ERR unknown"); break;

@@ -75,39 +75,49 @@ supports both should treat them the same and reply on whichever the command arri
 
 | Quantity | Unit | Range | Notes |
 |---|---|---|---|
-| Azimuth `az` | degrees | `[0, 360)` | **0 = true North, increasing clockwise** (90 = East, 180 = South, 270 = West) |
-| Elevation `el` | degrees | `[0, 90]` | 0 = horizon, 90 = zenith. (Mounts that flip past zenith may accept `[0,180]` — implementation-defined.) |
+| Azimuth `az` | degrees | **continuous**, within the rotator's range (e.g. `[0, 450]`) | **0 = true North, increasing clockwise**. NOT wrapped — may exceed 360° (see §4.1). |
+| Elevation `el` | degrees | `[0, 90]`, optionally `[0, 180]` | 0 = horizon, 90 = zenith. Extended mode up to 180° supports flip-over passes (the mount continues past zenith and tracks "upside down" on the far side instead of a 180° azimuth whip). |
 | Azimuth rate `azRate` | degrees/second | signed | + = increasing azimuth (clockwise) |
 | Elevation rate `elRate` | degrees/second | signed | + = rising |
 
 - All angles are **degrees**, all rates **degrees per second**.
-- The host sends azimuth **wrapped into `[0,360)`**. It does *not* send 361° or −5°.
+- The host sends **continuous (unwrapped) azimuth** — it may be `> 360°` or `< 0°`.
+  The host is responsible for keeping the trajectory continuous; the controller just
+  positions to the absolute value it's given (see §4.1).
 - Rates are typically small (Moon ≈ 0.004°/s; a high LEO pass can momentarily exceed
   several °/s near zenith). Controllers should clamp to a safe ceiling (see
   [§8](#8-controller-behaviour)).
 
-### 4.1 Azimuth wrap — the one thing you must get right
+### 4.1 Azimuth is continuous — the host owns wrap, the controller positions absolutely
 
-Because azimuth is sent in `[0,360)`, a target crossing North produces a setpoint
-sequence like `… 359.6, 359.9, 0.2, 0.5 …`. A naïve "move to absolute degrees"
-controller would **unwind ~359° backwards** at that instant — a violent jerk, exactly
-what this protocol exists to avoid.
+A target crossing North goes `… 359.6 → 360.2 → 360.5 …` **not** `… 359.6 → 0.2 …`.
+The model is:
 
-**Controllers MUST move to the commanded azimuth by the **shortest angular path**,**
-treating azimuth as modular (mod 360). Concretely, given the current commanded
-azimuth `cur` (in degrees, can be any real number internally) and a received target
-`tgt ∈ [0,360)`:
+- **The host streams continuous, unwrapped azimuth.** Each new target azimuth from the
+  orbit math (a 0–360 value) is unwrapped relative to the last *commanded* azimuth so
+  the stream never jumps:
 
-```
-delta = ((tgt - cur + 540) mod 360) - 180   // shortest signed step, in (-180, 180]
-cur   = cur + delta                          // advance continuously; never snaps
-```
+  ```
+  d = targetAz - lastAz;
+  d -= 360 * Math.round(d / 360);   // nearest equivalent, in (-180, 180]
+  az = lastAz + d;                   // continuous; may pass through 360, 361, …
+  ```
 
-Drive the motor to `cur`. This keeps motion continuous across 0°/360° forever.
+  This keeps the mount turning the **same direction** across North instead of unwinding
+  ~358° mid-pass.
 
-**Cable wrap:** real mounts have finite azimuth travel. A controller may impose soft
-limits (e.g. ±450°) and "unwrap" at a safe time, but it must never choose the long way
-*just* because of the numeric wrap. Document your mount's travel for operators.
+- **The controller does ABSOLUTE positioning and must NOT wrap.** It drives to exactly
+  the azimuth it receives, over an **extended range** (e.g. `0..450°`) — i.e. a full
+  turn plus an overlap region so a pass can cross North without immediately hitting the
+  travel limit. No shortest-path / modular logic on the controller side; that would
+  fight the host's continuity.
+
+**Cable wrap & range.** The azimuth range (`azMin`/`azMax`, default `0..450`) is a
+configurable soft limit matching the mount's mechanical travel. The host clamps its
+continuous azimuth to this range. As a pass winds the cable toward the limit, the host
+should warn the operator near the boundary and offer a manual **unwind** (drive 360°
+back while idle); the controller then continues from the new position. Publish your
+mount's travel so the host range can be set to match.
 
 ---
 
@@ -175,8 +185,9 @@ The controller emits three kinds of lines, all LF-terminated:
 ```
 T 137.41 28.09 0.500 -0.090
 ```
-- Same units/conventions as [§4](#4-coordinates-and-units): degrees and deg/s,
-  azimuth in `[0,360)`.
+- Same units/conventions as [§4](#4-coordinates-and-units): degrees and deg/s.
+  Report the **actual continuous azimuth** (may exceed 360°) so the host can seed its
+  accumulator from the mount's real position on connect.
 - Emit at a steady rate — **~10 Hz recommended** — and/or in response to `?`.
 - This is what lets the host show real-vs-commanded position and confirm smooth
   tracking. Hosts should tolerate telemetry arriving at any time, interleaved with
@@ -199,7 +210,12 @@ you don't recognise (controllers may print boot banners, e.g. `SuperRot ready`).
 - Compute `azRate`/`elRate` honestly — e.g. by sampling the target's look-angle at `t`
   and `t+Δ` and differencing — so feed-forward is meaningful. Sending `…Rate = 0`
   degrades gracefully to a goto-stream but reintroduces lag.
-- Send azimuth wrapped into `[0,360)`; do **not** send the long-way-around.
+- Send **continuous (unwrapped) azimuth** — unwrap each new target relative to the
+  last commanded azimuth (§4.1) so a north crossing keeps turning the same way. Clamp
+  to the configured az range; warn near the limit and offer a manual unwind.
+- **Seed** the azimuth accumulator from the controller's reported telemetry az when
+  (re)connecting or starting a track, so you unwrap relative to the mount's real
+  position instead of assuming 0.
 - On loss of target / below horizon: send `S` (or stop streaming — see watchdog).
 - Pre-smoothing (S-curve, accel limiting) on the host is allowed and recommended, but
   the controller must still enforce its own limits; never assume the host is sane.
@@ -216,13 +232,16 @@ A conforming controller:
    this is what keeps steppers from stalling and servos from buzzing.
 3. **Clamps velocity** to a safe ceiling (reference: 15°/s) regardless of commanded
    rate — protects against a bad host or a zenith keyhole sending huge azimuth rates.
-4. **Honours shortest-path azimuth** ([§4.1](#41-azimuth-wrap--the-one-thing-you-must-get-right)).
+4. **Positions azimuth ABSOLUTELY over an extended range and must NOT wrap**
+   ([§4.1](#41-azimuth-is-continuous--the-host-owns-wrap-the-controller-positions-absolutely)).
+   Drive to exactly the (continuous) azimuth received, across e.g. `0..450°`. Do not
+   apply shortest-path/modular logic — that fights the host's continuity. Clamp to the
+   mount's travel limits.
 5. **Has no position deadband.** Deadbands are the other source of rotctld jitter.
-6. **Streams telemetry** (~10 Hz).
+6. **Streams telemetry** (~10 Hz), reporting the actual continuous azimuth.
 7. **Implements a comms watchdog (recommended):** if no `A`/`V` arrives for, say,
    **2 seconds**, decelerate to a stop. A dropped USB/WiFi link must not leave the
-   mount slewing. *(The reference firmware does not yet do this — add it for any real
-   deployment; see [§13](#13-known-gaps).)*
+   mount slewing.
 
 Elevation should be clamped to the mount's mechanical range. Azimuth should respect
 cable-wrap soft limits if applicable.
@@ -243,11 +262,13 @@ host →  S                              (target set; stop)
 ctrl →  OK
 ```
 
-### 9.2 North crossing (shortest path)
+### 9.2 North crossing (continuous azimuth)
 ```
 host →  A 359.70 40.00 1.10 0.00
-host →  A 0.20  40.05 1.10 0.00        (+0.5° the short way, NOT −359.5°)
+host →  A 360.20 40.05 1.10 0.00       (continuous: 360.2, NOT 0.2 — keeps turning CW)
+host →  A 360.70 40.10 1.10 0.00       (… 361, 362 … into the overlap region)
 ```
+The controller drives to 360.2° absolutely; it does not wrap to 0.2°.
 
 ### 9.3 Manual jog, then park
 ```
@@ -282,8 +303,8 @@ protocol, not a Hamlib superset.
 
 Build up in this order; each tier is independently useful:
 
-- **Tier 0 — Goto.** Parse `P`, move there (shortest-path az), `S` to stop. You now
-  have a working position rotator.
+- **Tier 0 — Goto.** Parse `P`, move there (absolute az), `S` to stop. You now have a
+  working position rotator.
 - **Tier 1 — Continuous.** Parse `A`, track the streamed position with accel-limited
   motion (you may ignore the rate fields at first). Motion is already smooth because
   setpoints arrive continuously.
@@ -304,8 +325,8 @@ In this repository:
 |---|---|---|
 | Controller (firmware) | `firmware/superrot_tmc2209/superrot_tmc2209.ino` | ESP32 + 2× TMC2209 + NEMA 17; serial **and** TCP; parses the full command set; ~10 Hz telemetry. |
 | Host — transport | `electron/superrot.cjs` | Serial/TCP client; `track()`→`A`, `velocity()`→`V`, `goto()`→`P`, `stopMotion()`→`S`, `park()`→`K`; telemetry parse. |
-| Host — motion planning | `src/core/motion.js` | 20 Hz controller: velocity feed-forward + accel/jerk S-curve + azimuth unwrap + zenith-keyhole clamp. Emits the `{az,el,azRate,elRate}` that becomes `A`. |
-| Host — wiring | `src/main.js` (`driveHardware`, `sampleLookAt`) | Computes target rate by finite-differencing the look angle and streams setpoints. |
+| Host — motion planning | `src/core/motion.js` | 20 Hz controller: velocity feed-forward + accel/jerk S-curve + **continuous azimuth accumulator** (`cmd.az`, unwrapped, clamped to `azMin..azMax`) + zenith-keyhole clamp + `seed()`. Emits the `{az,el,azRate,elRate}` that becomes `A`. |
+| Host — wiring | `src/main.js` (`driveToTarget`, `streamRotatorFast`, `unwindRotator`) | Finite-differences the look angle for feed-forward, seeds the accumulator from telemetry, surfaces the cable-wrap warning + unwind. |
 
 ### 12.1 TMC2209 smoothness notes (for stepper builds)
 The reference firmware leans on three driver features that matter for visibly smooth
@@ -322,7 +343,8 @@ motion; if you roll your own, replicate them:
 
 ## 13. Known gaps
 
-The reference firmware now implements shortest-path azimuth ([§4.1](#41-azimuth-wrap--the-one-thing-you-must-get-right))
+The reference firmware does absolute extended-range azimuth positioning
+([§4.1](#41-azimuth-is-continuous--the-host-owns-wrap-the-controller-positions-absolutely))
 and a 2 s comms watchdog ([§8](#8-controller-behaviour)). Remaining limitations worth
 knowing if you base your build on it:
 
@@ -339,7 +361,7 @@ knowing if you base your build on it:
 ```
 Transport : serial 115200 8N1  |  TCP :4533
 Framing   : ASCII lines, LF-terminated, tolerate CR
-Units     : degrees, deg/s   az∈[0,360) N=0 CW   el∈[0,90] up=+
+Units     : degrees, deg/s   az = continuous (e.g. 0..450) N=0 CW   el = 0..90 (or 0..180)
 
 Host → Controller
   A az el azRate elRate   track setpoint (stream 10–20 Hz)
@@ -356,7 +378,7 @@ Controller → Host
 
 Rules
   • controller never stops while A/V stream
-  • shortest-path azimuth across 0/360
-  • controller clamps accel + max velocity, no deadband
+  • HOST sends continuous (unwrapped) az; controller positions ABSOLUTELY, no wrap
+  • controller clamps accel + max velocity + az/el travel range, no deadband
   • recommended: stop if no A/V for 2 s (watchdog)
 ```

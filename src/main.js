@@ -69,6 +69,7 @@ let motion = null;
 let motionRunning = false;
 let rotTelemetry = null; // last { az, el, azRate, elRate } reported by SuperRot firmware
 let activeTrackId = null; // id the rotator is actively tracking (null when parked/idle)
+let azCmdContinuous = null; // last continuous (unwrapped) az streamed to SuperRot
 
 window.addEventListener('error', (e) => console.error(e.error || e.message));
 window.addEventListener('unhandledrejection', (e) => console.error('unhandledrejection:', e.reason));
@@ -86,6 +87,7 @@ async function boot() {
     connectRotator,
     parkRotator: () => { if (motionRunning) { motion.stop(); motionRunning = false; } window.pyro.rotator.park(); },
     stopRotator: () => { if (motionRunning) { motion.stop(); motionRunning = false; } else window.pyro.rotator.stop(); },
+    unwindRotator,
     connectRadio,
   });
 
@@ -102,8 +104,12 @@ async function boot() {
   motion = new MotionController({
     send: (cmd) => {
       if (!rotConnected) return;
-      if (cmd.stop) window.pyro.rotator.stop();
-      else window.pyro.rotator.track(cmd.az, cmd.el, cmd.azRate, cmd.elRate);
+      if (cmd.stop) { window.pyro.rotator.stop(); return; }
+      // cmd.az is CONTINUOUS (unwrapped, may exceed 360) — send it as-is so the
+      // rotator keeps turning the same way across north. Remember it for the
+      // cable-wrap warning / manual unwind.
+      azCmdContinuous = cmd.az;
+      window.pyro.rotator.track(cmd.az, cmd.el, cmd.azRate, cmd.elRate);
     },
   });
 
@@ -641,6 +647,21 @@ function parkNow() {
   window.pyro.rotator.park();
 }
 
+// Operator action (idle): unwind the cable one full turn. Drives an absolute goto
+// 360° back toward the centre of travel; the next track reseeds from telemetry.
+function unwindRotator() {
+  const rot = store.get().hw.rotator;
+  if (!rotConnected || rot.protocol !== 'superrot') return;
+  const az = rotTelemetry && Number.isFinite(rotTelemetry.az) ? rotTelemetry.az : azCmdContinuous;
+  if (az == null) return;
+  const el = rotTelemetry && Number.isFinite(rotTelemetry.el) ? rotTelemetry.el : 0;
+  const mid = ((rot.azMin ?? 0) + (rot.azMax ?? 450)) / 2;
+  const target = az + (az > mid ? -360 : 360);
+  if (motionRunning) { motion.stop(); motionRunning = false; }
+  activeTrackId = null;
+  window.pyro.rotator.setAzEl(target, Math.max(0, el));
+}
+
 // Stream/goto the rotator to a target (smooth controller for SuperRot, 1 Hz goto for Hamlib).
 function driveToTarget(track, date, rot) {
   const look = track.look;
@@ -656,6 +677,12 @@ function driveToTarget(track, date, rot) {
     if (!motionRunning) {
       motion.cfg.maxVel.az = rot.maxVelAz ?? motion.cfg.maxVel.az;
       motion.cfg.maxVel.el = rot.maxVelEl ?? motion.cfg.maxVel.el;
+      motion.cfg.azMin = rot.azMin ?? motion.cfg.azMin;
+      motion.cfg.azMax = rot.azMax ?? motion.cfg.azMax;
+      motion.cfg.elMax = rot.elMax ?? motion.cfg.elMax;
+      // Seed the continuous-az accumulator from the rotator's reported position so we
+      // unwrap relative to where it actually is, not an assumed 0.
+      if (rotTelemetry && Number.isFinite(rotTelemetry.az)) motion.seed(rotTelemetry.az, rotTelemetry.el);
       motion.start();
       motionRunning = true;
     }
@@ -729,6 +756,18 @@ function driveHardware(frame, date) {
         ...k('Slew', `${rotTelemetry.azRate.toFixed(2)} / ${rotTelemetry.elRate.toFixed(2)} °/s`)
       );
     }
+  }
+
+  // Cable-wrap warning: the continuous azimuth is nearing the rotator's travel limit.
+  if (ui.hw.setRotWarn) {
+    const warnDeg = 15;
+    const azNow = rotTelemetry && Number.isFinite(rotTelemetry.az) ? rotTelemetry.az : azCmdContinuous;
+    let warn = null;
+    if (rot.protocol === 'superrot' && rotConnected && azNow != null) {
+      if (azNow >= (rot.azMax ?? 450) - warnDeg) warn = `Az ${azNow.toFixed(0)}° near upper limit ${rot.azMax}° — unwind`;
+      else if (azNow <= (rot.azMin ?? 0) + warnDeg) warn = `Az ${azNow.toFixed(0)}° near lower limit ${rot.azMin}° — unwind`;
+    }
+    ui.hw.setRotWarn(warn);
   }
 
   // Drive the rotator: track when there's a target, park once when there isn't.
