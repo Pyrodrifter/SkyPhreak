@@ -15,13 +15,28 @@ export function makeSatrec(line1, line2) {
   }
 }
 
+/**
+ * ECI (TEME) state { position, velocity } for a propagation source at a date.
+ * Branches between an SGP4 satrec (TLE/OMM) and a tabulated OEM Ephemeris, which
+ * exposes the same shape via .eval(). Returns null on failure / outside span.
+ */
+function propagateEci(satrec, date) {
+  return satrec && satrec.isEphemeris ? satrec.eval(date) : satellite.propagate(satrec, date);
+}
+
 /** Epoch of a TLE (the element-set reference time) as Unix ms. */
 export function epochMs(satrec) {
   return (satrec.jdsatepoch - 2440587.5) * 86400000;
 }
 
-/** Age of a TLE epoch in days at `now` (defaults to current time). */
+/**
+ * Age in days at `now` of the elements driving a satellite. For an SGP4 satrec
+ * this is the TLE/OMM epoch age. For an OEM ephemeris it is 0 while `now` is
+ * within (or before) the tabulated span, growing only once the table runs out —
+ * the meaningful "stale" signal for a finite ephemeris.
+ */
 export function tleAgeDays(satrec, now = Date.now()) {
+  if (satrec && satrec.isEphemeris) return now > satrec.stopMs ? (now - satrec.stopMs) / 86400000 : 0;
   return (now - epochMs(satrec)) / 86400000;
 }
 
@@ -36,7 +51,7 @@ export function periodMinutes(satrec) {
  * Returns { lat, lon, altKm, velocityKmS } or null on propagation failure.
  */
 export function subPoint(satrec, date) {
-  const pv = satellite.propagate(satrec, date);
+  const pv = propagateEci(satrec, date);
   if (!pv || !pv.position) return null;
   const gmst = satellite.gstime(date);
   const geo = satellite.eciToGeodetic(pv.position, gmst);
@@ -57,7 +72,7 @@ export function subPoint(satrec, date) {
  * downlink frequency to give the observed (shifted) frequency.
  */
 export function lookAngles(satrec, date, observer) {
-  const pv = satellite.propagate(satrec, date);
+  const pv = propagateEci(satrec, date);
   if (!pv || !pv.position) return null;
   const gmst = satellite.gstime(date);
   const observerGd = {

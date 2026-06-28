@@ -94,6 +94,12 @@ export function createUI(handlers) {
         h('div', { class: 'side-title' }, 'Catalog'),
         groupSel,
         h('div', { class: 'row', style: 'margin-top:8px' }, [search, refreshBtn]),
+        h('button', {
+          class: 'btn sm',
+          style: 'margin-top:6px',
+          title: 'Load a CCSDS OEM ephemeris file (.oem/.txt/.xml) — precise tabulated state vectors, interpolated instead of SGP4',
+          onclick: () => handlers.loadOem(),
+        }, 'Load OEM…'),
         tleStamp,
       ]),
       listEl,

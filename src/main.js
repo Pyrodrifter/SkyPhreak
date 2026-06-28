@@ -1,6 +1,7 @@
 import './style.css';
 import { store } from './core/store.js';
 import { parseCatalog } from './core/tle.js';
+import { parseOem } from './core/oem.js';
 import { subPoint, lookAngles, makeSatrec, tleAgeDays } from './core/propagate.js';
 import { moonState, moonLook } from './core/moon.js';
 import { planetState, raDecToAzEl, subPointOf } from './core/bodies.js';
@@ -14,6 +15,10 @@ import { PolarView } from './views/polar.js';
 
 let ui, map2d, globe3d, polar;
 let catalogById = new Map();
+// User-loaded OEM ephemerides, kept apart from the TLE/OMM catalog so they
+// survive group refreshes (which rebuild catalogById) and aren't hit by the
+// online TLE freshness scheduler. Re-merged into the catalog after each fetch.
+let oemById = new Map();
 
 // Sun + planets shown on the sky views; metadata (name, colour, default-shown).
 const PLANET_META = {
@@ -75,6 +80,7 @@ async function boot() {
 
   ui = createUI({
     refreshTLE,
+    loadOem,
     updateTlesNow: () => ensureFreshTles(true),
     resetView: () => (store.get().view === '2d' ? map2d.resetView() : globe3d.focus(store.get().station.lat, store.get().station.lon)),
     connectRotator,
@@ -221,6 +227,7 @@ async function doRefreshPersistedTles() {
   let updated = false;
   for (const id of ids) {
     if (groupIds.has(id)) continue; // already refreshed by the group fetch
+    if (oemById.has(id)) continue; // OEM ephemeris — not a Celestrak TLE
     const cur = catalogById.get(id);
     if (cur && cur.satrec && tleAgeDays(cur.satrec) <= maxDays) continue; // cached copy still fresh enough
     try {
@@ -266,8 +273,55 @@ function applyTle(text, fetchedAt) {
   selCache.key = '';
   trackedPassesCache.key = '';
   store.setCatalog(sats);
+  mergeOemIntoCatalog(); // re-add user OEMs the group fetch just overwrote
   ui.setTleStamp(`${sats.length} objects · updated ${new Date(fetchedAt).toLocaleString()}`);
   ui.renderList();
+}
+
+/* -------------------------------- OEM load ----------------------------- */
+// Load one or more CCSDS OEM ephemeris files, parse them, and merge them into
+// the catalog as trackable objects (id prefixed "OEM:"). Unlike TLE/OMM these
+// are tabulated state vectors propagated by interpolation, not SGP4.
+async function loadOem() {
+  let files;
+  try {
+    files = await window.pyro.oem.load();
+  } catch (e) {
+    ui.setTleStamp('OEM load failed: ' + e.message);
+    return;
+  }
+  if (!files || !files.length) return; // cancelled
+
+  let firstId = null;
+  let added = 0;
+  for (const f of files) {
+    const entries = parseOem(f.text);
+    for (const e of entries) {
+      oemById.set(e.noradId, e);
+      if (!firstId) firstId = e.noradId;
+      added++;
+    }
+  }
+  if (!added) { ui.setTleStamp('OEM: no usable ephemeris found in file'); return; }
+
+  mergeOemIntoCatalog();
+  if (firstId) {
+    if (!store.get().tracked.includes(firstId)) store.toggleTracked(firstId, null);
+    store.patch({ selected: firstId });
+  }
+  selCache.key = '';
+  trackedPassesCache.key = '';
+  ui.setTleStamp(`${added} OEM ephemeri${added === 1 ? 's' : 'des'} loaded`);
+  ui.renderList();
+}
+
+// Surface the loaded OEMs in both the catalog list and the lookup map, keeping
+// them ahead of the TLE/OMM entries and never duplicated.
+function mergeOemIntoCatalog() {
+  for (const e of oemById.values()) catalogById.set(e.noradId, e);
+  if (!oemById.size) return;
+  const base = store.getCatalog().filter((s) => !s.isOem);
+  store.setCatalog([...oemById.values(), ...base]);
 }
 
 /* ----------------------------- State changes --------------------------- */

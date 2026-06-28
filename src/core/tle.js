@@ -1,13 +1,17 @@
 import { makeSatrec } from './propagate.js';
 import { parseOmm } from './omm.js';
+import { parseOem } from './oem.js';
 
 /**
- * Parse a Celestrak satellite catalog, auto-detecting the format: OMM (JSON,
- * starts with [ or {) or classic TLE text. Both yield the same entry shape
- * { name, noradId, line1, line2, satrec }, so callers don't care which it was.
+ * Parse a satellite catalog, auto-detecting the format: CCSDS OEM (tabulated
+ * ephemeris, KVN or XML), OMM (JSON, starts with [ or {), or classic TLE text.
+ * All yield the same entry shape { name, noradId, line1, line2, satrec } — for
+ * OEM the satrec is an Ephemeris, but propagate.js handles both — so callers
+ * don't care which it was.
  */
 export function parseCatalog(text) {
   const t = (text || '').trimStart();
+  if (t.startsWith('CCSDS_OEM_VERS') || /^<(\?xml|oem|ndm)/i.test(t)) return parseOem(text);
   return t.startsWith('[') || t.startsWith('{') ? parseOmm(text) : parseTle(text);
 }
 

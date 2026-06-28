@@ -11,6 +11,10 @@ contextBridge.exposeInMainWorld('pyro', {
     fetchOne: (id) => ipcRenderer.invoke('tle:fetchOne', id),
     cache: () => ipcRenderer.invoke('tle:cache'),
   },
+  oem: {
+    // Returns [{ name, text }] for the chosen OEM files ([] if cancelled).
+    load: () => ipcRenderer.invoke('oem:load'),
+  },
   rotator: {
     // conf: { protocol:'hamlib'|'superrot', transport:'tcp'|'serial', host, port, path, baud }
     connect: (conf) => ipcRenderer.invoke('rotator:connect', conf),

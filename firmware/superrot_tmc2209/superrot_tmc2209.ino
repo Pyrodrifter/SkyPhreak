@@ -68,6 +68,7 @@ static const float EL_SPD = (MOTOR_STEPS * MICROSTEPS * EL_GEAR) / 360.0f;
 // Motion limits (firmware-side safety net; host limits are usually tighter).
 static const float MAX_DEG_S   = 15.0f;   // ceiling angular velocity
 static const float ACCEL_DEG_S2 = 30.0f;  // ramp rate
+static const unsigned long WATCHDOG_MS = 2000; // stop if no A/V stream for this long
 
 /* ------------------------------- Globals --------------------------------- */
 TMC2209Stepper azDrv(&TMC_UART, R_SENSE, AZ_ADDR);
@@ -80,6 +81,8 @@ WiFiServer server(TCP_PORT);
 WiFiClient client;
 String rxBuf;
 unsigned long lastTelemetry = 0;
+unsigned long lastStreamMs = 0;  // last time an A/V streaming setpoint arrived
+bool streaming = false;          // true while tracking; arms the comms watchdog
 
 /* ---------------------------- Driver setup ------------------------------- */
 void setupDriver(TMC2209Stepper& d) {
@@ -128,15 +131,25 @@ void setup() {
 }
 
 /* ----------------------------- Command exec ------------------------------ */
-// Stream a position+velocity setpoint to one axis. FastAccelStepper ramps toward
-// the moving target; because the host streams continuously the motor never stops.
-void axisTrack(FastAccelStepper* s, float deg, float rateDegS, float spd) {
+// Azimuth target in steps, taking the SHORTEST path from the current position so
+// motion never unwinds ~359° across the 0/360 (north) boundary. Stateless: it works
+// the move out relative to where the axis actually is, so it's also correct after a
+// velocity jog. `targetDeg` is the host's wrapped azimuth in [0,360).
+int32_t azTargetSteps(float targetDeg) {
+  float curDeg = azStep->getCurrentPosition() / AZ_SPD;
+  float tgtDeg = curDeg + remainderf(targetDeg - curDeg, 360.0f); // remainderf ∈ [-180,180]
+  return (int32_t)lroundf(tgtDeg * AZ_SPD);
+}
+
+// Slew one axis toward an absolute step target at a speed set from the feed-forward
+// rate. Because the host streams continuously, the motor keeps moving and never stops.
+void axisMove(FastAccelStepper* s, int32_t targetSteps, float rateDegS, float spd) {
   float r = fabs(rateDegS);
   if (r > MAX_DEG_S) r = MAX_DEG_S;
   // Keep a healthy minimum so position trim doesn't stall between updates.
   uint32_t hz = (uint32_t)max(r * spd, 0.5f * spd / 60.0f);
   s->setSpeedInHz(hz > 0 ? hz : 1);
-  s->moveTo((int32_t)lroundf(deg * spd));
+  s->moveTo(targetSteps);
 }
 
 void axisVel(FastAccelStepper* s, float rateDegS, float spd) {
@@ -158,12 +171,28 @@ void handleLine(String line, Stream& out) {
   float a = 0, b = 0, c = 0, d = 0;
   sscanf(line.c_str() + 1, "%f %f %f %f", &a, &b, &c, &d);
   switch (cmd) {
-    case 'A': axisTrack(azStep, a, c, AZ_SPD); axisTrack(elStep, b, d, EL_SPD); reply(out, "OK"); break;
-    case 'V': axisVel(azStep, a, AZ_SPD);      axisVel(elStep, b, EL_SPD);      reply(out, "OK"); break;
-    case 'P': azStep->moveTo((int32_t)lroundf(a * AZ_SPD));
-              elStep->moveTo((int32_t)lroundf(b * EL_SPD)); reply(out, "OK"); break;
-    case 'S': azStep->stopMove(); elStep->stopMove(); reply(out, "OK"); break;
-    case 'K': azStep->moveTo(0); elStep->moveTo((int32_t)lroundf(90 * EL_SPD)); reply(out, "OK"); break;
+    case 'A': // track setpoint: position + feed-forward velocity (streamed)
+      axisMove(azStep, azTargetSteps(a), c, AZ_SPD);
+      axisMove(elStep, (int32_t)lroundf(b * EL_SPD), d, EL_SPD);
+      lastStreamMs = millis(); streaming = true; // arm comms watchdog
+      reply(out, "OK"); break;
+    case 'V': // velocity slew (streamed / manual jog)
+      axisVel(azStep, a, AZ_SPD); axisVel(elStep, b, EL_SPD);
+      lastStreamMs = millis(); streaming = true;
+      reply(out, "OK"); break;
+    case 'P': // goto + hold (one-shot, not watched). Full speed, shortest-path az.
+      azStep->setSpeedInHz((uint32_t)(MAX_DEG_S * AZ_SPD));
+      elStep->setSpeedInHz((uint32_t)(MAX_DEG_S * EL_SPD));
+      azStep->moveTo(azTargetSteps(a));
+      elStep->moveTo((int32_t)lroundf(b * EL_SPD));
+      streaming = false; reply(out, "OK"); break;
+    case 'S': azStep->stopMove(); elStep->stopMove(); streaming = false; reply(out, "OK"); break;
+    case 'K': // park (one-shot): shortest-path az to 0, el to 90.
+      azStep->setSpeedInHz((uint32_t)(MAX_DEG_S * AZ_SPD));
+      elStep->setSpeedInHz((uint32_t)(MAX_DEG_S * EL_SPD));
+      azStep->moveTo(azTargetSteps(0));
+      elStep->moveTo((int32_t)lroundf(90 * EL_SPD));
+      streaming = false; reply(out, "OK"); break;
     case '?': break; // telemetry sent in loop
     default:  reply(out, "ERR unknown"); break;
   }
@@ -196,6 +225,15 @@ void loop() {
   // TCP transport
   if (server && !client.connected()) client = server.available();
   if (client.connected()) pump(client, rxBuf, client);
+
+  // Comms watchdog: if a tracking stream goes silent (link dropped), decelerate and
+  // hold — a lost connection must not leave the mount slewing. One-shot P/K gotos are
+  // not watched (streaming is cleared when they run).
+  if (streaming && millis() - lastStreamMs > WATCHDOG_MS) {
+    azStep->stopMove();
+    elStep->stopMove();
+    streaming = false;
+  }
 
   if (millis() - lastTelemetry >= 100) { // ~10 Hz telemetry
     lastTelemetry = millis();
