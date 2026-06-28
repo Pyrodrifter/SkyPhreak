@@ -565,6 +565,12 @@ function buildHwPane(pane, handlers) {
       h('label', { class: 'fld' }, [h('span', {}, 'Max Az speed (°/s)'), inputNum(hw.rotator.maxVelAz, '0.5', (v) => store.patchIn('hw.rotator', { maxVelAz: v }))]),
       h('label', { class: 'fld' }, [h('span', {}, 'Max El speed (°/s)'), inputNum(hw.rotator.maxVelEl, '0.5', (v) => store.patchIn('hw.rotator', { maxVelEl: v }))]),
     ]),
+    h('div', { class: 'grid2' }, [
+      h('label', { class: 'fld' }, [h('span', {}, 'Az min (°)'), inputNum(hw.rotator.azMin, '1', (v) => store.patchIn('hw.rotator', { azMin: v }))]),
+      h('label', { class: 'fld' }, [h('span', {}, 'Az max (°)'), inputNum(hw.rotator.azMax, '1', (v) => store.patchIn('hw.rotator', { azMax: v }))]),
+    ]),
+    h('label', { class: 'fld' }, [h('span', {}, 'El max (° — 180 for flip-over)'), inputNum(hw.rotator.elMax, '1', (v) => store.patchIn('hw.rotator', { elMax: v }))]),
+    h('div', { class: 'muted', style: 'font-size:11px' }, 'Absolute travel range. Az is streamed continuously into this range — values over 360° give cable overlap before a manual unwind.'),
   ]);
 
   // USB serial-port picker: enumerates devices by friendly name, persists the path.
@@ -608,6 +614,17 @@ function buildHwPane(pane, handlers) {
     }
   }
 
+  // Cable-wrap warning + one-click unwind (SuperRot only; shown by setRotWarn()).
+  const rotWarnMsg = h('span', { style: 'flex:1' }, '');
+  const rotWarn = h('div', { class: 'rot-warn', style: 'display:none' }, [
+    rotWarnMsg,
+    h('button', { class: 'btn sm', onclick: () => handlers.unwindRotator() }, 'Unwind 360°'),
+  ]);
+  function setRotWarn(text) {
+    if (text) { rotWarnMsg.textContent = text; rotWarn.style.display = ''; }
+    else rotWarn.style.display = 'none';
+  }
+
   // Radio
   const radPill = statusPill('Radio disconnected');
   const radHost = h('input', { type: 'text', value: hw.radio.host, oninput: (e) => store.patchIn('hw.radio', { host: e.target.value }) });
@@ -632,6 +649,7 @@ function buildHwPane(pane, handlers) {
     h('label', { class: 'fld' }, [h('span', {}, 'Track above elevation (°)'), rotMinEl]),
     h('div', { class: 'muted', style: 'font-size:11px' }, 'Scheduled passes follows whichever tracked satellite is up, switching as passes come and go. Below the elevation limit the rotator parks.'),
     rotLimits,
+    rotWarn,
     rotTarget,
 
     h('hr', { class: 'hr' }),
@@ -649,7 +667,7 @@ function buildHwPane(pane, handlers) {
 
   renderRotDynamic();
 
-  return { rotPill, radPill, rotConnect, radConnect, rotTarget, radFreqLive, autoModeSel: autoMode };
+  return { rotPill, radPill, rotConnect, radConnect, rotTarget, radFreqLive, autoModeSel: autoMode, setRotWarn };
 }
 
 /* -------------------------------- helpers ------------------------------- */
