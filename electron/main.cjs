@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, dialog } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 const https = require('node:https');
@@ -159,6 +159,30 @@ ipcMain.handle('tle:fetchOne', async (_e, id) => {
 });
 
 ipcMain.handle('tle:cache', () => readJson(tleCachePath(), {}));
+
+/* ------------------------------ OEM load -------------------------------- */
+
+// OEM ephemerides aren't served by Celestrak's gp.php — they're operator/agency
+// files the user supplies. Open a picker and return each file's raw text; the
+// renderer parses (parseOem) and merges them into the catalog.
+ipcMain.handle('oem:load', async () => {
+  const res = await dialog.showOpenDialog(mainWindow, {
+    title: 'Load OEM ephemeris',
+    properties: ['openFile', 'multiSelections'],
+    filters: [
+      { name: 'OEM ephemeris', extensions: ['oem', 'txt', 'xml'] },
+      { name: 'All files', extensions: ['*'] },
+    ],
+  });
+  if (res.canceled) return [];
+  const out = [];
+  for (const p of res.filePaths) {
+    try {
+      out.push({ name: path.basename(p), text: fs.readFileSync(p, 'utf8') });
+    } catch { /* skip unreadable file */ }
+  }
+  return out;
+});
 
 /* --------------------------- Hamlib HW control -------------------------- */
 
