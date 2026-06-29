@@ -29,7 +29,6 @@ const DEFAULTS = {
       // 'off' = manual · 'selected' = follow the selected target · 'schedule' =
       // auto-track whichever tracked satellite is in a pass (park when none).
       autoMode: 'off',
-      autoTrack: false, // legacy (superseded by autoMode); kept for compatibility
       minEl: 0,
       // Smooth-controller motion limits (only used by the 'superrot' path).
       maxVelAz: 12, // °/s
@@ -41,6 +40,9 @@ const DEFAULTS = {
       azMax: 450,
       // Elevation ceiling — 90 for standard mounts, up to 180 for flip-over passes.
       elMax: 90,
+      // After a pass (auto-track modes only) return to home/stow (az 0, low el),
+      // which drives absolute az 0 and so unwinds any accumulated cable wrap.
+      autoUnwind: true,
     },
     radio: { host: '127.0.0.1', port: 4532, downlinkHz: 145800000, doppler: false },
   },

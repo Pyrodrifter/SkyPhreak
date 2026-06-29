@@ -125,7 +125,7 @@ export function createUI(handlers) {
   // Quick-access auto-track controls on the map: the three tracking modes + a
   // rotor connection light (red = disconnected, green = connected).
   const trackBtns = {};
-  const trackModes = [['off', 'Off'], ['selected', 'Selected'], ['schedule', 'Schedule']];
+  const trackModes = [['off', 'Off'], ['selected', 'Selected'], ['schedule', 'Tracked']];
   const trackBar = h('div', { class: 'toggle' }, trackModes.map(([m, label]) =>
     (trackBtns[m] = h('button', { title: trackTitle(m), onclick: () => store.patchIn('hw.rotator', { autoMode: m }) }, label))));
   const rotorDot = h('span', { class: 'rotor-dot', title: 'Rotor disconnected' });
@@ -465,8 +465,8 @@ export function createUI(handlers) {
     if (!el) return;
     el.classList.toggle('warn', stale > 0);
     let msg;
-    if (stale > 0) msg = `⚠ ${stale} tracked TLE${stale > 1 ? 's' : ''} older than ${maxDays} d` + (online ? ' — refreshing when possible' : ' — offline, using cache');
-    else msg = `✓ Tracked TLEs current (< ${maxDays} d old)`;
+    if (stale > 0) msg = `⚠ ${stale} tracked element set${stale > 1 ? 's' : ''} (TLE/OMM) older than ${maxDays} d` + (online ? ' — refreshing when possible' : ' — offline, using cache');
+    else msg = `✓ Tracked elements current · TLE/OMM (< ${maxDays} d old)`;
     if (!auto) msg += ' · auto-update off';
     el.textContent = msg;
   }
@@ -512,12 +512,12 @@ function buildStationPane(pane, handlers) {
   const tleStatusEl = h('div', { class: 'tle-status', style: 'margin-top:8px' }, '');
   pane.append(
     h('hr', { class: 'hr' }),
-    h('div', { class: 'section-title' }, 'TLE updates'),
-    h('div', { class: 'toggle-line switch' }, [h('span', {}, 'Auto-update cached TLEs'), autoChk]),
-    h('label', { class: 'fld' }, [h('span', {}, 'Max TLE age (days)'), maxAgeInp]),
+    h('div', { class: 'section-title' }, 'Orbit elements (TLE / OMM)'),
+    h('div', { class: 'toggle-line switch' }, [h('span', {}, 'Auto-update cached elements'), autoChk]),
+    h('label', { class: 'fld' }, [h('span', {}, 'Max element age (days)'), maxAgeInp]),
     h('button', { class: 'btn', onclick: () => handlers.updateTlesNow() }, 'Update now'),
     tleStatusEl,
-    h('div', { class: 'muted', style: 'margin-top:6px' }, 'Keeps saved TLEs current for accurate tracking (works alongside SatDump). Uses cached elements when offline.')
+    h('div', { class: 'muted', style: 'margin-top:6px' }, 'Celestrak is fetched as OMM (JSON), falling back to TLE; both carry the same epoch, so this age check covers either. Loaded OEM ephemerides take priority and are used as-is (no auto-refresh).')
   );
 
   return { tleStatusEl };
@@ -534,7 +534,7 @@ function buildHwPane(pane, handlers) {
   const autoMode = h('select', { onchange: (e) => store.patchIn('hw.rotator', { autoMode: e.target.value }) }, [
     h('option', { value: 'off' }, 'Off (manual)'),
     h('option', { value: 'selected' }, 'Selected target'),
-    h('option', { value: 'schedule' }, 'Scheduled passes (all tracked)'),
+    h('option', { value: 'schedule' }, 'Tracked (all, by pass)'),
   ]);
   autoMode.value = hw.rotator.autoMode || 'off';
   const rotMinEl = inputNum(hw.rotator.minEl, '1', (v) => store.patchIn('hw.rotator', { minEl: v }));
@@ -561,6 +561,10 @@ function buildHwPane(pane, handlers) {
   // Connection fields and speed limits are rebuilt by renderRotDynamic() on change.
   const rotConn = h('div', {});
   const rotLimits = h('div', {}, [
+    h('div', { class: 'toggle-line switch' }, [
+      h('span', {}, 'Auto-unwind after pass (return home)'),
+      checkbox(hw.rotator.autoUnwind !== false, (v) => store.patchIn('hw.rotator', { autoUnwind: v })),
+    ]),
     h('div', { class: 'grid2' }, [
       h('label', { class: 'fld' }, [h('span', {}, 'Max Az speed (°/s)'), inputNum(hw.rotator.maxVelAz, '0.5', (v) => store.patchIn('hw.rotator', { maxVelAz: v }))]),
       h('label', { class: 'fld' }, [h('span', {}, 'Max El speed (°/s)'), inputNum(hw.rotator.maxVelEl, '0.5', (v) => store.patchIn('hw.rotator', { maxVelEl: v }))]),

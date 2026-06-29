@@ -50,7 +50,7 @@ function computeBody(id, date, observer) {
 }
 
 // Derived/cached state for the selected satellite.
-let selCache = { id: null, key: '', passes: [], arc: [] };
+let selCache = { key: '', passes: [], arc: [] };
 
 // Passes for every tracked (checked) satellite, merged and time-sorted for the
 // Passes tab. Recomputed only when the tracked set / station / min-el changes.
@@ -362,7 +362,6 @@ function onState(state) {
 function recomputeSelected() {
   const state = store.get();
   const sat = catalogById.get(state.selected);
-  selCache.id = state.selected;
   if (!sat) {
     selCache.passes = [];
     selCache.arc = [];
@@ -647,6 +646,15 @@ function parkNow() {
   window.pyro.rotator.park();
 }
 
+// Auto-unwind: after an auto-tracked pass, return to home/stow (az 0, low el). The
+// absolute az-0 move unwinds any cable wrap accumulated crossing north during the
+// pass, so it never builds up toward the travel limit. SuperRot only (the Hamlib
+// path never winds, since it sends standard 0–360).
+function stowAfterPass() {
+  if (motionRunning) { motion.stop(); motionRunning = false; }
+  window.pyro.rotator.setAzEl(0, 0);
+}
+
 // Operator action (idle): unwind the cable one full turn. Drives an absolute goto
 // 360° back toward the centre of travel; the next track reseeds from telemetry.
 function unwindRotator() {
@@ -780,7 +788,13 @@ function driveHardware(frame, date) {
       activeTrackId = rot.protocol === 'superrot' ? track.id : null;
     } else {
       activeTrackId = null;
-      if (!parkedByAuto) { parkNow(); parkedByAuto = true; }
+      // Pass over (or none up): stow once. With auto-unwind on, SuperRot returns to
+      // home (az 0, low el) which also unwinds the cable; otherwise just park.
+      if (!parkedByAuto) {
+        if (rot.protocol === 'superrot' && rot.autoUnwind !== false) stowAfterPass();
+        else parkNow();
+        parkedByAuto = true;
+      }
     }
   } else {
     if (motionRunning) { motion.stop(); motionRunning = false; }
