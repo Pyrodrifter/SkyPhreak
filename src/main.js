@@ -69,6 +69,7 @@ let motion = null;
 let motionRunning = false;
 let rotTelemetry = null; // last { az, el, azRate, elRate } reported by SuperRot firmware
 let activeTrackId = null; // id the rotator is actively tracking (null when parked/idle)
+let lastDrivenId = null; // last object the smooth controller was driven toward
 let azCmdContinuous = null; // last continuous (unwrapped) az streamed to SuperRot
 
 window.addEventListener('error', (e) => console.error(e.error || e.message));
@@ -552,6 +553,8 @@ function wireHardwareStatus() {
     rotConnected = s.connected;
     if (s.telemetry) rotTelemetry = s.telemetry;
     if (!s.connected) rotTelemetry = null;
+    // Closed-loop: keep the smooth controller anchored to the rotator's real azimuth.
+    if (motion) motion.setActual(s.connected && s.telemetry ? s.telemetry.az : NaN);
     const where = s.path ? s.path : `${s.host || ''}:${s.port || ''}`;
     ui.hw.rotPill._set(s.connected, s.connected ? `Rotator connected ${where}` : (s.error ? 'Rotator: ' + s.error : 'Rotator disconnected'));
     ui.hw.rotConnect.textContent = s.connected ? 'Disconnect' : 'Connect';
@@ -682,18 +685,25 @@ function driveToTarget(track, date, rot) {
       azRate = wrap180(ahead.az - look.az) / dt;
       elRate = (ahead.el - look.el) / dt;
     }
+    // Re-seed when (re)starting or switching to a DIFFERENT object — not while
+    // continuously tracking the same one (that must stay smooth/unwrapped).
+    const newObject = !motionRunning || track.id !== lastDrivenId;
     if (!motionRunning) {
       motion.cfg.maxVel.az = rot.maxVelAz ?? motion.cfg.maxVel.az;
       motion.cfg.maxVel.el = rot.maxVelEl ?? motion.cfg.maxVel.el;
       motion.cfg.azMin = rot.azMin ?? motion.cfg.azMin;
       motion.cfg.azMax = rot.azMax ?? motion.cfg.azMax;
       motion.cfg.elMax = rot.elMax ?? motion.cfg.elMax;
-      // Seed the continuous-az accumulator from the rotator's reported position so we
-      // unwrap relative to where it actually is, not an assumed 0.
-      if (rotTelemetry && Number.isFinite(rotTelemetry.az)) motion.seed(rotTelemetry.az, rotTelemetry.el);
       motion.start();
       motionRunning = true;
     }
+    // Semi-closed-loop: seed the controller from the rotator's ACTUAL reported
+    // position (telemetry) so a slew to a new object goes the short way from where
+    // the mount really is — no wind-up carried over from a previous pass/target.
+    if (newObject && rotTelemetry && Number.isFinite(rotTelemetry.az)) {
+      motion.seed(rotTelemetry.az, rotTelemetry.el);
+    }
+    lastDrivenId = track.id;
     motion.setTarget(look.az, Math.max(0, look.el), azRate, elRate);
   } else {
     if (motionRunning) { motion.stop(); motionRunning = false; }

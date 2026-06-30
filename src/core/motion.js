@@ -47,7 +47,13 @@ export class MotionController {
     this.send = opts.send || (() => {});
     this.timer = null;
     this.lastT = 0;
+    this.actual = null; // rotator's reported azimuth (telemetry) — closed-loop reference
     this._reset();
+  }
+
+  /** Feed the rotator's actual reported azimuth (from telemetry) for closed-loop sync. */
+  setActual(az) {
+    this.actual = Number.isFinite(az) ? az : null;
   }
 
   _reset() {
@@ -67,11 +73,20 @@ export class MotionController {
   setTarget(az, el, azRate = null, elRate = null) {
     if (!Number.isFinite(az) || !Number.isFinite(el)) return;
     const prev = this.tgt;
-    let uaz = az;
-    // Unwrap az to be within ±180° of where we already are, so motion follows the
-    // short way and the target's natural progression rather than teleporting.
-    const ref = this.cmd ? this.cmd.az : prev ? prev.az : az;
-    uaz = ref + wrap180(az - ref);
+    // Resolve az to the equivalent nearest the rotator's ACTUAL position (closed-loop),
+    // so a slew always takes the short way from where the mount really is. Falls back
+    // to the model position if telemetry isn't available.
+    const ref = Number.isFinite(this.actual) ? this.actual : this.cmd ? this.cmd.az : prev ? prev.az : az;
+    let uaz = ref + wrap180(az - ref);
+    // Keep the absolute target inside the rotator's travel range. If the nearest
+    // equivalent falls outside, step by whole turns into range — this is what forces
+    // the long way round when the mount is wound near a limit (vs. an impossible
+    // out-of-range target it could never reach). Callers seed cmd from the actual
+    // position on an object change so this resolves to the genuine shortest path.
+    const { azMin, azMax } = this.cfg;
+    while (uaz > azMax && uaz - 360 >= azMin) uaz -= 360;
+    while (uaz < azMin && uaz + 360 <= azMax) uaz += 360;
+    uaz = clamp(uaz, azMin, azMax);
 
     if (azRate == null && prev && this.lastSetT) {
       const dt = (now() - this.lastSetT) / 1000;
@@ -123,6 +138,18 @@ export class MotionController {
     this.lastT = t;
     if (dt <= 0 || dt > 0.5) dt = 1 / this.cfg.rateHz; // guard against tab-throttle hiccups
     if (!this.tgt || !this.cmd) return;
+
+    // Closed-loop resync: if the model has drifted far from the rotator's real azimuth
+    // (e.g. after a park/stow/manual move left them a whole turn apart), snap to reality
+    // so we stream positions the mount can reach the SHORT way — not a phantom wound-up
+    // value that makes it spin almost all the way around. The 30° threshold is far above
+    // normal tracking lag, so it never fires during smooth tracking.
+    if (Number.isFinite(this.actual) && Math.abs(this.cmd.az - this.actual) > 30) {
+      this.cmd.az = this.actual;
+      this.vel.az = 0;
+      this.acc.az = 0;
+      this.tgt.az = this.actual + wrap180(this.tgt.az - this.actual); // re-aim from reality
+    }
 
     // Extrapolate the target forward at its own rate so we keep moving smoothly in
     // the gaps between the slow setpoint updates.

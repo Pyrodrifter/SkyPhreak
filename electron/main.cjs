@@ -5,12 +5,29 @@ const https = require('node:https');
 const { HamlibClient } = require('./hamlib.cjs');
 const { SuperRotClient } = require('./superrot.cjs');
 
+// Keep the smooth-motion control loop running at full rate when the window is in the
+// background/minimized/occluded. Chromium otherwise throttles renderer timers to ~1 Hz
+// when not focused, which collapses the 20 Hz SuperRot stream back to lurchy goto-style
+// motion. These switches (plus webPreferences.backgroundThrottling:false) disable that.
+app.commandLine.appendSwitch('disable-background-timer-throttling');
+app.commandLine.appendSwitch('disable-renderer-backgrounding');
+app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
+
 const isDev = !!process.env.ELECTRON_DEV;
 const userDataDir = () => app.getPath('userData');
 const settingsPath = () => path.join(userDataDir(), 'settings.json');
 const tleCachePath = () => path.join(userDataDir(), 'tle-cache.json');
 
 let mainWindow = null;
+
+// Send an IPC message to the renderer only if the window still exists. Hardware
+// clients can emit a final 'status' during shutdown (window-all-closed), after the
+// window is destroyed — sending then throws "Object has been destroyed".
+function sendToRenderer(channel, payload) {
+  if (mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents && !mainWindow.webContents.isDestroyed()) {
+    mainWindow.webContents.send(channel, payload);
+  }
+}
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -27,6 +44,7 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: false,
+      backgroundThrottling: false, // keep timers/rAF full-rate when backgrounded
     },
   });
 
@@ -38,6 +56,8 @@ function createWindow() {
     if (level >= 2) console.error(`[renderer] ${message} (${source}:${line})`);
   });
   wc.on('render-process-gone', (_e, details) => console.error('[renderer gone]', JSON.stringify(details)));
+
+  mainWindow.on('closed', () => { mainWindow = null; });
 
   if (isDev) {
     mainWindow.loadURL('http://localhost:5173');
@@ -197,7 +217,7 @@ const rotatorMgr = {
   client: null,
   protocol: 'hamlib',
   _forward(s) {
-    mainWindow?.webContents.send('hw:rotator-status', s);
+    sendToRenderer('hw:rotator-status', s);
   },
   async connect(conf = {}) {
     this.close();
@@ -239,11 +259,15 @@ const rotatorMgr = {
       this.client.close();
       this.client = null;
     }
+    // close() drops the listener before the client's async 'close' event fires, so
+    // emit the disconnected status ourselves — otherwise the renderer never learns
+    // it disconnected and stays stuck "connected".
+    this._forward({ kind: 'rotator', connected: false });
   },
 };
 
 const radio = new HamlibClient('radio');
-radio.on('status', (s) => mainWindow?.webContents.send('hw:radio-status', s));
+radio.on('status', (s) => sendToRenderer('hw:radio-status', s));
 
 // List USB serial devices for the rotator picker, with human-friendly names so a
 // non-technical user can recognise their hardware ("Silicon Labs CP210x…") instead

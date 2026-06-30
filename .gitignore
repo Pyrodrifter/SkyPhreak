@@ -6,3 +6,6 @@ snapshot-*.png
 
 # Local Claude Code tooling config
 .claude/
+
+# Firmware lives in its own repo (Pyrodrifter/PyroRotator)
+PyroRotator/
