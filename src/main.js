@@ -50,7 +50,7 @@ function computeBody(id, date, observer) {
 }
 
 // Derived/cached state for the selected satellite.
-let selCache = { id: null, key: '', passes: [], arc: [] };
+let selCache = { key: '', passes: [], arc: [] };
 
 // Passes for every tracked (checked) satellite, merged and time-sorted for the
 // Passes tab. Recomputed only when the tracked set / station / min-el changes.
@@ -69,6 +69,7 @@ let motion = null;
 let motionRunning = false;
 let rotTelemetry = null; // last { az, el, azRate, elRate } reported by SuperRot firmware
 let activeTrackId = null; // id the rotator is actively tracking (null when parked/idle)
+let lastDrivenId = null; // last object the smooth controller was driven toward
 let azCmdContinuous = null; // last continuous (unwrapped) az streamed to SuperRot
 
 window.addEventListener('error', (e) => console.error(e.error || e.message));
@@ -362,7 +363,6 @@ function onState(state) {
 function recomputeSelected() {
   const state = store.get();
   const sat = catalogById.get(state.selected);
-  selCache.id = state.selected;
   if (!sat) {
     selCache.passes = [];
     selCache.arc = [];
@@ -553,6 +553,8 @@ function wireHardwareStatus() {
     rotConnected = s.connected;
     if (s.telemetry) rotTelemetry = s.telemetry;
     if (!s.connected) rotTelemetry = null;
+    // Closed-loop: keep the smooth controller anchored to the rotator's real azimuth.
+    if (motion) motion.setActual(s.connected && s.telemetry ? s.telemetry.az : NaN);
     const where = s.path ? s.path : `${s.host || ''}:${s.port || ''}`;
     ui.hw.rotPill._set(s.connected, s.connected ? `Rotator connected ${where}` : (s.error ? 'Rotator: ' + s.error : 'Rotator disconnected'));
     ui.hw.rotConnect.textContent = s.connected ? 'Disconnect' : 'Connect';
@@ -647,6 +649,15 @@ function parkNow() {
   window.pyro.rotator.park();
 }
 
+// Auto-unwind: after an auto-tracked pass, return to home/stow (az 0, low el). The
+// absolute az-0 move unwinds any cable wrap accumulated crossing north during the
+// pass, so it never builds up toward the travel limit. SuperRot only (the Hamlib
+// path never winds, since it sends standard 0–360).
+function stowAfterPass() {
+  if (motionRunning) { motion.stop(); motionRunning = false; }
+  window.pyro.rotator.setAzEl(0, 0);
+}
+
 // Operator action (idle): unwind the cable one full turn. Drives an absolute goto
 // 360° back toward the centre of travel; the next track reseeds from telemetry.
 function unwindRotator() {
@@ -674,18 +685,25 @@ function driveToTarget(track, date, rot) {
       azRate = wrap180(ahead.az - look.az) / dt;
       elRate = (ahead.el - look.el) / dt;
     }
+    // Re-seed when (re)starting or switching to a DIFFERENT object — not while
+    // continuously tracking the same one (that must stay smooth/unwrapped).
+    const newObject = !motionRunning || track.id !== lastDrivenId;
     if (!motionRunning) {
       motion.cfg.maxVel.az = rot.maxVelAz ?? motion.cfg.maxVel.az;
       motion.cfg.maxVel.el = rot.maxVelEl ?? motion.cfg.maxVel.el;
       motion.cfg.azMin = rot.azMin ?? motion.cfg.azMin;
       motion.cfg.azMax = rot.azMax ?? motion.cfg.azMax;
       motion.cfg.elMax = rot.elMax ?? motion.cfg.elMax;
-      // Seed the continuous-az accumulator from the rotator's reported position so we
-      // unwrap relative to where it actually is, not an assumed 0.
-      if (rotTelemetry && Number.isFinite(rotTelemetry.az)) motion.seed(rotTelemetry.az, rotTelemetry.el);
       motion.start();
       motionRunning = true;
     }
+    // Semi-closed-loop: seed the controller from the rotator's ACTUAL reported
+    // position (telemetry) so a slew to a new object goes the short way from where
+    // the mount really is — no wind-up carried over from a previous pass/target.
+    if (newObject && rotTelemetry && Number.isFinite(rotTelemetry.az)) {
+      motion.seed(rotTelemetry.az, rotTelemetry.el);
+    }
+    lastDrivenId = track.id;
     motion.setTarget(look.az, Math.max(0, look.el), azRate, elRate);
   } else {
     if (motionRunning) { motion.stop(); motionRunning = false; }
@@ -780,7 +798,13 @@ function driveHardware(frame, date) {
       activeTrackId = rot.protocol === 'superrot' ? track.id : null;
     } else {
       activeTrackId = null;
-      if (!parkedByAuto) { parkNow(); parkedByAuto = true; }
+      // Pass over (or none up): stow once. With auto-unwind on, SuperRot returns to
+      // home (az 0, low el) which also unwinds the cable; otherwise just park.
+      if (!parkedByAuto) {
+        if (rot.protocol === 'superrot' && rot.autoUnwind !== false) stowAfterPass();
+        else parkNow();
+        parkedByAuto = true;
+      }
     }
   } else {
     if (motionRunning) { motion.stop(); motionRunning = false; }

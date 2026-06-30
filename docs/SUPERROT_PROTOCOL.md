@@ -217,6 +217,9 @@ you don't recognise (controllers may print boot banners, e.g. `SuperRot ready`).
   (re)connecting or starting a track, so you unwrap relative to the mount's real
   position instead of assuming 0.
 - On loss of target / below horizon: send `S` (or stop streaming — see watchdog).
+  The reference host also **auto-unwinds after an auto-tracked pass**: it gotos az 0
+  (absolute, which removes any cable wrap) at a low elevation, so wind-up never
+  accumulates toward the travel limit across successive passes.
 - Pre-smoothing (S-curve, accel limiting) on the host is allowed and recommended, but
   the controller must still enforce its own limits; never assume the host is sane.
 
