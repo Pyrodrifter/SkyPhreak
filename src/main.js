@@ -86,8 +86,16 @@ async function boot() {
     updateTlesNow: () => ensureFreshTles(true),
     resetView: () => (store.get().view === '2d' ? map2d.resetView() : globe3d.focus(store.get().station.lat, store.get().station.lon)),
     connectRotator,
-    parkRotator: () => { if (motionRunning) { motion.stop(); motionRunning = false; } window.pyro.rotator.park(); },
-    stopRotator: () => { if (motionRunning) { motion.stop(); motionRunning = false; } else window.pyro.rotator.stop(); },
+    // Park button parks to the configured default preset; parkTo lets the HW pane
+    // park to any named preset; saveParkPreset captures the current position.
+    parkRotator: () => parkToPreset(defaultParkPreset()),
+    parkTo: (preset) => parkToPreset(preset),
+    saveParkPreset: (name) => {
+      const az = rotTelemetry && Number.isFinite(rotTelemetry.az) ? rotTelemetry.az : motion.currentAz();
+      const el = rotTelemetry && Number.isFinite(rotTelemetry.el) ? rotTelemetry.el : 0;
+      store.addParkPreset({ name, az: Math.round(az * 10) / 10, el: Math.round(Math.max(0, el) * 10) / 10 });
+    },
+    stopRotator: () => { if (motionRunning) { motion.stop(); motionRunning = false; } else if (rotConnected) window.pyro.rotator.stop(); },
     // Manual jog: take control (auto-track off) and nudge az/el by a step.
     jogRotator: (daz, del) => {
       if (!rotConnected) return;
@@ -362,7 +370,7 @@ function onState(state) {
     map2d.draw(map2d.frame);
   }
   // Recompute passes when the selection, station, or min elevation changes.
-  const key = `${state.selected}|${state.station.lat}|${state.station.lon}|${state.station.altKm}|${state.minEl}`;
+  const key = `${state.selected}|${state.station.lat}|${state.station.lon}|${state.station.altKm}|${state.minEl}|${state.hw.rotator.elMax}`;
   if (key !== selCache.key) {
     selCache.key = key;
     recomputeSelected();
@@ -381,6 +389,8 @@ function recomputeSelected() {
   if (!sat) {
     selCache.passes = [];
     selCache.arc = [];
+    selCache.mountArc = [];
+    selCache.willFlip = false;
     return;
   }
   const observer = state.station;
@@ -397,6 +407,23 @@ function recomputeSelected() {
     for (let i = 0; i <= steps; i++) {
       const look = lookAngles(sat.satrec, new Date(a + ((b - a) * i) / steps), observer);
       if (look && look.el >= 0) selCache.arc.push({ az: look.az, el: look.el });
+    }
+  }
+
+  // Flip-over preview: if the mount can flip (elMax >= 135), walk the pass arc
+  // through resolveMount from its AOS azimuth. Where the shortest-motion solution
+  // goes "over the top" (mount el > 90) the pass will flip — flag it and keep the
+  // mount arc so the polar view can draw the over-the-top path.
+  const elMax = state.hw.rotator.elMax || 90;
+  selCache.mountArc = [];
+  selCache.willFlip = false;
+  if (elMax >= 135 && selCache.arc.length) {
+    let ref = selCache.arc[0].az;
+    for (const p of selCache.arc) {
+      const m = resolveMount(p.az, p.el, ref, elMax);
+      ref = m.az;
+      selCache.mountArc.push(m);
+      if (m.el > 90.5) selCache.willFlip = true;
     }
   }
 }
@@ -479,7 +506,12 @@ function tick() {
     if (b) { b.selected = state.selected === id; bodies.push(b); }
   }
 
-  const frame = { date, station: observer, sats, moon, bodies, mapShow: { moon: state.showMoon, planets: state.showPlanets } };
+  const frame = {
+    date, station: observer, sats, moon, bodies,
+    mapShow: { moon: state.showMoon, planets: state.showPlanets },
+    // Flip-over preview for the polar view (selected sat only).
+    flip: selCache.willFlip ? { arc: selCache.mountArc } : null,
+  };
 
   if (state.view === '2d') map2d.draw(frame);
   else globe3d.draw(frame);
@@ -654,6 +686,7 @@ const wrap180 = (d) => ((d + 180) % 360 + 360) % 360 - 180;
 // we've already issued the park command while idle (so we don't spam it).
 let schedLockId = null;
 let parkedByAuto = false;
+let preslewId = null; // id we're pre-positioning for (AOS az), before the pass starts
 
 // Choose which tracked satellite to follow in 'schedule' mode, from the predicted
 // pass windows (so geostationary sats, which never "pass", don't hog the rotator).
@@ -681,6 +714,48 @@ function pickScheduledTarget(frame, nowMs) {
 function parkNow() {
   if (motionRunning) { motion.stop(); motionRunning = false; }
   window.pyro.rotator.park();
+}
+
+/* --------------------------- Motion profiles --------------------------- */
+// Smoothness presets: the accel/jerk ramp that shapes how the smooth controller
+// gets up to (and off) the user's max slew speed. Gentle spares heavy EME dishes
+// and gearboxes; fast suits light LEO rigs that must whip through the zenith.
+const MOTION_PROFILES = {
+  gentle: { maxAccel: { az: 8, el: 6 }, maxJerk: { az: 40, el: 30 } },
+  normal: { maxAccel: { az: 20, el: 15 }, maxJerk: { az: 120, el: 90 } },
+  fast: { maxAccel: { az: 40, el: 30 }, maxJerk: { az: 300, el: 240 } },
+};
+
+// Push the user's speed limits + selected smoothness profile into the live
+// controller (cheap; called each drive so changes take effect immediately).
+function applyMotionProfile(rot) {
+  motion.cfg.maxVel.az = rot.maxVelAz ?? motion.cfg.maxVel.az;
+  motion.cfg.maxVel.el = rot.maxVelEl ?? motion.cfg.maxVel.el;
+  const prof = MOTION_PROFILES[rot.motionProfile] || MOTION_PROFILES.normal;
+  motion.cfg.maxAccel = { ...prof.maxAccel };
+  motion.cfg.maxJerk = { ...prof.maxJerk };
+}
+
+/* ----------------------------- Park presets ---------------------------- */
+// The park preset the Park button uses (by name), falling back to Home.
+function defaultParkPreset() {
+  const rot = store.get().hw.rotator;
+  const presets = rot.parkPresets || [];
+  return presets.find((p) => p.name === rot.parkDefault) || presets[0] || { name: 'Home', home: true };
+}
+
+// Park to a named preset: 'home' presets run the firmware homing sequence; others
+// slew to a saved az/el. Either way we take manual control (auto-track off) so the
+// scheduler doesn't immediately re-drive the mount off the park position.
+function parkToPreset(preset) {
+  if (motionRunning) { motion.stop(); motionRunning = false; }
+  if (store.get().hw.rotator.autoMode !== 'off') store.patchIn('hw.rotator', { autoMode: 'off' });
+  parkedByAuto = false;
+  preslewId = null;
+  activeTrackId = null;
+  if (!rotConnected) return;
+  if (!preset || preset.home) window.pyro.rotator.park();
+  else window.pyro.rotator.setAzEl(preset.az, Math.max(0, preset.el || 0));
 }
 
 // Resolve a true sky (az, el) into mount coordinates, choosing normal vs FLIP-OVER
@@ -722,9 +797,8 @@ function driveToTarget(track, date, rot) {
   const look = track.look;
   if (rot.protocol === 'superrot') {
     const newObject = !motionRunning || track.id !== lastDrivenId;
+    applyMotionProfile(rot); // live: speed limits + smoothness profile
     if (!motionRunning) {
-      motion.cfg.maxVel.az = rot.maxVelAz ?? motion.cfg.maxVel.az;
-      motion.cfg.maxVel.el = rot.maxVelEl ?? motion.cfg.maxVel.el;
       motion.cfg.elMax = rot.elMax ?? motion.cfg.elMax;
       motion.start();
       motionRunning = true;
@@ -744,6 +818,68 @@ function driveToTarget(track, date, rot) {
       lastRotSend = date.getTime();
     }
   }
+}
+
+// Find an imminent pass to pre-position for: the soonest upcoming pass whose AOS is
+// within the pre-slew lead time. Returns { id, name, az, el, t } or null. In
+// 'selected' mode only the selected target counts; in 'schedule' mode any tracked one.
+function pickPreslew(nowMs, mode, rot) {
+  const lead = (rot.preslewLead || 45) * 1000;
+  if (lead <= 0) return null;
+  let best = null;
+  if (mode === 'schedule') {
+    for (const p of trackedPassesCache.list) {
+      const t = p.pass.aos.getTime();
+      if (t > nowMs && t - nowMs <= lead && (!best || t < best.t)) {
+        best = { id: p.id, name: p.name, az: p.pass.aosAz, el: rot.minEl || 0, t };
+      }
+    }
+  } else if (mode === 'selected') {
+    const selId = store.get().selected;
+    const next = selCache.passes.find((p) => p.aos.getTime() > nowMs);
+    if (next && next.aos.getTime() - nowMs <= lead) {
+      best = { id: selId, name: catalogById.get(selId)?.name || 'target', az: next.aosAz, el: rot.minEl || 0, t: next.aos.getTime() };
+    }
+  }
+  return best && Number.isFinite(best.az) ? best : null;
+}
+
+// Smoothly pre-position to a fixed (AOS az, min el) point ahead of a pass. Uses the
+// smooth controller for SuperRot (so it eases into place) or a throttled goto for
+// Hamlib. Does NOT publish activeTrackId, so the 10 Hz loop won't chase the target's
+// current (below-horizon) position — we hold the AOS point until the pass opens.
+function preSlewTo(pre, date, rot) {
+  const el = Math.max(0, pre.el || 0);
+  if (rot.protocol === 'superrot') {
+    applyMotionProfile(rot);
+    if (!motionRunning) {
+      motion.cfg.elMax = rot.elMax ?? motion.cfg.elMax;
+      motion.start();
+      motionRunning = true;
+      if (rotTelemetry && Number.isFinite(rotTelemetry.az)) motion.seed(rotTelemetry.az, rotTelemetry.el);
+    }
+    const r = resolveMount(pre.az, el, motion.currentAz(), rot.elMax);
+    motion.setTarget(r.az, r.el, 0, 0);
+  } else if (date.getTime() - lastRotSend > 1000) {
+    window.pyro.rotator.setAzEl(pre.az, el);
+    lastRotSend = date.getTime();
+  }
+  preslewId = pre.id;
+}
+
+// Cable-wrap gauge: azimuth is free/continuous, so the accumulated angle away from
+// north IS the wrap. Report it (with amber/red thresholds) so the operator knows
+// when to manually unwind. Uses live telemetry (SuperRot) or the motion model.
+function updateCableWrap(rot) {
+  let az = null;
+  if (rotTelemetry && Number.isFinite(rotTelemetry.az)) az = rotTelemetry.az;
+  else if (motionRunning) az = motion.currentAz();
+  if (!rotConnected || az == null) { ui.setCableWrap(null); return; }
+  const warn = rot.wrapWarnDeg || 540;
+  const max = rot.wrapMaxDeg || 720;
+  const mag = Math.abs(az);
+  const level = mag >= max ? 'red' : mag >= warn ? 'amber' : 'ok';
+  ui.setCableWrap({ az, turns: az / 360, level, warn, max });
 }
 
 // 10 Hz refresh of the smooth controller's target (SuperRot only). The 1 Hz tick
@@ -772,6 +908,10 @@ function driveHardware(frame, date) {
     schedLockId = null;
   }
 
+  // No live target but a pass is imminent? Pre-position to its AOS azimuth.
+  const nowMs = date.getTime();
+  const pre = rotConnected && mode !== 'off' && !track ? pickPreslew(nowMs, mode, rot) : null;
+
   // Rotator readout.
   if (ui.hw.rotTarget) {
     ui.hw.rotTarget.innerHTML = '';
@@ -781,6 +921,12 @@ function driveHardware(frame, date) {
         ...k(mode === 'schedule' ? 'Tracking' : 'Target', track.name),
         ...k('Az', track.look.az.toFixed(1) + '°'),
         ...k('El', track.look.el.toFixed(1) + '°')
+      );
+    } else if (pre) {
+      ui.hw.rotTarget.append(
+        ...k('Pre-slew', pre.name),
+        ...k('AOS az', pre.az.toFixed(1) + '°'),
+        ...k('AOS in', countdown(pre.t - nowMs))
       );
     } else if (mode === 'schedule') {
       ui.hw.rotTarget.append(...k('Scheduler', rotConnected ? 'Parked — waiting for a pass' : 'Idle'));
@@ -800,27 +946,38 @@ function driveHardware(frame, date) {
   ui.setStatus({
     rotConnected,
     radConnected,
-    tracking: track ? track.name : (rotConnected && mode !== 'off' ? 'Parked' : null),
+    tracking: track ? track.name
+      : pre ? `Pre-slew ${pre.name} · AOS ${countdown(pre.t - nowMs)}`
+      : (rotConnected && mode !== 'off' ? 'Parked' : null),
   });
 
-  // Drive the rotator: track when there's a target, park once when there isn't.
-  // The SuperRot setpoint is refreshed at 10 Hz by streamRotatorFast(); here we
-  // just decide the target and publish its id for that loop.
+  // Drive the rotator: track when there's a target, pre-position when a pass is
+  // imminent, else park once. The SuperRot setpoint is refreshed at 10 Hz by
+  // streamRotatorFast(); here we decide the target and publish its id for that loop.
   if (rotConnected && mode !== 'off') {
     if (track) {
       driveToTarget(track, date, rot);
       parkedByAuto = false;
+      preslewId = null;
       activeTrackId = rot.protocol === 'superrot' ? track.id : null;
+    } else if (pre) {
+      preSlewTo(pre, date, rot);
+      parkedByAuto = false;
+      activeTrackId = null; // holding the AOS point; not chasing the live target yet
     } else {
       activeTrackId = null;
+      preslewId = null;
       // Pass over (or none up): park once.
       if (!parkedByAuto) { parkNow(); parkedByAuto = true; }
     }
   } else {
     if (motionRunning) { motion.stop(); motionRunning = false; }
     parkedByAuto = false;
+    preslewId = null;
     activeTrackId = null;
   }
+
+  updateCableWrap(rot);
 
   // Radio Doppler — follows the tracked satellite (or the selected one). Only
   // satellites carry a dopplerFactor; the Moon/planets/DSOs don't.

@@ -163,7 +163,14 @@ export function createUI(handlers) {
   const rightToggle = h('button', { class: 'panel-toggle right', title: 'Collapse / expand the panel', onclick: () => store.patch({ rightCollapsed: !store.get().rightCollapsed }) }, '▸');
 
   const hint = h('div', { class: 'view-hint' }, 'Scroll to zoom · drag to pan · click a satellite to select');
-  const stage = h('main', { class: 'stage' }, [view2d, view3d, tools, hint, sideToggle, rightToggle]);
+  // Persistent emergency stop — always on the map while the rotator is connected,
+  // so a halt is one tap away from any tab. Also bound to the Esc key (below).
+  const estopFab = h('button', {
+    class: 'estop-fab',
+    title: 'Emergency stop (Esc) — halt the rotator immediately',
+    onclick: () => handlers.stopRotator(),
+  }, '⏹ STOP');
+  const stage = h('main', { class: 'stage' }, [view2d, view3d, tools, hint, sideToggle, rightToggle, estopFab]);
 
   /* ----------------------------- Right panel ----------------------------- */
   const tabPanes = {};
@@ -205,15 +212,21 @@ export function createUI(handlers) {
   const sbRot = sbDot('Rotator');
   const sbRad = sbDot('Radio');
   const sbTrack = h('span', { class: 'sb-val' }, 'Idle');
+  // Cable-wrap gauge — azimuth turns accumulated away from north (hidden when idle).
+  const sbWrapVal = h('span', { class: 'sb-val sb-wrap-val' }, '—');
+  const sbWrap = h('div', { class: 'sb-item sb-wrap', style: 'display:none', title: 'Cable wrap' }, [
+    h('span', { class: 'sb-k' }, 'Wrap'), sbWrapVal,
+  ]);
   const statusbar = h('footer', { class: 'statusbar' }, [
     clockEl,
     h('div', { class: 'sb-sep' }),
     h('div', { class: 'sb-item' }, [h('span', { class: 'sb-k' }, 'Track'), trackBar]),
     h('div', { class: 'sb-item sb-target' }, [h('span', { class: 'sb-k' }, 'Target'), sbTrack]),
     h('div', { class: 'spacer' }),
+    sbWrap,
     // Field controls always within reach — no digging into the Hardware tab.
-    h('button', { class: 'btn sm', title: 'Park the rotator', onclick: () => handlers.parkRotator() }, 'Park'),
-    h('button', { class: 'btn sm danger', title: 'Stop the rotator', onclick: () => handlers.stopRotator() }, 'Stop'),
+    h('button', { class: 'btn sm', title: 'Park the rotator (to the default preset)', onclick: () => handlers.parkRotator() }, 'Park'),
+    h('button', { class: 'btn sm danger', title: 'Stop the rotator (Esc)', onclick: () => handlers.stopRotator() }, 'Stop'),
     h('div', { class: 'sb-sep' }),
     sbRot.el,
     sbRad.el,
@@ -222,6 +235,16 @@ export function createUI(handlers) {
     sbRot.set(rotConnected);
     sbRad.set(radConnected);
     sbTrack.textContent = tracking || 'Idle';
+  }
+  // Cable-wrap readout: {az, turns, level, warn, max} or null to hide.
+  function setCableWrap(info) {
+    if (!info) { sbWrap.style.display = 'none'; return; }
+    sbWrap.style.display = '';
+    const t = info.turns;
+    sbWrapVal.textContent = (t >= 0 ? '+' : '−') + Math.abs(t).toFixed(2) + 't';
+    sbWrapVal.className = 'sb-val sb-wrap-val ' + info.level;
+    sbWrap.title = `Cable wrap: ${info.az.toFixed(0)}° from north (${t.toFixed(2)} turns). `
+      + `Amber ≥ ${info.warn}°, red ≥ ${info.max}° — unwind manually.`;
   }
 
   // Collapse/expand the side panels, and set the global UI size class.
@@ -567,10 +590,20 @@ export function createUI(handlers) {
     if (hwRefs.autoModeSel) hwRefs.autoModeSel.value = mode;
   }
 
-  // Rotor connection light (now the status-bar Rotator dot).
+  // Rotor connection light (status-bar dot) + the floating emergency-stop button,
+  // which only appears while the rotator is connected.
   function setRotorConnected(connected) {
     sbRot.set(!!connected);
+    estopFab.classList.toggle('show', !!connected);
   }
+
+  // Esc = emergency stop, from anywhere (unless typing in a field).
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    const t = e.target;
+    if (t && (t.tagName === 'INPUT' || t.tagName === 'SELECT' || t.tagName === 'TEXTAREA')) return;
+    handlers.stopRotator();
+  });
 
   // Update which tracked rows are flagged stale; re-render only on change.
   function setStaleIds(set) {
@@ -594,6 +627,7 @@ export function createUI(handlers) {
     view2d, view3d,
     renderList, updateClock, updateInfo, updatePasses, setActiveView, setTleStamp, setStatus,
     setStaleIds, setTleStatus, syncAutoMode, setRotorConnected, applyLayout, updateSky, isSkyActive,
+    setCableWrap,
     hw: hwRefs,
   };
 }
@@ -686,14 +720,23 @@ function buildHwPane(pane, handlers) {
   const transportRow = h('label', { class: 'fld' }, [h('span', {}, 'Transport'), rotTransport]);
 
   // Connection fields and speed limits are rebuilt by renderRotDynamic() on change.
+  // Smoothness profile — accel/jerk ramp shaping (SuperRot only).
+  const motionProfileSel = h('select', { onchange: (e) => store.patchIn('hw.rotator', { motionProfile: e.target.value }) }, [
+    h('option', { value: 'gentle' }, 'Gentle (EME / heavy)'),
+    h('option', { value: 'normal' }, 'Normal'),
+    h('option', { value: 'fast' }, 'Fast (light LEO)'),
+  ]);
+  motionProfileSel.value = hw.rotator.motionProfile || 'normal';
+
   const rotConn = h('div', {});
   const rotLimits = h('div', {}, [
     h('div', { class: 'grid2' }, [
       h('label', { class: 'fld' }, [h('span', {}, 'Max Az speed (°/s)'), inputNum(hw.rotator.maxVelAz, '0.5', (v) => store.patchIn('hw.rotator', { maxVelAz: v }))]),
       h('label', { class: 'fld' }, [h('span', {}, 'Max El speed (°/s)'), inputNum(hw.rotator.maxVelEl, '0.5', (v) => store.patchIn('hw.rotator', { maxVelEl: v }))]),
     ]),
+    h('label', { class: 'fld' }, [h('span', {}, 'Motion profile'), motionProfileSel]),
     h('label', { class: 'fld' }, [h('span', {}, 'El max (° — 180 enables flip-over)'), inputNum(hw.rotator.elMax, '1', (v) => store.patchIn('hw.rotator', { elMax: v }))]),
-    h('div', { class: 'muted', style: 'font-size:11px' }, 'Azimuth is free 360° shortest-path (no travel limit — it can go negative). Set El max to 180 to let the mount flip over the top on high passes instead of whipping the azimuth.'),
+    h('div', { class: 'muted', style: 'font-size:11px' }, 'Azimuth is free 360° shortest-path (no travel limit — it can go negative). Set El max to 180 to let the mount flip over the top on high passes instead of whipping the azimuth. Gentle profile spares heavy EME dishes; fast suits light LEO rigs.'),
   ]);
 
   // USB serial-port picker: enumerates devices by friendly name, persists the path.
@@ -754,6 +797,43 @@ function buildHwPane(pane, handlers) {
     h('button', { class: 'jog down', title: 'Elevation down', onclick: () => handlers.jogRotator(0, -jogStep) }, '▼'),
   ]);
 
+  // Pre-slew lead: seconds before AOS to pre-position to the pass's rise azimuth.
+  const preslewInp = inputNum(hw.rotator.preslewLead, '5', (v) => store.patchIn('hw.rotator', { preslewLead: Math.max(0, Math.round(v)) }));
+
+  // Park-position presets. Rebuilt from the store whenever the preset set changes.
+  const parkList = h('div', { class: 'park-list' });
+  const parkNameInp = h('input', { type: 'text', placeholder: 'Name (e.g. Cable-safe)', class: 'park-name' });
+  const savePark = h('button', {
+    class: 'btn sm',
+    title: 'Save the rotator\'s current position as a park preset',
+    onclick: () => { const n = parkNameInp.value.trim(); if (!n) return; handlers.saveParkPreset(n); parkNameInp.value = ''; },
+  }, 'Save current position');
+  let parkSig = '';
+  function renderParkPresets() {
+    const rot = store.get().hw.rotator;
+    const sig = JSON.stringify([rot.parkPresets, rot.parkDefault]);
+    if (sig === parkSig) return; // only redraw when presets actually change
+    parkSig = sig;
+    parkList.innerHTML = '';
+    for (const p of rot.parkPresets || []) {
+      const isDef = p.name === rot.parkDefault;
+      parkList.append(h('div', { class: 'park-item' }, [
+        h('button', {
+          class: 'star' + (isDef ? ' on' : ''), title: isDef ? 'Default (Park button uses this)' : 'Set as default',
+          onclick: () => store.patchIn('hw.rotator', { parkDefault: p.name }),
+        }, isDef ? '★' : '☆'),
+        h('span', { class: 'park-nm' }, p.name),
+        h('span', { class: 'park-pos' }, p.home ? 'Home · limit switches' : `${Math.round(p.az)}° / ${Math.round(p.el)}°`),
+        h('button', { class: 'btn sm', title: 'Park here now', onclick: () => handlers.parkTo(p) }, 'Park'),
+        p.name === 'Home'
+          ? h('span', { class: 'park-x-spacer' })
+          : h('button', { class: 'btn sm park-x', title: 'Delete preset', onclick: () => store.removeParkPreset(p.name) }, '✕'),
+      ]));
+    }
+  }
+  store.subscribe(renderParkPresets);
+  renderParkPresets();
+
   // Radio
   const radPill = statusPill('Radio disconnected');
   const radHost = h('input', { type: 'text', value: hw.radio.host, oninput: (e) => store.patchIn('hw.radio', { host: e.target.value }) });
@@ -775,10 +855,17 @@ function buildHwPane(pane, handlers) {
       h('button', { class: 'btn', onclick: () => handlers.parkRotator() }, 'Park'),
     ]),
     h('label', { class: 'fld', style: 'margin-top:8px' }, [h('span', {}, 'Auto-track'), autoMode]),
-    h('label', { class: 'fld' }, [h('span', {}, 'Track above elevation (°)'), rotMinEl]),
-    h('div', { class: 'muted', style: 'font-size:11px' }, 'Scheduled passes follows whichever tracked satellite is up, switching as passes come and go. Below the elevation limit the rotator parks.'),
+    h('div', { class: 'grid2' }, [
+      h('label', { class: 'fld' }, [h('span', {}, 'Track above elevation (°)'), rotMinEl]),
+      h('label', { class: 'fld' }, [h('span', {}, 'Pre-slew lead (s)'), preslewInp]),
+    ]),
+    h('div', { class: 'muted', style: 'font-size:11px' }, 'Scheduled passes follows whichever tracked satellite is up, switching as passes come and go. Below the elevation limit the rotator parks. Pre-slew aims the mount at the next pass\'s rise azimuth this many seconds early (0 = off).'),
     rotLimits,
     rotTarget,
+
+    h('div', { class: 'section-title' }, 'Park positions'),
+    parkList,
+    h('div', { class: 'row', style: 'display:flex;gap:8px;margin-top:6px;align-items:center' }, [parkNameInp, savePark]),
 
     h('div', { class: 'section-title' }, 'Manual jog'),
     h('div', { class: 'jog-wrap' }, [jogPad, h('div', { class: 'jog-step' }, [h('span', { class: 'sub-label' }, 'Step'), stepSeg])]),

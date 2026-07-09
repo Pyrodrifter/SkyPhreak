@@ -39,16 +39,24 @@ const DEFAULTS = {
       // Smooth-controller motion limits (only used by the 'superrot' path).
       maxVelAz: 12, // °/s
       maxVelEl: 8,
-      // SuperRot absolute azimuth range. The host streams CONTINUOUS (unwrapped) az
-      // into this range so a north crossing keeps turning the same way instead of
-      // unwinding; azMax > 360 gives cable-overlap before a manual unwind is needed.
-      azMin: 0,
-      azMax: 450,
+      // Motion smoothness profile (accel/jerk ramp) — see MOTION_PROFILES in main.js.
+      // 'gentle' for EME/heavy dishes, 'normal', 'fast' for light LEO rigs.
+      motionProfile: 'normal',
       // Elevation ceiling — 90 for standard mounts, up to 180 for flip-over passes.
       elMax: 90,
-      // After a pass (auto-track modes only) return to home/stow (az 0, low el),
-      // which drives absolute az 0 and so unwinds any accumulated cable wrap.
-      autoUnwind: true,
+      // Azimuth is FREE / continuous (shortest-path, may go negative or past 360 —
+      // there is no travel limit). These are informational cable-wrap thresholds:
+      // the wrap gauge turns amber past wrapWarnDeg and red past wrapMaxDeg of
+      // accumulated azimuth away from north, prompting a manual unwind.
+      wrapWarnDeg: 540,
+      wrapMaxDeg: 720,
+      // Auto-track: pre-position to the next pass's AOS azimuth this many seconds
+      // before the satellite rises, so the mount is already pointing when it appears.
+      preslewLead: 45,
+      // Named park positions. 'home' presets trigger the firmware homing sequence;
+      // others slew to a saved az/el. parkDefault names the one the Park button uses.
+      parkPresets: [{ name: 'Home', home: true }],
+      parkDefault: 'Home',
     },
     radio: { host: '127.0.0.1', port: 4532, downlinkHz: 145800000, doppler: false },
   },
@@ -81,6 +89,23 @@ export const store = {
     state = { ...state, satColors: next };
     emit();
     persist();
+  },
+
+  /** Add (or replace by name) a rotator park preset. */
+  addParkPreset(preset) {
+    const rot = state.hw.rotator;
+    const presets = [...(rot.parkPresets || [])].filter((p) => p.name !== preset.name);
+    presets.push(preset);
+    this.patchIn('hw.rotator', { parkPresets: presets });
+  },
+  /** Remove a park preset by name (the 'Home' preset can't be removed). */
+  removeParkPreset(name) {
+    if (name === 'Home') return;
+    const rot = state.hw.rotator;
+    const presets = (rot.parkPresets || []).filter((p) => p.name !== name);
+    const patch = { parkPresets: presets };
+    if (rot.parkDefault === name) patch.parkDefault = 'Home';
+    this.patchIn('hw.rotator', patch);
   },
 
   /** Shallow-merge a patch into state and notify subscribers. */

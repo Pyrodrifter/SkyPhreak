@@ -367,6 +367,35 @@ button.btn:disabled { opacity: 0.5; cursor: default; }
    active mode filled in the accent colour (mirrors .btn.primary). */
 .track-btn.active { background: var(--accent); color: #04121d; border-color: var(--accent); }
 .track-btn.active:hover { border-color: var(--accent); }
+
+/* Cable-wrap gauge in the status bar. */
+.sb-wrap-val { font-variant-numeric: tabular-nums; }
+.sb-wrap-val.ok { color: var(--accent-2); }
+.sb-wrap-val.amber { color: var(--warn); }
+.sb-wrap-val.red { color: var(--danger); font-weight: 700; }
+
+/* Persistent emergency-stop button, bottom-right of the map. */
+.estop-fab {
+  position: absolute; right: 14px; bottom: 14px; z-index: 20; display: none;
+  background: var(--danger); color: #fff; border: none;
+  font-weight: 800; letter-spacing: 0.6px; font-size: 13px;
+  padding: 11px 18px; border-radius: 10px; cursor: pointer;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.45), 0 0 0 1px color-mix(in srgb, var(--danger) 55%, transparent);
+}
+.estop-fab.show { display: block; }
+.estop-fab:hover { filter: brightness(1.12); }
+.estop-fab:active { transform: translateY(1px); }
+
+/* Park-position presets (Hardware pane). */
+.park-list { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
+.park-item { display: flex; align-items: center; gap: 8px; }
+.park-item .star { background: none; border: none; cursor: pointer; color: var(--text-dim); font-size: 15px; line-height: 1; padding: 0; }
+.park-item .star.on { color: var(--accent); }
+.park-nm { font-weight: 600; color: var(--text); }
+.park-pos { color: var(--text-dim); font-size: 11px; margin-left: auto; font-variant-numeric: tabular-nums; }
+.park-x { color: var(--danger); border-color: var(--line); }
+.park-x-spacer { width: 32px; }
+.park-name { flex: 1; }
 .tle-status { font-size: 11px; color: var(--accent-2); }
 .tle-status.warn { color: var(--warn); }
 .stale-badge {

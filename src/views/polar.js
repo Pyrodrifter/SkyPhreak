@@ -98,6 +98,28 @@ export class PolarView {
       ctx.stroke();
     }
 
+    // Flip-over preview: the selected pass's mount path when it goes "over the top"
+    // (elevation past 90° → the point crosses the zenith to the far side). Drawn as a
+    // dashed amber trail with a corner badge so a high pass's flip is obvious ahead of time.
+    if (frame.flip && frame.flip.arc && frame.flip.arc.length) {
+      ctx.save();
+      ctx.strokeStyle = '#ffb454';
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([4, 3]);
+      ctx.beginPath();
+      let started = false;
+      for (const p of frame.flip.arc) {
+        const [x, y] = this._pos(p.az, Math.min(180, p.el), cx, cy, R);
+        started ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+        started = true;
+      }
+      ctx.stroke();
+      ctx.restore();
+      ctx.fillStyle = '#ffb454';
+      ctx.font = '600 10px ui-sans-serif, system-ui';
+      ctx.fillText('⟳ FLIP-OVER', 6, 12);
+    }
+
     // Markers for sats above the horizon.
     for (const s of frame.sats) {
       if (!s.look || s.look.el < 0) continue;
