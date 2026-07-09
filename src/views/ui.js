@@ -52,6 +52,25 @@ export function createUI(handlers) {
   }, Object.entries(THEMES).map(([id, t]) => h('option', { value: id }, t.name)));
   themeSel.value = store.get().theme;
 
+  // UI size (S/M/L). Changing it manually exits Field mode.
+  const sizeDefs = [['sm', 'S'], ['md', 'M'], ['lg', 'L']];
+  const sizeBtns = {};
+  const sizeSeg = h('div', { class: 'seg size-seg', title: 'UI size' }, sizeDefs.map(([k, l]) =>
+    (sizeBtns[k] = h('button', { onclick: () => store.patch({ uiScale: k, fieldMode: false }) }, l))));
+
+  // Field mode: one tap → large controls + Night Ops theme (and back).
+  const fieldBtn = h('button', {
+    class: 'btn sm field-btn',
+    title: 'Field mode — large touch controls + Night Ops theme',
+    onclick: () => {
+      const on = !store.get().fieldMode;
+      store.patch(on
+        ? { fieldMode: true, uiScale: 'lg', theme: 'nightops' }
+        : { fieldMode: false, uiScale: 'md', theme: 'midnight' });
+      themeSel.value = store.get().theme;
+    },
+  }, '⛶ Field');
+
   const topbar = h('div', { class: 'topbar' }, [
     h('div', { class: 'brand' }, [
       h('img', { class: 'brand-logo', src: './icon.png', alt: '' }),
@@ -59,6 +78,8 @@ export function createUI(handlers) {
     ]),
     h('div', { class: 'spacer' }),
     selReadout,
+    sizeSeg,
+    fieldBtn,
     themeSel,
     h('div', { class: 'toggle' }, [btn2d, btn3d]),
   ]);
@@ -134,8 +155,8 @@ export function createUI(handlers) {
   // Auto-track mode buttons — now live in the status bar (built below).
   const trackBtns = {};
   const trackModes = [['off', 'Off'], ['selected', 'Selected'], ['schedule', 'Tracked']];
-  const trackBar = h('div', { class: 'toggle sm' }, trackModes.map(([m, label]) =>
-    (trackBtns[m] = h('button', { title: trackTitle(m), onclick: () => store.patchIn('hw.rotator', { autoMode: m }) }, label))));
+  const trackBar = h('div', { class: 'track-btns' }, trackModes.map(([m, label]) =>
+    (trackBtns[m] = h('button', { class: 'btn sm track-btn', title: trackTitle(m), onclick: () => store.patchIn('hw.rotator', { autoMode: m }) }, label))));
 
   // Edge handles to collapse/expand the side panels (map-first mode).
   const sideToggle = h('button', { class: 'panel-toggle side', title: 'Collapse / expand the list', onclick: () => store.patch({ sideCollapsed: !store.get().sideCollapsed }) }, '◂');
@@ -203,12 +224,17 @@ export function createUI(handlers) {
     sbTrack.textContent = tracking || 'Idle';
   }
 
-  // Collapse / expand the side panels and update the handle glyphs.
+  // Collapse/expand the side panels, and set the global UI size class.
   function applyLayout(state) {
     sidebar.classList.toggle('collapsed', !!state.sideCollapsed);
     rightpanel.classList.toggle('collapsed', !!state.rightCollapsed);
     sideToggle.textContent = state.sideCollapsed ? '▸' : '◂';
     rightToggle.textContent = state.rightCollapsed ? '◂' : '▸';
+    const root = document.documentElement;
+    root.classList.remove('ui-sm', 'ui-md', 'ui-lg');
+    root.classList.add('ui-' + (state.uiScale || 'md'));
+    if (sizeBtns) for (const [k] of sizeDefs) sizeBtns[k].classList.toggle('active', k === (state.uiScale || 'md'));
+    if (fieldBtn) fieldBtn.classList.toggle('active', !!state.fieldMode);
   }
   applyLayout(store.get());
 
@@ -711,6 +737,23 @@ function buildHwPane(pane, handlers) {
     }
   }
 
+  // Manual jog pad (touch-friendly): nudge az/el by the selected step.
+  let jogStep = 5;
+  const stepDefs = [[1, '1°'], [5, '5°'], [10, '10°']];
+  const stepBtns = {};
+  const stepSeg = h('div', { class: 'seg' }, stepDefs.map(([v, l]) =>
+    (stepBtns[v] = h('button', {
+      class: v === jogStep ? 'active' : '',
+      onclick: () => { jogStep = v; for (const [vv] of stepDefs) stepBtns[vv].classList.toggle('active', vv === jogStep); },
+    }, l))));
+  const jogPad = h('div', { class: 'jog-pad' }, [
+    h('button', { class: 'jog up', title: 'Elevation up', onclick: () => handlers.jogRotator(0, jogStep) }, '▲'),
+    h('button', { class: 'jog left', title: 'Azimuth left', onclick: () => handlers.jogRotator(-jogStep, 0) }, '◀'),
+    h('button', { class: 'jog stop', title: 'Stop', onclick: () => handlers.stopRotator() }, '■'),
+    h('button', { class: 'jog right', title: 'Azimuth right', onclick: () => handlers.jogRotator(jogStep, 0) }, '▶'),
+    h('button', { class: 'jog down', title: 'Elevation down', onclick: () => handlers.jogRotator(0, -jogStep) }, '▼'),
+  ]);
+
   // Radio
   const radPill = statusPill('Radio disconnected');
   const radHost = h('input', { type: 'text', value: hw.radio.host, oninput: (e) => store.patchIn('hw.radio', { host: e.target.value }) });
@@ -736,6 +779,9 @@ function buildHwPane(pane, handlers) {
     h('div', { class: 'muted', style: 'font-size:11px' }, 'Scheduled passes follows whichever tracked satellite is up, switching as passes come and go. Below the elevation limit the rotator parks.'),
     rotLimits,
     rotTarget,
+
+    h('div', { class: 'section-title' }, 'Manual jog'),
+    h('div', { class: 'jog-wrap' }, [jogPad, h('div', { class: 'jog-step' }, [h('span', { class: 'sub-label' }, 'Step'), stepSeg])]),
 
     h('hr', { class: 'hr' }),
     h('div', { class: 'section-title' }, 'Radio (rigctld / Hamlib)'),

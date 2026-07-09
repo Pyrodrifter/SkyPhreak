@@ -14,6 +14,8 @@ const DEFAULTS = {
   tleSched: { auto: true, maxAgeDays: 2 }, // auto-refresh cached TLEs so they stay < maxAgeDays old
   view: '2d', // '2d' | '3d'
   theme: 'midnight', // UI theme id — see core/themes.js (midnight/ember/nightops/phosphor)
+  uiScale: 'md', // UI size: 'sm' | 'md' | 'lg'
+  fieldMode: false, // one-tap field mode (large + Night Ops)
   sideCollapsed: false, // left satellite-browser panel collapsed
   rightCollapsed: false, // right info/settings panel collapsed
   mapStyle: 'vector', // 'vector' = dark blue lines | 'relief' = shaded topographic

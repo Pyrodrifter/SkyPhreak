@@ -197,7 +197,7 @@ export class Globe3D {
     if (this._manySats) return this._satDot(d); // avoid clutter/churn with many sats
     const group = new THREE.Group();
     const color = new THREE.Color(d.color);
-    const s = d.selected ? 1.4 : 1.0;
+    const s = d.selected ? 1.9 : 1.4;
 
     group.add(new THREE.Mesh(new THREE.BoxGeometry(2.6, 2.6, 3.4), new THREE.MeshBasicMaterial({ color })));
 

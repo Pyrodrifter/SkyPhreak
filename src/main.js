@@ -88,6 +88,15 @@ async function boot() {
     connectRotator,
     parkRotator: () => { if (motionRunning) { motion.stop(); motionRunning = false; } window.pyro.rotator.park(); },
     stopRotator: () => { if (motionRunning) { motion.stop(); motionRunning = false; } else window.pyro.rotator.stop(); },
+    // Manual jog: take control (auto-track off) and nudge az/el by a step.
+    jogRotator: (daz, del) => {
+      if (!rotConnected) return;
+      store.patchIn('hw.rotator', { autoMode: 'off' });
+      if (motionRunning) { motion.stop(); motionRunning = false; }
+      const az = rotTelemetry && Number.isFinite(rotTelemetry.az) ? rotTelemetry.az : 0;
+      const el = rotTelemetry && Number.isFinite(rotTelemetry.el) ? rotTelemetry.el : 0;
+      window.pyro.rotator.setAzEl(az + daz, Math.max(0, el + del));
+    },
     connectRadio,
   });
 
