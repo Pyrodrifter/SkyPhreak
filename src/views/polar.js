@@ -1,3 +1,5 @@
+import { palette } from '../core/themes.js';
+
 /**
  * Polar (radar) sky view: azimuth around the circle, elevation as radius
  * (90° at centre, horizon at edge). Shows every tracked satellite currently
@@ -47,8 +49,8 @@ export class PolarView {
     if (R <= 0) { ctx.restore(); return; } // not yet sized (detached/hidden)
 
     // Elevation rings (0/30/60° + horizon).
-    ctx.strokeStyle = 'rgba(120,160,200,0.22)';
-    ctx.fillStyle = 'rgba(120,160,200,0.45)';
+    ctx.strokeStyle = palette().polar.grid;
+    ctx.fillStyle = palette().polar.ticks;
     ctx.lineWidth = 1;
     ctx.font = '10px ui-sans-serif, system-ui';
     for (const el of [0, 30, 60]) {
@@ -60,7 +62,7 @@ export class PolarView {
     }
 
     // Azimuth spokes + N/E/S/W.
-    ctx.strokeStyle = 'rgba(120,160,200,0.15)';
+    ctx.strokeStyle = palette().polar.gridDim;
     for (let az = 0; az < 360; az += 30) {
       const [x, y] = this._pos(az, 0, cx, cy, R);
       ctx.beginPath();
@@ -68,7 +70,7 @@ export class PolarView {
       ctx.lineTo(x, y);
       ctx.stroke();
     }
-    ctx.fillStyle = 'rgba(180,210,235,0.8)';
+    ctx.fillStyle = palette().polar.labels;
     ctx.font = '600 12px ui-sans-serif, system-ui';
     const cards = [['N', 0], ['E', 90], ['S', 180], ['W', 270]];
     for (const [lbl, az] of cards) {

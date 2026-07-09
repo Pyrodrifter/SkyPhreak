@@ -9,9 +9,13 @@ const DEFAULTS = {
   tracked: ['25544'], // ISS by default
   selected: '25544', // a NORAD id, or 'MOON'
   favorites: [], // [{ id, name, line1, line2 }] — TLE stored so they work offline
+  satColors: {}, // { id: '#hex' } — user color overrides (else auto-assigned palette)
   tleStore: {}, // { id: { name, line1, line2 } } — cached TLEs for tracked sats (offline)
   tleSched: { auto: true, maxAgeDays: 2 }, // auto-refresh cached TLEs so they stay < maxAgeDays old
   view: '2d', // '2d' | '3d'
+  theme: 'midnight', // UI theme id — see core/themes.js (midnight/ember/nightops/phosphor)
+  sideCollapsed: false, // left satellite-browser panel collapsed
+  rightCollapsed: false, // right info/settings panel collapsed
   mapStyle: 'vector', // 'vector' = dark blue lines | 'relief' = shaded topographic
   showMoon: true, // draw the Moon on the 2D map
   showPlanets: true, // draw the Sun + planets on the 2D map
@@ -61,6 +65,20 @@ export const store = {
   setCatalog(sats) {
     catalog = sats;
     emit();
+  },
+
+  /** Set / clear a satellite's custom color override. */
+  setSatColor(id, hex) {
+    state = { ...state, satColors: { ...state.satColors, [id]: hex } };
+    emit();
+    persist();
+  },
+  clearSatColor(id) {
+    const next = { ...state.satColors };
+    delete next[id];
+    state = { ...state, satColors: next };
+    emit();
+    persist();
   },
 
   /** Shallow-merge a patch into state and notify subscribers. */

@@ -8,6 +8,7 @@ import { planetState, raDecToAzEl, subPointOf } from './core/bodies.js';
 import { precessToDate, dsoById, DSOS } from './core/dso.js';
 import { predictPasses } from './core/passes.js';
 import { MotionController } from './core/motion.js';
+import { THEMES, applyTheme } from './core/themes.js';
 import { createUI, colorFor } from './views/ui.js';
 import { Map2D } from './views/map2d.js';
 import { Globe3D } from './views/globe3d.js';
@@ -70,7 +71,6 @@ let motionRunning = false;
 let rotTelemetry = null; // last { az, el, azRate, elRate } reported by SuperRot firmware
 let activeTrackId = null; // id the rotator is actively tracking (null when parked/idle)
 let lastDrivenId = null; // last object the smooth controller was driven toward
-let azCmdContinuous = null; // last continuous (unwrapped) az streamed to SuperRot
 
 window.addEventListener('error', (e) => console.error(e.error || e.message));
 window.addEventListener('unhandledrejection', (e) => console.error('unhandledrejection:', e.reason));
@@ -88,7 +88,6 @@ async function boot() {
     connectRotator,
     parkRotator: () => { if (motionRunning) { motion.stop(); motionRunning = false; } window.pyro.rotator.park(); },
     stopRotator: () => { if (motionRunning) { motion.stop(); motionRunning = false; } else window.pyro.rotator.stop(); },
-    unwindRotator,
     connectRadio,
   });
 
@@ -106,10 +105,7 @@ async function boot() {
     send: (cmd) => {
       if (!rotConnected) return;
       if (cmd.stop) { window.pyro.rotator.stop(); return; }
-      // cmd.az is CONTINUOUS (unwrapped, may exceed 360) — send it as-is so the
-      // rotator keeps turning the same way across north. Remember it for the
-      // cable-wrap warning / manual unwind.
-      azCmdContinuous = cmd.az;
+      // cmd.az is free/continuous (shortest path, may be negative or >360) — send as-is.
       window.pyro.rotator.track(cmd.az, cmd.el, cmd.azRate, cmd.elRate);
     },
   });
@@ -334,9 +330,11 @@ function mergeOemIntoCatalog() {
 /* ----------------------------- State changes --------------------------- */
 let lastView = null;
 let lastMapStyle = null;
+let lastTheme = null;
 function onState(state) {
   ui.renderList();
   ui.syncAutoMode(); // keep the on-map track buttons + HW dropdown in sync
+  ui.applyLayout(state); // collapsible side panels
   if (state.view !== lastView) {
     ui.setActiveView(state.view);
     lastView = state.view;
@@ -345,6 +343,14 @@ function onState(state) {
     lastMapStyle = state.mapStyle;
     map2d.setStyle(state.mapStyle);
     globe3d.setStyle(state.mapStyle);
+  }
+  // Theme: set the CSS vars; the 2D/polar canvases pick the palette up on their
+  // next repaint, the globe re-applies its materials explicitly.
+  if (state.theme !== lastTheme) {
+    lastTheme = state.theme;
+    applyTheme(state.theme);
+    globe3d.refreshTheme();
+    map2d.draw(map2d.frame);
   }
   // Recompute passes when the selection, station, or min elevation changes.
   const key = `${state.selected}|${state.station.lat}|${state.station.lon}|${state.station.altKm}|${state.minEl}`;
@@ -397,7 +403,18 @@ function recomputeTrackedPasses() {
     if (!sat) continue;
     const passes = predictPasses(sat.satrec, observer, { minEl: state.minEl, hours: 48, count: 8 });
     const color = colorFor(id, state.tracked);
-    for (const p of passes) out.push({ id, name: sat.name, color, pass: p });
+    for (const p of passes) {
+      // Sample the sky-track (az/el) AOS→LOS for the row's mini polar plot.
+      const a = p.aos.getTime();
+      const b = p.los.getTime();
+      const steps = 24;
+      const arc = [];
+      for (let i = 0; i <= steps; i++) {
+        const look = lookAngles(sat.satrec, new Date(a + ((b - a) * i) / steps), observer);
+        if (look) arc.push({ az: look.az, el: Math.max(0, look.el) });
+      }
+      out.push({ id, name: sat.name, color, pass: p, arc });
+    }
   }
   out.sort((a, b) => a.pass.aos - b.pass.aos);
   trackedPassesCache.list = out;
@@ -463,6 +480,14 @@ function tick() {
   ui.updateClock(date);
   updateSelectedInfo(frame, date);
   ui.updatePasses(trackedPassesCache.list, date.getTime());
+
+  // Live elevations for the Sky-list chips — only computed while that tab is open.
+  if (ui.isSkyActive()) {
+    const skyStatus = { MOON: moon.look ? moon.look.el : null };
+    for (const id of Object.keys(PLANET_META)) { const b = computeBody(id, date, observer); if (b) skyStatus[id] = b.look.el; }
+    for (const d of DSOS) { const b = computeBody('DSO:' + d.id, date, observer); if (b) skyStatus['DSO:' + d.id] = b.look.el; }
+    ui.updateSky(skyStatus);
+  }
   updateTleStatus();
 
   driveHardware(frame, date);
@@ -649,62 +674,60 @@ function parkNow() {
   window.pyro.rotator.park();
 }
 
-// Auto-unwind: after an auto-tracked pass, return to home/stow (az 0, low el). The
-// absolute az-0 move unwinds any cable wrap accumulated crossing north during the
-// pass, so it never builds up toward the travel limit. SuperRot only (the Hamlib
-// path never winds, since it sends standard 0–360).
-function stowAfterPass() {
-  if (motionRunning) { motion.stop(); motionRunning = false; }
-  window.pyro.rotator.setAzEl(0, 0);
+// Resolve a true sky (az, el) into mount coordinates, choosing normal vs FLIP-OVER
+// ("over the top": az+180, el→180−el) — whichever needs LESS azimuth motion from the
+// reference. This is what stops the azimuth whip through the zenith on a high pass:
+// as the target transits overhead, the flipped representation keeps az continuous and
+// lets elevation carry on past 90°. Flip is only offered when the mount allows it
+// (elMax ≥ 135). Returns a continuous (free) azimuth — shortest path from `refAz`.
+function resolveMount(az, el, refAz, elMax) {
+  const nAz = refAz + wrap180(az - refAz);
+  if ((elMax || 90) < 135) return { az: nAz, el }; // standard mount, no flip
+  const fAz = refAz + wrap180(az + 180 - refAz);
+  const fEl = 180 - el;
+  return Math.abs(fAz - refAz) < Math.abs(nAz - refAz) ? { az: fAz, el: fEl } : { az: nAz, el };
 }
 
-// Operator action (idle): unwind the cable one full turn. Drives an absolute goto
-// 360° back toward the centre of travel; the next track reseeds from telemetry.
-function unwindRotator() {
-  const rot = store.get().hw.rotator;
-  if (!rotConnected || rot.protocol !== 'superrot') return;
-  const az = rotTelemetry && Number.isFinite(rotTelemetry.az) ? rotTelemetry.az : azCmdContinuous;
-  if (az == null) return;
-  const el = rotTelemetry && Number.isFinite(rotTelemetry.el) ? rotTelemetry.el : 0;
-  const mid = ((rot.azMin ?? 0) + (rot.azMax ?? 450)) / 2;
-  const target = az + (az > mid ? -360 : 360);
-  if (motionRunning) { motion.stop(); motionRunning = false; }
-  activeTrackId = null;
-  window.pyro.rotator.setAzEl(target, Math.max(0, el));
+// Build the smooth setpoint for a target: flip-resolved mount az/el + a feed-forward
+// rate derived from the SAME representation a short step ahead (so the rate is smooth
+// across a flip). Azimuth is free/continuous — shortest path from where we are.
+function computeSetpoint(id, date, elMax) {
+  const look = sampleTargetLook(id, date);
+  if (!look) return null;
+  const ref = motion.currentAz();
+  const r0 = resolveMount(look.az, Math.max(0, look.el), ref, elMax);
+  const dt = 0.2;
+  const ahead = sampleTargetLook(id, new Date(date.getTime() + dt * 1000));
+  let azRate = 0;
+  let elRate = 0;
+  if (ahead) {
+    const r1 = resolveMount(ahead.az, Math.max(0, ahead.el), r0.az, elMax);
+    azRate = (r1.az - r0.az) / dt;
+    elRate = (r1.el - r0.el) / dt;
+  }
+  return { az: r0.az, el: r0.el, azRate, elRate };
 }
 
 // Stream/goto the rotator to a target (smooth controller for SuperRot, 1 Hz goto for Hamlib).
 function driveToTarget(track, date, rot) {
   const look = track.look;
   if (rot.protocol === 'superrot') {
-    const dt = 0.2; // s — finite-difference horizon for the velocity feedforward
-    const ahead = sampleTargetLook(track.id, new Date(date.getTime() + dt * 1000));
-    let azRate = 0;
-    let elRate = 0;
-    if (ahead) {
-      azRate = wrap180(ahead.az - look.az) / dt;
-      elRate = (ahead.el - look.el) / dt;
-    }
-    // Re-seed when (re)starting or switching to a DIFFERENT object — not while
-    // continuously tracking the same one (that must stay smooth/unwrapped).
     const newObject = !motionRunning || track.id !== lastDrivenId;
     if (!motionRunning) {
       motion.cfg.maxVel.az = rot.maxVelAz ?? motion.cfg.maxVel.az;
       motion.cfg.maxVel.el = rot.maxVelEl ?? motion.cfg.maxVel.el;
-      motion.cfg.azMin = rot.azMin ?? motion.cfg.azMin;
-      motion.cfg.azMax = rot.azMax ?? motion.cfg.azMax;
       motion.cfg.elMax = rot.elMax ?? motion.cfg.elMax;
       motion.start();
       motionRunning = true;
     }
-    // Semi-closed-loop: seed the controller from the rotator's ACTUAL reported
-    // position (telemetry) so a slew to a new object goes the short way from where
-    // the mount really is — no wind-up carried over from a previous pass/target.
+    // Semi-closed-loop: seed from the rotator's ACTUAL reported position on a new
+    // object so the slew goes the short way from where the mount really is.
     if (newObject && rotTelemetry && Number.isFinite(rotTelemetry.az)) {
       motion.seed(rotTelemetry.az, rotTelemetry.el);
     }
     lastDrivenId = track.id;
-    motion.setTarget(look.az, Math.max(0, look.el), azRate, elRate);
+    const sp = computeSetpoint(track.id, date, rot.elMax);
+    if (sp) motion.setTarget(sp.az, sp.el, sp.azRate, sp.elRate);
   } else {
     if (motionRunning) { motion.stop(); motionRunning = false; }
     if (date.getTime() - lastRotSend > 1000) {
@@ -715,25 +738,13 @@ function driveToTarget(track, date, rot) {
 }
 
 // 10 Hz refresh of the smooth controller's target (SuperRot only). The 1 Hz tick
-// chooses the target; this re-samples its true az/el + feedforward 10× as often so
-// the controller corrects far more frequently — much tighter through the zenith
-// keyhole — without re-rendering the views at 10 Hz. Cheap: one/two SGP4 calls per
-// iteration, and only while actively tracking.
+// chooses the target; this re-resolves its mount az/el + feed-forward 10× as often so
+// the controller corrects far more frequently — much tighter through the zenith.
 function streamRotatorFast() {
   if (!motionRunning || activeTrackId == null) return;
   if ((store.get().hw.rotator.protocol || 'hamlib') !== 'superrot') return;
-  const now = Date.now();
-  const look = sampleTargetLook(activeTrackId, new Date(now));
-  if (!look) return;
-  const dt = 0.2; // s — finite-difference horizon for the velocity feedforward
-  const ahead = sampleTargetLook(activeTrackId, new Date(now + dt * 1000));
-  let azRate = 0;
-  let elRate = 0;
-  if (ahead) {
-    azRate = wrap180(ahead.az - look.az) / dt;
-    elRate = (ahead.el - look.el) / dt;
-  }
-  motion.setTarget(look.az, Math.max(0, look.el), azRate, elRate);
+  const sp = computeSetpoint(activeTrackId, new Date(), store.get().hw.rotator.elMax);
+  if (sp) motion.setTarget(sp.az, sp.el, sp.azRate, sp.elRate);
 }
 
 function driveHardware(frame, date) {
@@ -776,17 +787,12 @@ function driveHardware(frame, date) {
     }
   }
 
-  // Cable-wrap warning: the continuous azimuth is nearing the rotator's travel limit.
-  if (ui.hw.setRotWarn) {
-    const warnDeg = 15;
-    const azNow = rotTelemetry && Number.isFinite(rotTelemetry.az) ? rotTelemetry.az : azCmdContinuous;
-    let warn = null;
-    if (rot.protocol === 'superrot' && rotConnected && azNow != null) {
-      if (azNow >= (rot.azMax ?? 450) - warnDeg) warn = `Az ${azNow.toFixed(0)}° near upper limit ${rot.azMax}° — unwind`;
-      else if (azNow <= (rot.azMin ?? 0) + warnDeg) warn = `Az ${azNow.toFixed(0)}° near lower limit ${rot.azMin}° — unwind`;
-    }
-    ui.hw.setRotWarn(warn);
-  }
+  // Bottom status bar: connection state + what the rotator is tracking.
+  ui.setStatus({
+    rotConnected,
+    radConnected,
+    tracking: track ? track.name : (rotConnected && mode !== 'off' ? 'Parked' : null),
+  });
 
   // Drive the rotator: track when there's a target, park once when there isn't.
   // The SuperRot setpoint is refreshed at 10 Hz by streamRotatorFast(); here we
@@ -798,13 +804,8 @@ function driveHardware(frame, date) {
       activeTrackId = rot.protocol === 'superrot' ? track.id : null;
     } else {
       activeTrackId = null;
-      // Pass over (or none up): stow once. With auto-unwind on, SuperRot returns to
-      // home (az 0, low el) which also unwinds the cable; otherwise just park.
-      if (!parkedByAuto) {
-        if (rot.protocol === 'superrot' && rot.autoUnwind !== false) stowAfterPass();
-        else parkNow();
-        parkedByAuto = true;
-      }
+      // Pass over (or none up): park once.
+      if (!parkedByAuto) { parkNow(); parkedByAuto = true; }
     }
   } else {
     if (motionRunning) { motion.stop(); motionRunning = false; }

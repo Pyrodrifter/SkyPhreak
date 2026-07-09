@@ -2,6 +2,7 @@ import Globe from 'globe.gl';
 import * as THREE from 'three';
 import { landPolygons } from '../core/geo.js';
 import { TEX, loadImage } from './earthTexture.js';
+import { palette } from '../core/themes.js';
 import { subPoint, periodMinutes, EARTH_R, subSolarPoint, footprintRadiusDeg, destPoint } from '../core/propagate.js';
 
 /**
@@ -19,16 +20,21 @@ export class Globe3D {
     this.frame = null;
     this.onSelect = null;
 
-    const g = Globe({ rendererConfig: { antialias: true } })(this.el)
+    // logarithmicDepthBuffer: the camera far-plane is huge (250000, to reach the Moon
+    // at true distance), which starves the normal depth buffer of precision and causes
+    // z-fighting artifacts on the globe when zoomed out. A log depth buffer distributes
+    // precision across the range and clears it up.
+    const g = Globe({ rendererConfig: { antialias: true, logarithmicDepthBuffer: true } })(this.el)
       .backgroundColor('rgba(0,0,0,0)')
       .showGlobe(true)
       .showAtmosphere(true)
-      .atmosphereColor('#4a9fd4')
+      .atmosphereColor(palette().globe.atmosphere)
       .atmosphereAltitude(0.18)
       .polygonsData(landPolygons)
-      .polygonCapColor(() => 'rgba(36,90,130,0.9)')
-      .polygonSideColor(() => 'rgba(20,50,75,0.4)')
-      .polygonStrokeColor(() => 'rgba(120,190,230,0.6)')
+      // Dynamic closures: re-evaluated on refreshTheme(), so land recolors live.
+      .polygonCapColor(() => palette().globe.polyCap)
+      .polygonSideColor(() => palette().globe.polySide)
+      .polygonStrokeColor(() => palette().globe.polyStroke)
       .polygonAltitude(0.006)
       .objectLat((d) => d.sub.lat)
       .objectLng((d) => d.sub.lon)
@@ -55,8 +61,8 @@ export class Globe3D {
       .pathsData([]);
 
     const mat = g.globeMaterial();
-    mat.color = new THREE.Color('#0a1626');
-    mat.emissive = new THREE.Color('#06101c');
+    mat.color = new THREE.Color(palette().globe.sphere);
+    mat.emissive = new THREE.Color(palette().globe.sphereEmissive);
     mat.shininess = 6;
 
     const controls = g.controls();
@@ -146,8 +152,8 @@ export class Globe3D {
       mat.bumpMap = null;
       mat.specularMap = null;
       mat.bumpScale = 0;
-      mat.color = new THREE.Color('#0a1626');
-      mat.emissive = new THREE.Color('#06101c');
+      mat.color = new THREE.Color(palette().globe.sphere);
+      mat.emissive = new THREE.Color(palette().globe.sphereEmissive);
       mat.shininess = 6;
       mat.needsUpdate = true;
       if (this.defaultLights && typeof g.lights === 'function') g.lights(this.defaultLights);
@@ -155,26 +161,73 @@ export class Globe3D {
     }
   }
 
+  // Re-apply the active theme: atmosphere tint, land polygon colors (fresh accessor
+  // closures force globe.gl to re-evaluate), and the vector sphere material.
+  refreshTheme() {
+    const g = this.g;
+    g.atmosphereColor(palette().globe.atmosphere);
+    g.polygonCapColor(() => palette().globe.polyCap)
+      .polygonSideColor(() => palette().globe.polySide)
+      .polygonStrokeColor(() => palette().globe.polyStroke);
+    this._applyStyle(this.style);
+  }
+
   _resize() {
     const r = this.container.getBoundingClientRect();
     this.g.width(Math.max(1, r.width)).height(Math.max(1, r.height));
   }
 
-  _satObject(d) {
+  // A glowing dot — used for the ground station and as the many-satellites fallback.
+  _satDot(d) {
     const group = new THREE.Group();
     const r = d.selected ? 5 : 3.5;
     const color = new THREE.Color(d.color);
-    const mesh = new THREE.Mesh(
-      new THREE.SphereGeometry(r, 16, 16),
-      new THREE.MeshBasicMaterial({ color })
-    );
-    group.add(mesh);
-    // Soft glow halo so satellites read clearly against the globe.
-    const halo = new THREE.Mesh(
+    group.add(new THREE.Mesh(new THREE.SphereGeometry(r, 16, 16), new THREE.MeshBasicMaterial({ color })));
+    group.add(new THREE.Mesh(
       new THREE.SphereGeometry(r * 1.9, 16, 16),
       new THREE.MeshBasicMaterial({ color, transparent: true, opacity: d.selected ? 0.28 : 0.16 })
+    ));
+    return group;
+  }
+
+  // A little low-poly satellite: foil bus in the sat's identity colour, two solar
+  // panels on booms, an antenna horn, and a faint glow halo so it still pops when the
+  // globe is zoomed way out. All MeshBasic so it stays visible on the night side.
+  _satObject(d) {
+    if (this._manySats) return this._satDot(d); // avoid clutter/churn with many sats
+    const group = new THREE.Group();
+    const color = new THREE.Color(d.color);
+    const s = d.selected ? 1.4 : 1.0;
+
+    group.add(new THREE.Mesh(new THREE.BoxGeometry(2.6, 2.6, 3.4), new THREE.MeshBasicMaterial({ color })));
+
+    const panelGeo = new THREE.BoxGeometry(5.4, 0.18, 2.2);
+    const panelMat = new THREE.MeshBasicMaterial({ color: 0x22345f });
+    const boomMat = new THREE.MeshBasicMaterial({ color: 0x8a929e });
+    for (const sx of [-1, 1]) {
+      const panel = new THREE.Mesh(panelGeo, panelMat);
+      panel.position.x = sx * 4.6;
+      group.add(panel);
+      const boom = new THREE.Mesh(new THREE.BoxGeometry(2.0, 0.12, 0.12), boomMat);
+      boom.position.x = sx * 2.4;
+      group.add(boom);
+    }
+
+    const horn = new THREE.Mesh(
+      new THREE.ConeGeometry(1.0, 1.5, 12, 1, true),
+      new THREE.MeshBasicMaterial({ color: 0xd8dde6, side: THREE.DoubleSide })
     );
-    group.add(halo);
+    horn.rotation.x = -Math.PI / 2; // open end pointing +Z (outward-ish)
+    horn.position.z = 2.6;
+    group.add(horn);
+
+    group.add(new THREE.Mesh(
+      new THREE.SphereGeometry(4.6, 16, 16),
+      new THREE.MeshBasicMaterial({ color, transparent: true, opacity: d.selected ? 0.16 : 0.09 })
+    ));
+
+    group.rotation.set(0.5, 0.6, 0); // tilt so panels catch the eye, not edge-on
+    group.scale.setScalar(s);
     return group;
   }
 
@@ -189,6 +242,7 @@ export class Globe3D {
       this.sunLight.position.set(c.x, c.y, c.z);
     }
 
+    this._manySats = frame.sats.length > 12; // read by _satObject; dots avoid clutter
     this.g.objectsData(frame.sats);
 
     // Ground station marker.

@@ -26,12 +26,8 @@ const DEFAULTS = {
   maxVel: { az: 12, el: 8 }, // °/s ceiling (also the zenith-keyhole clamp)
   maxAccel: { az: 20, el: 15 }, // °/s² — how fast velocity may change
   maxJerk: { az: 120, el: 90 }, // °/s³ — how fast acceleration may change (S-curve)
-  // Absolute azimuth range. We emit CONTINUOUS (unwrapped) az into this range — the
-  // host owns trajectory continuity, the rotator positions absolutely — so a north
-  // crossing keeps turning the same direction instead of unwinding 358°. azMax > 360
-  // is the cable-overlap region. Elevation ceiling is elMax (90, or up to 180).
-  azMin: 0,
-  azMax: 450,
+  // Azimuth is free (shortest-path, no range clamp). Only elevation is bounded —
+  // elMax is 90 for a standard mount, up to 180 to allow flip-over on high passes.
   elMax: 90,
 };
 
@@ -73,20 +69,11 @@ export class MotionController {
   setTarget(az, el, azRate = null, elRate = null) {
     if (!Number.isFinite(az) || !Number.isFinite(el)) return;
     const prev = this.tgt;
-    // Resolve az to the equivalent nearest the rotator's ACTUAL position (closed-loop),
-    // so a slew always takes the short way from where the mount really is. Falls back
-    // to the model position if telemetry isn't available.
+    // Shortest path: resolve az to the equivalent nearest the rotator's ACTUAL position
+    // (closed-loop). Azimuth is FREE — no range clamp — so it always takes the short way
+    // and may go negative or past 360 (e.g. 0°→330° goes −30°, not +330°).
     const ref = Number.isFinite(this.actual) ? this.actual : this.cmd ? this.cmd.az : prev ? prev.az : az;
-    let uaz = ref + wrap180(az - ref);
-    // Keep the absolute target inside the rotator's travel range. If the nearest
-    // equivalent falls outside, step by whole turns into range — this is what forces
-    // the long way round when the mount is wound near a limit (vs. an impossible
-    // out-of-range target it could never reach). Callers seed cmd from the actual
-    // position on an object change so this resolves to the genuine shortest path.
-    const { azMin, azMax } = this.cfg;
-    while (uaz > azMax && uaz - 360 >= azMin) uaz -= 360;
-    while (uaz < azMin && uaz + 360 <= azMax) uaz += 360;
-    uaz = clamp(uaz, azMin, azMax);
+    const uaz = ref + wrap180(az - ref);
 
     if (azRate == null && prev && this.lastSetT) {
       const dt = (now() - this.lastSetT) / 1000;
@@ -176,19 +163,22 @@ export class MotionController {
       this.cmd[ax] += this.vel[ax] * dt;
     }
 
-    // Clamp to the rotator's absolute travel. Azimuth is CONTINUOUS (not wrapped) —
-    // it may exceed 360 in the overlap region. Anti-windup: if we're pinned at a
-    // bound, zero any velocity still pushing into it so we can leave cleanly.
-    if (this.cmd.az < this.cfg.azMin) { this.cmd.az = this.cfg.azMin; if (this.vel.az < 0) { this.vel.az = 0; this.acc.az = 0; } }
-    else if (this.cmd.az > this.cfg.azMax) { this.cmd.az = this.cfg.azMax; if (this.vel.az > 0) { this.vel.az = 0; this.acc.az = 0; } }
+    // Azimuth is FREE (no range clamp) — it may go negative or past 360; the mount
+    // spins whichever way is shortest. Only elevation is bounded (0..elMax, elMax up
+    // to 180 for flip-over).
     this.cmd.el = clamp(this.cmd.el, 0, this.cfg.elMax);
 
     this.send({
-      az: this.cmd.az, // continuous / unwrapped — host owns trajectory continuity
+      az: this.cmd.az, // continuous, free — shortest path, host owns trajectory
       el: this.cmd.el,
       azRate: this.vel.az,
       elRate: this.vel.el,
     });
+  }
+
+  /** The controller's current commanded azimuth (continuous) — for flip decisions. */
+  currentAz() {
+    return this.cmd ? this.cmd.az : Number.isFinite(this.actual) ? this.actual : 0;
   }
 }
 
