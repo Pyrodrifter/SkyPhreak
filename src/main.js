@@ -103,6 +103,15 @@ async function boot() {
     // schedule mode so it takes effect); disarm to return to the automatic pick.
     armPass: (id, aosMs, losMs) => store.patchIn('hw.rotator', { armedPass: { id, aos: aosMs, los: losMs }, autoMode: 'schedule' }),
     disarmPass: () => store.patchIn('hw.rotator', { armedPass: null }),
+    // Config sync: push the current speed limits, offsets and backlash to the firmware.
+    pushRotatorConfig: async () => {
+      const r = store.get().hw.rotator;
+      const res = await window.pyro.rotator.config({
+        maxVelAz: r.maxVelAz, maxVelEl: r.maxVelEl, elMax: r.elMax,
+        azOffset: r.azOffset, elOffset: r.elOffset, backlashAz: r.backlashAz, backlashEl: r.backlashEl,
+      });
+      ui.hw.rotPill._set(rotConnected, res && res.ok ? 'Config sent to rotator' : 'Config: ' + ((res && res.error) || 'failed'));
+    },
     // Manual jog: take control (auto-track off) and nudge az/el by a step.
     jogRotator: (daz, del) => {
       if (!rotConnected) return;
@@ -1002,10 +1011,19 @@ function driveHardware(frame, date) {
       if (mode === 'selected' && selected.look.el < rot.minEl) ui.hw.rotTarget.append(...k('Status', rotConnected ? 'Below min — parked' : 'Below min'));
     }
     if (rot.protocol === 'superrot' && rotTelemetry) {
+      const tel = rotTelemetry;
       ui.hw.rotTarget.append(
-        ...k('Actual', `${rotTelemetry.az.toFixed(1)}° / ${rotTelemetry.el.toFixed(1)}°`),
-        ...k('Slew', `${rotTelemetry.azRate.toFixed(2)} / ${rotTelemetry.elRate.toFixed(2)} °/s`)
+        ...k('Actual', `${tel.az.toFixed(1)}° / ${tel.el.toFixed(1)}°`),
+        ...k('Slew', `${tel.azRate.toFixed(2)} / ${tel.elRate.toFixed(2)} °/s`)
       );
+      // Extended firmware diagnostics (only shown when the firmware reports them).
+      if (Number.isFinite(tel.tempC)) ui.hw.rotTarget.append(...k('Temp', tel.tempC.toFixed(1) + ' °C'));
+      if (Number.isFinite(tel.curA)) ui.hw.rotTarget.append(...k('Current', tel.curA.toFixed(2) + ' A'));
+      if (tel.esAz != null || tel.esEl != null) {
+        ui.hw.rotTarget.append(...k('Endstops', `Az ${tel.esAz ? '● HIT' : '—'} · El ${tel.esEl ? '● HIT' : '—'}`));
+      }
+      if (tel.homed != null) ui.hw.rotTarget.append(...k('Homed', tel.homed ? 'yes' : 'no'));
+      if (tel.lossAz || tel.lossEl) ui.hw.rotTarget.append(...k('⚠ Step loss', `${tel.lossAz ? 'Az ' : ''}${tel.lossEl ? 'El' : ''}`.trim()));
     }
     if (sunWarn != null) ui.hw.rotTarget.append(...k('⚠ Sun', sunWarn.toFixed(1) + '° from boresight'));
   }

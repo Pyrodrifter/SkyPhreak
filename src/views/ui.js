@@ -744,6 +744,7 @@ function buildHwPane(pane, handlers) {
     h('label', { class: 'fld' }, [h('span', {}, 'Motion profile'), motionProfileSel]),
     h('label', { class: 'fld' }, [h('span', {}, 'El max (° — 180 enables flip-over)'), inputNum(hw.rotator.elMax, '1', (v) => store.patchIn('hw.rotator', { elMax: v }))]),
     h('div', { class: 'muted', style: 'font-size:11px' }, 'Azimuth is free 360° shortest-path (no travel limit — it can go negative). Set El max to 180 to let the mount flip over the top on high passes instead of whipping the azimuth. Gentle profile spares heavy EME dishes; fast suits light LEO rigs.'),
+    h('button', { class: 'btn sm', style: 'margin-top:6px', title: 'Send the speed limits, offsets and backlash values to the firmware so they persist on the MCU', onclick: () => handlers.pushRotatorConfig() }, 'Push settings to rotator'),
   ]);
 
   // USB serial-port picker: enumerates devices by friendly name, persists the path.
@@ -896,7 +897,11 @@ function buildHwPane(pane, handlers) {
       h('label', { class: 'fld' }, [h('span', {}, 'El offset (°)'), elOffInp]),
     ]),
     h('div', { class: 'row', style: 'display:flex;gap:8px;margin-top:6px' }, [calibNorth, calibLevel]),
-    h('div', { class: 'muted', style: 'font-size:11px' }, 'Offsets correct mount misalignment (added to every commanded angle). Aim the mount at the reference, then capture.'),
+    h('div', { class: 'grid2' }, [
+      h('label', { class: 'fld' }, [h('span', {}, 'Az backlash (°)'), inputNum(hw.rotator.backlashAz, '0.1', (v) => store.patchIn('hw.rotator', { backlashAz: Math.max(0, v) }))]),
+      h('label', { class: 'fld' }, [h('span', {}, 'El backlash (°)'), inputNum(hw.rotator.backlashEl, '0.1', (v) => store.patchIn('hw.rotator', { backlashEl: Math.max(0, v) }))]),
+    ]),
+    h('div', { class: 'muted', style: 'font-size:11px' }, 'Offsets correct mount misalignment (added to every commanded angle). Aim the mount at the reference, then capture. Backlash is compensated on the MCU — push settings to apply.'),
     h('div', { class: 'toggle-line switch', style: 'margin-top:8px' }, [h('span', {}, 'Sun-avoidance guard'), sunAvoidChk]),
     h('label', { class: 'fld' }, [h('span', {}, 'Keep-out radius (°)'), sunAvoidDeg]),
 

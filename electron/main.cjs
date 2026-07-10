@@ -253,6 +253,12 @@ const rotatorMgr = {
     if (this.protocol === 'superrot') return this.client.stopMotion();
     return { ok: true }; // rotctld has no soft-stop; it stops at the last goto
   },
+  // Push config (speed limits, offsets, backlash) down to the firmware — SuperRot only.
+  config(cfg) {
+    if (!this.client) return { ok: false, error: 'not connected' };
+    if (this.protocol === 'superrot') return this.client.config(cfg);
+    return { ok: false, error: 'config sync is SuperRot-only' };
+  },
   close() {
     if (this.client) {
       this.client.removeAllListeners('status');
@@ -298,6 +304,7 @@ ipcMain.handle('rotator:setAzEl', (_e, { az, el }) => rotatorMgr.setAzEl(az, el)
 ipcMain.handle('rotator:track', (_e, { az, el, azRate, elRate }) => rotatorMgr.track(az, el, azRate, elRate));
 ipcMain.handle('rotator:stop', () => rotatorMgr.stop());
 ipcMain.handle('rotator:park', () => rotatorMgr.park());
+ipcMain.handle('rotator:config', (_e, cfg) => rotatorMgr.config(cfg));
 
 ipcMain.handle('radio:connect', (_e, { host, port }) => radio.connect(host, port));
 ipcMain.handle('radio:disconnect', () => radio.close());
