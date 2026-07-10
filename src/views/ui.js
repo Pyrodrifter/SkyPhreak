@@ -670,16 +670,10 @@ export function createUI(handlers) {
       missionAz.textContent = selBody.az.toFixed(1) + '°';
       missionEl.textContent = selBody.el.toFixed(1) + '°';
       missionTle.textContent = 'LOCAL';
+      const kindLabel = selBody.kind === 'dso' ? 'Deep-sky object' : selBody.kind === 'moon' ? 'Lunar target' : 'Solar-system target';
       infoText.append(
-        h('div', { class: 'dash-head' }, [
-          h('div', { class: 'dash-name' }, selBody.name),
-          h('div', { class: 'dash-badge ' + (up ? 'up' : 'down') }, up ? 'ABOVE HORIZON' : 'BELOW HORIZON'),
-        ]),
-        h('div', { class: 'stat-grid' }, [
-          statCard('Azimuth', selBody.az.toFixed(1) + '°', 'big'),
-          statCard('Elevation', selBody.el.toFixed(1) + '°', 'big ' + (up ? 'up' : 'down')),
-          ...selBody.extra.map(([a, b]) => statCard(a, b)),
-        ])
+        infoHero(selBody.name, kindLabel, up, selBody.az.toFixed(1) + '°', selBody.el.toFixed(1) + '°'),
+        h('div', { class: 'stat-grid' }, selBody.extra.map(([a, b]) => statCard(a, b)))
       );
       if (selBody.eme) appendEmeSection(selBody.eme);
       if (moon && selBody.kind !== 'moon') appendMoonSection(moon);
@@ -706,15 +700,10 @@ export function createUI(handlers) {
       missionEl.textContent = info.el.toFixed(1) + '°';
       missionTle.textContent = fmtAge(info.tleAgeDays);
       const rf = store.get().hw.radio;
+      const up = info.aboveHorizon;
       infoText.append(
-        h('div', { class: 'dash-head' }, [
-          h('div', { class: 'dash-name' }, info.name),
-          h('div', { class: 'dash-id' }, 'NORAD ' + info.noradId),
-        ]),
-        h('div', { class: 'dash-status ' + (info.aboveHorizon ? 'up' : '') }, info.statusText),
+        infoHero(info.name, 'NORAD ' + info.noradId, up, up ? info.az.toFixed(1) + '°' : '—', up ? info.el.toFixed(1) + '°' : '—', info.statusText),
         h('div', { class: 'stat-grid' }, [
-          statCard('Azimuth', info.aboveHorizon ? info.az.toFixed(1) + '°' : '—', 'big'),
-          statCard('Elevation', info.aboveHorizon ? info.el.toFixed(1) + '°' : '—', 'big ' + (info.aboveHorizon ? 'up' : 'down')),
           statCard('Range', info.rangeKm ? info.rangeKm.toFixed(0) + ' km' : '—'),
           statCard('Altitude', info.altKm.toFixed(0) + ' km'),
           statCard('Velocity', info.velocityKmS.toFixed(2) + ' km/s'),
@@ -986,6 +975,28 @@ function statCard(label, value, cls = '') {
   return h('div', { class: 'stat ' + cls }, [
     h('div', { class: 'stat-l' }, label),
     h('div', { class: 'stat-v' }, value),
+  ]);
+}
+
+// Info-tab pointing hero: target id + above/below badge over the big AZ / EL readout
+// (the two numbers you rotate to). Mirrors the Passes NOW/NEXT hero styling.
+function infoHero(name, sub, up, az, el, status) {
+  return h('div', { class: 'info-hero' + (up ? ' up' : '') }, [
+    h('div', { class: 'info-hero-top' }, [
+      h('div', { class: 'info-hero-id' }, [
+        h('div', { class: 'info-hero-name' }, name),
+        h('div', { class: 'info-hero-sub' }, sub),
+      ]),
+      h('span', { class: 'mission-live' + (up ? ' on' : '') }, [
+        h('span', { class: 'mission-live-dot' }),
+        up ? 'ABOVE HORIZON' : 'BELOW HORIZON',
+      ]),
+    ]),
+    h('div', { class: 'info-azel' }, [
+      h('div', { class: 'info-azel-cell' }, [h('small', {}, 'AZIMUTH'), h('b', {}, az)]),
+      h('div', { class: 'info-azel-cell' }, [h('small', {}, 'ELEVATION'), h('b', { class: up ? 'up' : 'down' }, el)]),
+    ]),
+    status ? h('div', { class: 'info-status' + (up ? ' up' : '') }, status) : '',
   ]);
 }
 

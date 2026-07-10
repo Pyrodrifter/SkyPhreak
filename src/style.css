@@ -694,6 +694,26 @@ html.ui-lg .mission-console {
 .mission-live.on .mission-live-dot { background: var(--accent-2); box-shadow: 0 0 8px var(--accent-2); animation: mc-pulse 1.6s ease-in-out infinite; }
 @keyframes mc-pulse { 50% { opacity: .3; } }
 
+/* Info-tab pointing hero — big AZ / EL, mirrors the Passes NOW/NEXT hero. */
+.info-hero {
+  margin: 0 0 15px; padding: 14px 15px; border-radius: 11px;
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--line));
+  background: linear-gradient(150deg, color-mix(in srgb, var(--accent) 13%, var(--panel-2)), var(--panel-2) 62%);
+  box-shadow: inset 0 0 24px color-mix(in srgb, var(--accent) 7%, transparent);
+}
+.info-hero.up { border-color: color-mix(in srgb, var(--accent-2) 48%, var(--line)); }
+.info-hero-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin-bottom: 13px; }
+.info-hero-id { min-width: 0; }
+.info-hero-name { font-size: 16px; font-weight: 800; letter-spacing: .2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.info-hero-sub { margin-top: 3px; font-size: 9px; font-weight: 700; letter-spacing: .6px; text-transform: uppercase; color: var(--text-dim); }
+.info-azel { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.info-azel-cell small { display: block; text-transform: uppercase; letter-spacing: 1px; font-size: 9px; font-weight: 800; color: var(--text-dim); }
+.info-azel-cell b { display: block; margin-top: 3px; font-size: 30px; line-height: 1; font-weight: 800; font-variant-numeric: tabular-nums; letter-spacing: -.5px; color: var(--accent); }
+.info-azel-cell b.up { color: var(--accent-2); }
+.info-azel-cell b.down { color: var(--text-dim); }
+.info-status { margin-top: 13px; font-size: 11px; font-weight: 600; color: var(--text-dim); font-variant-numeric: tabular-nums; }
+.info-status.up { color: var(--accent-2); }
+
 .mission-hero-body { display: flex; gap: 14px; margin-top: 11px; align-items: flex-start; }
 .mission-hero-info { flex: 1 1 auto; min-width: 0; }
 .mission-pass-title { display: flex; align-items: center; gap: 9px; font-size: var(--mc-hero-title-fs); font-weight: 800; letter-spacing: .2px; }
