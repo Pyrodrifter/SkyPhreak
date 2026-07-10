@@ -538,17 +538,19 @@ export function createUI(handlers) {
     }
 
     const selId = store.get().selected;
+    const ap = store.get().hw.rotator.armedPass;
     for (const it of items) {
       const p = it.pass;
       const live = now >= p.aos && now <= p.los;
       const untilMs = p.aos.getTime() - now;
       const count = live ? 'LOS ' + fmtCountdown(p.los.getTime() - now) : fmtCountdown(untilMs);
       const countCls = live ? 'now' : untilMs < 10 * 60000 ? 'soon' : '';
+      const armed = ap && ap.id === it.id && Math.abs(ap.aos - p.aos.getTime()) < 60000;
       const mini = h('canvas', { class: 'pass-mini', title: `Max ${p.maxEl}° · AOS ${azName(p.aosAz)} → LOS ${azName(p.losAz)}` });
 
       pane.append(
         h('div', {
-          class: 'pass-row' + (live ? ' live' : '') + (it.id === selId ? ' selected' : ''),
+          class: 'pass-row' + (live ? ' live' : '') + (armed ? ' armed' : '') + (it.id === selId ? ' selected' : ''),
           onclick: () => store.patch({ selected: it.id }),
         }, [
           h('div', { class: 'pass-main' }, [
@@ -557,6 +559,11 @@ export function createUI(handlers) {
               h('span', { class: 'pass-sat' }, it.name),
               h('span', { class: 'pass-norad' }, '#' + it.id),
               h('span', { class: 'pass-count ' + countCls }, count),
+              h('button', {
+                class: 'pass-arm' + (armed ? ' on' : ''),
+                title: armed ? 'Armed — the rotator is committed to this pass. Click to release.' : 'Arm the rotator for this specific pass (switches to Tracked mode)',
+                onclick: (e) => { e.stopPropagation(); armed ? handlers.disarmPass() : handlers.armPass(it.id, p.aos.getTime(), p.los.getTime()); },
+              }, armed ? '● Armed' : 'Arm'),
             ]),
             h('div', { class: 'pass-l2' }, [
               h('span', { class: 'pass-times' }, fmtDateTime(p.aos) + ' → ' + p.los.toLocaleTimeString()),
@@ -834,6 +841,22 @@ function buildHwPane(pane, handlers) {
   store.subscribe(renderParkPresets);
   renderParkPresets();
 
+  // Calibration: mount-alignment offsets (sky → mount) with capture helpers.
+  const azOffInp = inputNum(hw.rotator.azOffset, '0.1', (v) => store.patchIn('hw.rotator', { azOffset: v }));
+  const elOffInp = inputNum(hw.rotator.elOffset, '0.1', (v) => store.patchIn('hw.rotator', { elOffset: v }));
+  const calibNorth = h('button', {
+    class: 'btn sm', title: 'Point the mount at true north, then capture the azimuth offset',
+    onclick: () => { handlers.captureCalibNorth(); azOffInp.value = store.get().hw.rotator.azOffset; },
+  }, 'Set North here');
+  const calibLevel = h('button', {
+    class: 'btn sm', title: 'Level the mount (0° elevation), then capture the elevation offset',
+    onclick: () => { handlers.captureCalibLevel(); elOffInp.value = store.get().hw.rotator.elOffset; },
+  }, 'Set level here');
+
+  // Sun-avoidance guard.
+  const sunAvoidChk = checkbox(hw.rotator.sunAvoid, (v) => store.patchIn('hw.rotator', { sunAvoid: v }));
+  const sunAvoidDeg = inputNum(hw.rotator.sunAvoidDeg, '0.5', (v) => store.patchIn('hw.rotator', { sunAvoidDeg: Math.max(0, v) }));
+
   // Radio
   const radPill = statusPill('Radio disconnected');
   const radHost = h('input', { type: 'text', value: hw.radio.host, oninput: (e) => store.patchIn('hw.radio', { host: e.target.value }) });
@@ -866,6 +889,16 @@ function buildHwPane(pane, handlers) {
     h('div', { class: 'section-title' }, 'Park positions'),
     parkList,
     h('div', { class: 'row', style: 'display:flex;gap:8px;margin-top:6px;align-items:center' }, [parkNameInp, savePark]),
+
+    h('div', { class: 'section-title' }, 'Calibration & safety'),
+    h('div', { class: 'grid2' }, [
+      h('label', { class: 'fld' }, [h('span', {}, 'Az offset (°)'), azOffInp]),
+      h('label', { class: 'fld' }, [h('span', {}, 'El offset (°)'), elOffInp]),
+    ]),
+    h('div', { class: 'row', style: 'display:flex;gap:8px;margin-top:6px' }, [calibNorth, calibLevel]),
+    h('div', { class: 'muted', style: 'font-size:11px' }, 'Offsets correct mount misalignment (added to every commanded angle). Aim the mount at the reference, then capture.'),
+    h('div', { class: 'toggle-line switch', style: 'margin-top:8px' }, [h('span', {}, 'Sun-avoidance guard'), sunAvoidChk]),
+    h('label', { class: 'fld' }, [h('span', {}, 'Keep-out radius (°)'), sunAvoidDeg]),
 
     h('div', { class: 'section-title' }, 'Manual jog'),
     h('div', { class: 'jog-wrap' }, [jogPad, h('div', { class: 'jog-step' }, [h('span', { class: 'sub-label' }, 'Step'), stepSeg])]),

@@ -159,6 +159,42 @@ export class PolarView {
       }
     }
 
+    // Live rotor pointing: a fading trail of where the mount has actually been, a
+    // crosshair at its current actual position, and a hollow ring at the commanded
+    // position — so you can see the mount chase (and lag) the target in real time.
+    const rotor = frame.rotor;
+    if (rotor) {
+      if (rotor.trail && rotor.trail.length > 1) {
+        for (let i = 1; i < rotor.trail.length; i++) {
+          const [x0, y0] = this._pos(rotor.trail[i - 1].az, rotor.trail[i - 1].el, cx, cy, R);
+          const [x1, y1] = this._pos(rotor.trail[i].az, rotor.trail[i].el, cx, cy, R);
+          ctx.strokeStyle = `rgba(120,200,255,${(i / rotor.trail.length) * 0.5})`;
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          ctx.moveTo(x0, y0);
+          ctx.lineTo(x1, y1);
+          ctx.stroke();
+        }
+      }
+      if (rotor.commanded) {
+        const [x, y] = this._pos(rotor.commanded.az, Math.min(180, rotor.commanded.el), cx, cy, R);
+        ctx.strokeStyle = 'rgba(120,200,255,0.9)';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.arc(x, y, 7, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      if (rotor.actual) {
+        const [x, y] = this._pos(rotor.actual.az, Math.min(180, rotor.actual.el), cx, cy, R);
+        ctx.strokeStyle = '#78c8ff';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(x - 7, y); ctx.lineTo(x + 7, y);
+        ctx.moveTo(x, y - 7); ctx.lineTo(x, y + 7);
+        ctx.stroke();
+      }
+    }
+
     // The Moon, when above the horizon.
     const moon = frame.moon;
     if (moon && moon.look && moon.look.el >= 0) {

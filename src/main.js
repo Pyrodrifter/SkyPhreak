@@ -96,6 +96,13 @@ async function boot() {
       store.addParkPreset({ name, az: Math.round(az * 10) / 10, el: Math.round(Math.max(0, el) * 10) / 10 });
     },
     stopRotator: () => { if (motionRunning) { motion.stop(); motionRunning = false; } else if (rotConnected) window.pyro.rotator.stop(); },
+    // Calibration: capture the current telemetry as the true-north / level reference.
+    captureCalibNorth: () => { if (rotTelemetry && Number.isFinite(rotTelemetry.az)) store.patchIn('hw.rotator', { azOffset: Math.round(rotTelemetry.az * 10) / 10 }); },
+    captureCalibLevel: () => { if (rotTelemetry && Number.isFinite(rotTelemetry.el)) store.patchIn('hw.rotator', { elOffset: Math.round(rotTelemetry.el * 10) / 10 }); },
+    // Multi-pass queue: commit the scheduler to one specific pass (and switch to
+    // schedule mode so it takes effect); disarm to return to the automatic pick.
+    armPass: (id, aosMs, losMs) => store.patchIn('hw.rotator', { armedPass: { id, aos: aosMs, los: losMs }, autoMode: 'schedule' }),
+    disarmPass: () => store.patchIn('hw.rotator', { armedPass: null }),
     // Manual jog: take control (auto-track off) and nudge az/el by a step.
     jogRotator: (daz, del) => {
       if (!rotConnected) return;
@@ -122,8 +129,10 @@ async function boot() {
     send: (cmd) => {
       if (!rotConnected) return;
       if (cmd.stop) { window.pyro.rotator.stop(); return; }
-      // cmd.az is free/continuous (shortest path, may be negative or >360) — send as-is.
-      window.pyro.rotator.track(cmd.az, cmd.el, cmd.azRate, cmd.elRate);
+      // cmd.az is free/continuous (shortest path, may be negative or >360) — send as-is,
+      // plus the mount-alignment offset (sky → mount). The model stays in sky space.
+      const off = store.get().hw.rotator;
+      window.pyro.rotator.track(cmd.az + (off.azOffset || 0), cmd.el + (off.elOffset || 0), cmd.azRate, cmd.elRate);
     },
   });
 
@@ -511,6 +520,8 @@ function tick() {
     mapShow: { moon: state.showMoon, planets: state.showPlanets },
     // Flip-over preview for the polar view (selected sat only).
     flip: selCache.willFlip ? { arc: selCache.mountArc } : null,
+    // Live rotor pointing (actual vs commanded + trail) for the polar view.
+    rotor: buildRotorFrame(state.hw.rotator.azOffset || 0, state.hw.rotator.elOffset || 0),
   };
 
   if (state.view === '2d') map2d.draw(frame);
@@ -619,8 +630,9 @@ function wireHardwareStatus() {
     rotConnected = s.connected;
     if (s.telemetry) rotTelemetry = s.telemetry;
     if (!s.connected) rotTelemetry = null;
-    // Closed-loop: keep the smooth controller anchored to the rotator's real azimuth.
-    if (motion) motion.setActual(s.connected && s.telemetry ? s.telemetry.az : NaN);
+    // Closed-loop: keep the smooth controller anchored to the rotator's real azimuth,
+    // mapped from mount space back to sky space via the alignment offset.
+    if (motion) motion.setActual(s.connected && s.telemetry ? s.telemetry.az - (store.get().hw.rotator.azOffset || 0) : NaN);
     const where = s.path ? s.path : `${s.host || ''}:${s.port || ''}`;
     ui.hw.rotPill._set(s.connected, s.connected ? `Rotator connected ${where}` : (s.error ? 'Rotator: ' + s.error : 'Rotator disconnected'));
     ui.hw.rotConnect.textContent = s.connected ? 'Disconnect' : 'Connect';
@@ -682,6 +694,33 @@ function sampleTargetLook(id, date) {
 
 const wrap180 = (d) => ((d + 180) % 360 + 360) % 360 - 180;
 
+// Great-circle angular separation (degrees) between two az/el look directions.
+function angSep(az1, el1, az2, el2) {
+  const r = Math.PI / 180;
+  const c = Math.sin(el1 * r) * Math.sin(el2 * r) + Math.cos(el1 * r) * Math.cos(el2 * r) * Math.cos((az1 - az2) * r);
+  return Math.acos(Math.min(1, Math.max(-1, c))) / r;
+}
+
+// Rolling buffer of recent actual rotor positions (sky space) for the polar trail.
+let rotorTrail = [];
+
+// Snapshot for the polar view: where the mount is actually pointing (telemetry,
+// mapped to sky space) vs where the controller is commanding it, plus a fading
+// trail of recent actual positions. Null when there's nothing meaningful to show.
+function buildRotorFrame(azOff, elOff) {
+  if (!rotConnected) { rotorTrail.length = 0; return null; }
+  let actual = null;
+  let commanded = null;
+  if (rotTelemetry && Number.isFinite(rotTelemetry.az)) actual = { az: rotTelemetry.az - azOff, el: rotTelemetry.el - elOff };
+  if (motionRunning && motion.cmd) commanded = { az: motion.cmd.az, el: motion.cmd.el };
+  if (actual) {
+    rotorTrail.push({ az: actual.az, el: actual.el });
+    if (rotorTrail.length > 50) rotorTrail.shift();
+  }
+  if (!actual && !commanded) return null;
+  return { actual, commanded, trail: rotorTrail.slice() };
+}
+
 // Pass-scheduler state: the satellite the scheduler is locked onto, and whether
 // we've already issued the park command while idle (so we don't spam it).
 let schedLockId = null;
@@ -701,6 +740,12 @@ function pickScheduledTarget(frame, nowMs) {
     const s = frame.sats.find((x) => x.id === id);
     return s && s.look ? { id, name: s.name, look: s.look } : null;
   };
+  // An armed pass wins outright while it's in progress (the operator committed to it).
+  const armed = store.get().hw.rotator.armedPass;
+  if (armed && active.some((p) => p.id === armed.id && Math.abs(p.pass.aos.getTime() - armed.aos) < 60000)) {
+    const t = liveLook(armed.id);
+    if (t) { schedLockId = armed.id; return t; }
+  }
   if (schedLockId && active.some((p) => p.id === schedLockId)) {
     const t = liveLook(schedLockId);
     if (t) return t;
@@ -814,7 +859,7 @@ function driveToTarget(track, date, rot) {
   } else {
     if (motionRunning) { motion.stop(); motionRunning = false; }
     if (date.getTime() - lastRotSend > 1000) {
-      window.pyro.rotator.setAzEl(look.az, Math.max(0, look.el));
+      window.pyro.rotator.setAzEl(look.az + (rot.azOffset || 0), Math.max(0, look.el) + (rot.elOffset || 0));
       lastRotSend = date.getTime();
     }
   }
@@ -828,8 +873,11 @@ function pickPreslew(nowMs, mode, rot) {
   if (lead <= 0) return null;
   let best = null;
   if (mode === 'schedule') {
+    // If a pass is armed, pre-slew only for it; otherwise the soonest imminent one.
+    const armed = rot.armedPass;
     for (const p of trackedPassesCache.list) {
       const t = p.pass.aos.getTime();
+      if (armed && !(p.id === armed.id && Math.abs(t - armed.aos) < 60000)) continue;
       if (t > nowMs && t - nowMs <= lead && (!best || t < best.t)) {
         best = { id: p.id, name: p.name, az: p.pass.aosAz, el: rot.minEl || 0, t };
       }
@@ -861,7 +909,7 @@ function preSlewTo(pre, date, rot) {
     const r = resolveMount(pre.az, el, motion.currentAz(), rot.elMax);
     motion.setTarget(r.az, r.el, 0, 0);
   } else if (date.getTime() - lastRotSend > 1000) {
-    window.pyro.rotator.setAzEl(pre.az, el);
+    window.pyro.rotator.setAzEl(pre.az + (rot.azOffset || 0), el + (rot.elOffset || 0));
     lastRotSend = date.getTime();
   }
   preslewId = pre.id;
@@ -898,6 +946,9 @@ function driveHardware(frame, date) {
   const mode = rot.autoMode || 'off';
   const selected = activeTarget(frame);
 
+  // Auto-disarm a queued pass once it's over (small grace after LOS).
+  if (rot.armedPass && Date.now() > (rot.armedPass.los || 0) + 5000) store.patchIn('hw.rotator', { armedPass: null });
+
   // Resolve the auto-track target for this mode.
   let track = null;
   if (mode === 'selected') {
@@ -910,7 +961,23 @@ function driveHardware(frame, date) {
 
   // No live target but a pass is imminent? Pre-position to its AOS azimuth.
   const nowMs = date.getTime();
-  const pre = rotConnected && mode !== 'off' && !track ? pickPreslew(nowMs, mode, rot) : null;
+  let pre = rotConnected && mode !== 'off' && !track ? pickPreslew(nowMs, mode, rot) : null;
+
+  // Sun-avoidance guard: how close the intended boresight is to the Sun. During a live
+  // track we can only warn (skipping would lose the satellite); for a pre-slew we hold
+  // off (park) rather than park/point the dish straight at the Sun.
+  let sunWarn = null;
+  if (rot.sunAvoid) {
+    const sun = (frame.bodies || []).find((b) => b.id === 'SUN');
+    const pointing = track ? track.look : pre ? { az: pre.az, el: pre.el } : null;
+    if (sun && sun.look && pointing) {
+      const sep = angSep(pointing.az, pointing.el, sun.look.az, sun.look.el);
+      if (sep < (rot.sunAvoidDeg || 5)) {
+        sunWarn = sep;
+        if (!track && pre) pre = null; // don't pre-slew into the Sun; park instead
+      }
+    }
+  }
 
   // Rotator readout.
   if (ui.hw.rotTarget) {
@@ -940,13 +1007,14 @@ function driveHardware(frame, date) {
         ...k('Slew', `${rotTelemetry.azRate.toFixed(2)} / ${rotTelemetry.elRate.toFixed(2)} °/s`)
       );
     }
+    if (sunWarn != null) ui.hw.rotTarget.append(...k('⚠ Sun', sunWarn.toFixed(1) + '° from boresight'));
   }
 
   // Bottom status bar: connection state + what the rotator is tracking.
   ui.setStatus({
     rotConnected,
     radConnected,
-    tracking: track ? track.name
+    tracking: track ? track.name + (sunWarn != null ? ' · ⚠ Sun' : '')
       : pre ? `Pre-slew ${pre.name} · AOS ${countdown(pre.t - nowMs)}`
       : (rotConnected && mode !== 'off' ? 'Parked' : null),
   });

@@ -57,6 +57,20 @@ const DEFAULTS = {
       // others slew to a saved az/el. parkDefault names the one the Park button uses.
       parkPresets: [{ name: 'Home', home: true }],
       parkDefault: 'Home',
+      // Mount-alignment calibration: offsets added to the true-sky command to get the
+      // mount command (mount = sky + offset); telemetry is mapped back the other way.
+      // 0/0 = no correction (default). Backlash figures are for firmware config sync.
+      azOffset: 0,
+      elOffset: 0,
+      backlashAz: 0,
+      backlashEl: 0,
+      // Sun-avoidance guard: warn (and skip pre-slew) when pointing within sunAvoidDeg
+      // of the Sun, to protect optics/sensors on the boresight.
+      sunAvoid: false,
+      sunAvoidDeg: 5,
+      // Multi-pass queue: a specific pass the scheduler is committed to, overriding the
+      // automatic highest-pass pick. { id, aos } (aos = epoch ms) or null.
+      armedPass: null,
     },
     radio: { host: '127.0.0.1', port: 4532, downlinkHz: 145800000, doppler: false },
   },

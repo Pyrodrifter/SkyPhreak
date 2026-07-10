@@ -396,6 +396,16 @@ button.btn:disabled { opacity: 0.5; cursor: default; }
 .park-x { color: var(--danger); border-color: var(--line); }
 .park-x-spacer { width: 32px; }
 .park-name { flex: 1; }
+
+/* Pass-queue "Arm" button + armed-row highlight (Passes tab). */
+.pass-arm {
+  margin-left: auto; font-size: 10px; padding: 2px 8px; border-radius: 5px;
+  border: 1px solid var(--line); background: var(--panel-2); color: var(--text-dim);
+  cursor: pointer; white-space: nowrap; flex: 0 0 auto;
+}
+.pass-arm:hover { border-color: var(--accent); color: var(--text); }
+.pass-arm.on { background: var(--accent); border-color: var(--accent); color: #04121d; font-weight: 700; }
+.pass-row.armed { box-shadow: inset 2px 0 0 var(--accent); }
 .tle-status { font-size: 11px; color: var(--accent-2); }
 .tle-status.warn { color: var(--warn); }
 .stale-badge {
