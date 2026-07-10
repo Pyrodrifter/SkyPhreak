@@ -102,6 +102,9 @@ export class Globe3D {
     this.defaultLights = typeof g.lights === 'function' ? g.lights() : null;
     this._loadTextures();
     this._resize();
+    // Make the 3D globe read as the main instrument rather than a small object
+    // floating in an otherwise empty stage. Users can still zoom out to the Moon.
+    g.pointOfView({ altitude: 1.7 }, 0);
     this._ro = new ResizeObserver(() => this._resize());
     this._ro.observe(container);
   }
@@ -174,6 +177,11 @@ export class Globe3D {
 
   _resize() {
     const r = this.container.getBoundingClientRect();
+    // globe.gl/three defaults to a 1× backing buffer in some Electron builds.
+    // Explicitly use the display DPR (capped for GPU sanity) so coastlines, labels,
+    // and the day texture remain sharp on scaled Windows displays.
+    const renderer = typeof this.g.renderer === 'function' ? this.g.renderer() : null;
+    if (renderer) renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     this.g.width(Math.max(1, r.width)).height(Math.max(1, r.height));
   }
 

@@ -1,4 +1,20 @@
 /*
+ * ============================================================================
+ *  ⚠  DEPRECATED — NOT THE CANONICAL FIRMWARE.
+ *
+ *  The maintained, up-to-date firmware is:  PyroRotator/PyroRotator.ino
+ *
+ *  This TMC2209/UART sketch predates the v0.3 protocol work and is OUT OF SYNC
+ *  with the app: it clamps azimuth to [0,450] (the app now uses a free/continuous
+ *  shortest-path azimuth) and lacks the C (config), H (home) and U (unwind)
+ *  commands plus the extended telemetry the app expects. Do NOT flash this for
+ *  use with SkyPhreak v0.3+. Kept only as a UART/StealthChop reference.
+ *
+ *  → If you are not actively using it as a reference, delete this directory and
+ *    keep PyroRotator/ as the single source of truth. (Left in place rather than
+ *    deleted so the original author can confirm.)
+ * ============================================================================
+ *
  * SuperRot firmware — continuous-motion az/el rotator controller
  * Target: ESP32 + 2x TMC2209 (UART) + 2x NEMA 17, for SkyPhreak.
  *

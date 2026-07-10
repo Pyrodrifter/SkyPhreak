@@ -33,6 +33,13 @@ html.ui-sm {
   --ctl-fs: 11px; --ctl-fs-sm: 10px; --chk: 15px; --row-h: 29px;
   --row-py: 4px; --tab-py: 8px; --sb-h: 38px; --stat-fs: 13px; --stat-fs-big: 18px;
 }
+/* The Mission Control layout is information-dense, but the old Small preset made
+   labels too tiny on a normal desktop. Keep it compact without sacrificing legibility. */
+html.ui-sm .mission-console {
+  --body-fs: 12px; --ctl-h: 32px; --ctl-h-sm: 28px; --ctl-py: 6px;
+  --ctl-fs: 12px; --ctl-fs-sm: 11px; --chk: 17px; --row-h: 34px;
+  --row-py: 6px; --tab-py: 10px; --sb-h: 48px; --stat-fs: 14px; --stat-fs-big: 20px;
+}
 html.ui-lg {
   --body-fs: 15px; --ctl-h: 52px; --ctl-h-sm: 44px; --ctl-py: 14px;
   --ctl-fs: 15px; --ctl-fs-sm: 14px; --chk: 26px; --row-h: 58px;
@@ -260,8 +267,8 @@ body {
 .mini-head .on-map { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; text-transform: none; letter-spacing: 0; }
 .mini-head .chk-group { display: flex; gap: 10px; }
 .sat-row {
-  display: flex; align-items: center; gap: 9px;
-  padding: var(--row-py) 9px; min-height: var(--row-h); border-radius: 7px; cursor: pointer;
+  display: flex; align-items: center; gap: 10px;
+  padding: var(--row-py) 11px; min-height: var(--row-h); border-radius: 7px; cursor: pointer;
 }
 .sat-row:hover { background: var(--panel-2); }
 .sat-row.selected { background: color-mix(in srgb, var(--accent) 16%, transparent); }
@@ -300,9 +307,9 @@ input[type="text"], input[type="number"], select {
 }
 input:focus, select:focus { outline: 1px solid var(--accent); border-color: var(--accent); }
 input[type="checkbox"] { width: var(--chk); height: var(--chk); accent-color: var(--accent); cursor: pointer; flex: 0 0 auto; }
-label.fld { display: block; margin-bottom: 9px; }
-label.fld > span { display: block; color: var(--text-dim); font-size: 11px; margin-bottom: 4px; }
-.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+label.fld { display: block; margin-bottom: 12px; }
+label.fld > span { display: block; color: var(--text-dim); font-size: 11px; margin-bottom: 5px; }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 
 button.btn {
   background: var(--panel-2);
@@ -337,7 +344,7 @@ button.btn:disabled { opacity: 0.5; cursor: default; }
 .tabpane { display: none; padding: 12px; overflow-y: auto; flex: 1; min-height: 0; }
 .tabpane.active { display: block; }
 
-.kv { display: grid; grid-template-columns: auto 1fr; gap: 4px 10px; margin-bottom: 10px; }
+.kv { display: grid; grid-template-columns: auto 1fr; gap: 6px 12px; margin-bottom: 13px; }
 .kv .k { color: var(--text-dim); }
 .kv .v { text-align: right; font-variant-numeric: tabular-nums; color: var(--text); }
 .kv .v.big { font-size: 15px; font-weight: 600; }
@@ -346,16 +353,16 @@ button.btn:disabled { opacity: 0.5; cursor: default; }
 .kv .v.warn { color: var(--warn); }
 
 /* --------------------------- Instrument dashboard ------------------------- */
-.dash-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+.dash-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 11px; }
 .dash-name { font-size: 16px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dash-id { color: var(--text-dim); font-size: 11px; font-variant-numeric: tabular-nums; flex: none; }
 .dash-badge { flex: none; font-size: 9px; font-weight: 700; letter-spacing: 0.5px; padding: 2px 6px; border-radius: 4px; }
 .dash-badge.up { color: var(--accent-2); background: color-mix(in srgb, var(--accent-2) 16%, transparent); }
 .dash-badge.down { color: var(--text-dim); background: rgba(255,255,255,0.04); }
-.dash-status { font-weight: 600; color: var(--text-dim); margin: 0 0 10px; }
+.dash-status { font-weight: 600; color: var(--text-dim); margin: 0 0 13px; }
 .dash-status.up { color: var(--accent-2); }
-.stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px; }
-.stat { background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+.stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 15px; }
+.stat { background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 11px 12px; }
 .stat-l { color: var(--text-dim); font-size: 9px; text-transform: uppercase; letter-spacing: 0.5px; }
 .stat-v { font-size: var(--stat-fs); font-weight: 600; font-variant-numeric: tabular-nums; margin-top: 2px; color: var(--text); }
 .stat.big .stat-v { font-size: var(--stat-fs-big); }
@@ -463,6 +470,56 @@ button.btn:disabled { opacity: 0.5; cursor: default; }
   background: var(--panel-2); border: 1px solid var(--line);
   font-family: ui-monospace, monospace; font-size: 12px; color: var(--text);
 }
+
+/* Collapsible sub-sections in the Hardware pane. */
+.hw-sec { border-top: 1px solid var(--line); margin-top: 4px; }
+.hw-sec-head {
+  width: 100%; display: flex; align-items: center; gap: 8px;
+  background: none; border: none; cursor: pointer; color: var(--text);
+  font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.4px;
+  padding: 10px 0; text-align: left;
+}
+.hw-sec-head:hover { color: var(--accent); }
+.hw-sec-chev { color: var(--text-dim); font-size: 10px; width: 12px; text-align: center; }
+.hw-sec-body { padding-bottom: 8px; }
+
+/* Bulk track/untrack toolbar above the satellite list. */
+.list-bar { display: flex; align-items: center; gap: 6px; padding: 5px 10px; border-bottom: 1px solid var(--line); }
+.bulk-info { font-size: 10px; color: var(--text-dim); white-space: nowrap; }
+button.btn.xs { min-height: 22px; padding: 2px 8px; font-size: 10px; }
+
+/* Custom-theme accent colour picker (lives in the Appearance popover). */
+.theme-accent { width: 30px; height: 28px; padding: 2px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel-2); cursor: pointer; }
+.theme-accent::-webkit-color-swatch { border: none; border-radius: 3px; }
+.theme-accent::-webkit-color-swatch-wrapper { padding: 0; }
+
+/* Appearance popover (⚙ in the topbar): size, theme, accent, field mode. */
+.appearance-wrap { position: relative; }
+.appearance-pop {
+  position: absolute; top: calc(100% + 6px); right: 0; z-index: 60;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+  padding: 10px 12px; min-width: 230px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+  display: flex; flex-direction: column; gap: 10px;
+}
+.ap-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+.ap-label { font-size: 12px; color: var(--text-dim); }
+
+/* Space-weather strip in the Info tab. */
+.info-wx {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  margin-top: 10px; padding: 8px 10px; border: 1px solid var(--line);
+  border-radius: 8px; background: var(--panel-2);
+}
+.info-wx-k { font-size: 11px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.4px; }
+
+/* Inline SVG icon system (src/views/icons.js) — icons stroke in currentColor. */
+.ico { display: block; }
+.tab-ico, .btn-ico { display: inline-flex; align-items: center; }
+.btn-ico { margin-right: 5px; }
+.tab-ico { margin-right: 6px; opacity: 0.9; }
+.tabs button { display: inline-flex; align-items: center; justify-content: center; }
+.stage-tools .btn { display: inline-flex; align-items: center; justify-content: center; }
 .tle-status { font-size: 11px; color: var(--accent-2); }
 .tle-status.warn { color: var(--warn); }
 .stale-badge {
@@ -471,7 +528,7 @@ button.btn:disabled { opacity: 0.5; cursor: default; }
   padding: 0 4px; opacity: 0.85; white-space: nowrap;
 }
 
-.section-title { text-transform: uppercase; letter-spacing: 0.5px; font-size: 10px; color: var(--text-dim); margin: 14px 0 6px; }
+.section-title { text-transform: uppercase; letter-spacing: 0.5px; font-size: 10px; color: var(--text-dim); margin: 17px 0 9px; }
 
 /* -------------------------- Satellite colour picker ----------------------- */
 .dot-btn { border: 0; padding: 0; cursor: pointer; outline: none; transition: box-shadow 0.1s; }
@@ -538,3 +595,216 @@ button.btn:disabled { opacity: 0.5; cursor: default; }
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-thumb { background: #1c2733; border-radius: 6px; }
 .globe-tip { background: rgba(8,12,20,0.85); color:#fff; padding:3px 7px; border-radius:5px; font-size:11px; }
+
+/* ------------------------- Mission Control layout ------------------------ */
+/* Mission Console chrome sizing — driven by the S/M/L scale so "Large"/"Small" actually
+   resize the mission topbar, metrics, tabs, status bar and pass cards (not just body
+   text). Defaults below are Medium; ui-sm / ui-lg override them. */
+.mission-console {
+  --mission-glow: color-mix(in srgb, var(--accent) 18%, transparent);
+  --mc-topbar-h: 86px; --mc-logo: 54px;
+  --mc-brand-fs: clamp(18px, 1.45vw, 23px);
+  --mc-name-fs: clamp(15px, 1.2vw, 19px);
+  --mc-metric-fs: clamp(13px, 1.05vw, 17px);
+  --mc-tab-fs: 11px; --mc-tab-py: 15px;
+  --mc-sb-h: 74px; --mc-time-fs: 22px;
+  --mc-hero-title-fs: 17px; --mc-passrow-h: 72px;
+}
+html.ui-sm .mission-console {
+  --mc-topbar-h: 72px; --mc-logo: 42px;
+  --mc-brand-fs: clamp(15px, 1.2vw, 19px);
+  --mc-name-fs: clamp(13px, 1vw, 16px);
+  --mc-metric-fs: clamp(12px, .95vw, 15px);
+  --mc-tab-fs: 10px; --mc-tab-py: 11px;
+  --mc-sb-h: 62px; --mc-time-fs: 18px;
+  --mc-hero-title-fs: 15px; --mc-passrow-h: 62px;
+}
+html.ui-lg .mission-console {
+  --mc-topbar-h: 106px; --mc-logo: 66px;
+  --mc-brand-fs: clamp(21px, 1.7vw, 27px);
+  --mc-name-fs: clamp(17px, 1.4vw, 22px);
+  --mc-metric-fs: clamp(15px, 1.25vw, 21px);
+  --mc-tab-fs: 13px; --mc-tab-py: 19px;
+  --mc-sb-h: 92px; --mc-time-fs: 27px;
+  --mc-hero-title-fs: 20px; --mc-passrow-h: 86px;
+}
+.mission-console .topbar { min-height: var(--mc-topbar-h); padding: 9px clamp(10px, 1.1vw, 16px); gap: clamp(8px, .85vw, 16px); background: linear-gradient(100deg, #060c16 0%, var(--topbar-hi) 48%, #07111d 100%); border-bottom-color: color-mix(in srgb, var(--accent) 22%, var(--line)); }
+.mission-console .topbar > * { min-width: 0; }
+.mission-console .brand { width: clamp(164px, 13vw, 210px); min-width: 0; gap: 10px; padding-right: clamp(8px, 1vw, 16px); border-right: 1px solid var(--line); }
+.mission-console .brand-logo { height: var(--mc-logo); width: var(--mc-logo); filter: drop-shadow(0 0 8px color-mix(in srgb, var(--accent) 42%, transparent)); }
+.mission-console .brand-text { font-size: var(--mc-brand-fs); letter-spacing: .2px; line-height: 1; }
+.mission-console .brand-text small { display: block; margin-top: 7px; text-transform: uppercase; font-size: 8px; letter-spacing: 1.35px; color: var(--text-dim); }
+.mission-target { display: flex; align-items: center; gap: 10px; min-width: 0; width: clamp(178px, 15vw, 270px); }
+.mission-target-dot { width: 13px; height: 13px; border-radius: 50%; background: #ff6387; box-shadow: 0 0 0 3px rgba(255,99,135,.13), 0 0 14px rgba(255,99,135,.65); }
+.mission-target-kind, .mission-target-state, .mission-metric-label, .mission-link small, .mission-pass-eyebrow, .mission-pass-grid small { display: block; text-transform: uppercase; letter-spacing: .9px; color: var(--text-dim); font-size: 10px; font-weight: 700; }
+.mission-target-name { font-size: var(--mc-name-fs); line-height: 1.25; font-weight: 750; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mission-target-state { margin-top: 2px; color: var(--warn); letter-spacing: .75px; }
+.mission-target-state.up { color: var(--accent-2); }
+.mission-metrics { display: flex; align-self: stretch; min-width: 0; flex: 1 1 360px; overflow: hidden; }
+.mission-metric { min-width: 0; flex: 1 1 70px; padding: 9px clamp(10px, .95vw, 16px); border-left: 1px solid var(--line); display: flex; flex-direction: column; justify-content: center; overflow: hidden; }
+.mission-metric b { font-size: var(--mc-metric-fs); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mission-metric small { margin-top: 3px; min-height: 10px; color: var(--text-dim); font-size: 9px; }
+.mission-links { display: flex; flex: 0 0 auto; align-self: stretch; border: 1px solid var(--line); border-radius: 9px; overflow: hidden; background: rgba(2,8,17,.26); }
+.mission-link { min-width: 76px; display: flex; align-items: center; gap: 8px; padding: 8px 9px; border-right: 1px solid var(--line); }
+.mission-link:last-of-type { border: 0; }
+.mission-link span:not(.mission-dot) { display: block; color: var(--text); font-size: 10px; white-space: nowrap; }
+.mission-dot { width: 9px; height: 9px; flex: none; border-radius: 50%; background: var(--danger); box-shadow: 0 0 6px color-mix(in srgb, var(--danger) 62%, transparent); }
+.mission-dot.on { background: #39dd87; box-shadow: 0 0 9px rgba(57,221,135,.7); }
+.mission-links > .mission-metric { min-width: 66px; padding: 7px 11px; border-left: 1px solid var(--line); }
+.mission-links > .mission-metric b { font-size: 13px; }
+.mission-console .topbar .toggle { flex: none; }
+.mission-console .topbar .toggle button { min-width: 78px; padding-left: 11px; padding-right: 11px; }
+
+.mission-console .body { gap: 14px; padding: 12px 14px; background: radial-gradient(ellipse at 50% -15%, #102946 0%, var(--bg) 48%); }
+.mission-console .sidebar, .mission-console .rightpanel { border: 1px solid var(--line); border-radius: 9px; background: linear-gradient(160deg, var(--panel), color-mix(in srgb, var(--panel) 84%, #06101c)); }
+.mission-console .sidebar { width: 278px; }
+.mission-console .rightpanel { width: 364px; }
+.mission-console .sidebar.collapsed, .mission-console .rightpanel.collapsed { width: 0; border-color: transparent; }
+.panel-heading { display: flex; align-items: center; justify-content: space-between; color: var(--accent); text-transform: uppercase; letter-spacing: 1.2px; font-size: 10px; font-weight: 800; }
+.mission-console .side-top { gap: 11px; padding: 14px; border-bottom-color: var(--line); }
+.mission-console .stage { border: 1px solid color-mix(in srgb, var(--accent) 27%, var(--line)); border-radius: 9px; overflow: hidden; box-shadow: 0 0 30px rgba(0,0,0,.23); }
+.mission-console .panel-toggle { top: auto; bottom: 12px; transform: none; height: 35px; width: 35px; border-radius: 7px; }
+.mission-console .panel-toggle.side { left: 10px; }
+.mission-console .panel-toggle.right { right: 10px; }
+.mission-console .stage-tools { top: 12px; right: 12px; gap: 7px; }
+.mission-console .stage-tools .btn { width: 38px; height: 36px; min-height: 36px; padding: 0; font-size: 0; background: rgba(5,13,23,.78); backdrop-filter: blur(8px); }
+.mission-console .stage-tools .btn-ico { margin: 0; }
+.mission-console .view-hint { left: auto; right: 12px; bottom: 12px; border: 1px solid rgba(110,180,240,.18); }
+/* Stop is permanently available in the footer; a second floating copy obscured the
+   map hint and looked misplaced on compact stages. */
+.mission-console .estop-fab, .mission-console .estop-fab.show { display: none; }
+.mission-console .tabs { padding: 0 9px; background: rgba(7,15,26,.65); }
+.mission-console .tabs button { gap: 5px; padding-top: var(--mc-tab-py); padding-bottom: calc(var(--mc-tab-py) - 3px); font-size: var(--mc-tab-fs); }
+.mission-console .tabpane { padding: 15px 14px 18px; }
+.mission-console .passes-head { margin: 0 0 10px; }
+.mission-console .passes-head .section-title { color: var(--accent); font-size: 10px; letter-spacing: 1px; }
+/* ---- NOW / NEXT PASS hero card ---- */
+.mission-pass-hero {
+  margin: 0 0 14px; padding: 14px 15px; border-radius: 11px;
+  border: 1px solid color-mix(in srgb, var(--accent) 46%, var(--line));
+  background: linear-gradient(150deg, color-mix(in srgb, var(--accent) 15%, var(--panel-2)), var(--panel-2) 62%);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 9%, transparent), inset 0 0 26px color-mix(in srgb, var(--accent) 8%, transparent);
+}
+.mission-pass-hero.live { border-color: color-mix(in srgb, var(--accent-2) 55%, var(--line)); }
+.mission-hero-top { display: flex; align-items: center; justify-content: space-between; }
+.mission-pass-eyebrow { text-transform: uppercase; letter-spacing: 1.1px; font-size: 10px; font-weight: 800; color: var(--accent-2); }
+.mission-live { display: inline-flex; align-items: center; gap: 6px; font-size: 9px; font-weight: 800; letter-spacing: 1px; text-transform: uppercase; color: var(--text-dim); }
+.mission-live-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text-dim); }
+.mission-live.on { color: var(--accent-2); }
+.mission-live.on .mission-live-dot { background: var(--accent-2); box-shadow: 0 0 8px var(--accent-2); animation: mc-pulse 1.6s ease-in-out infinite; }
+@keyframes mc-pulse { 50% { opacity: .3; } }
+
+.mission-hero-body { display: flex; gap: 14px; margin-top: 11px; align-items: flex-start; }
+.mission-hero-info { flex: 1 1 auto; min-width: 0; }
+.mission-pass-title { display: flex; align-items: center; gap: 9px; font-size: var(--mc-hero-title-fs); font-weight: 800; letter-spacing: .2px; }
+.mission-pass-title .dot { width: 11px; height: 11px; flex: none; border-radius: 50%; box-shadow: 0 0 9px currentColor; }
+.mission-hero-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.mission-hero-aos { margin: 11px 0 13px; }
+.mission-hero-aos small { display: block; text-transform: uppercase; letter-spacing: 1px; font-size: 9px; font-weight: 800; color: var(--text-dim); }
+.mission-hero-aos b { display: block; margin-top: 2px; font-size: 30px; line-height: 1; font-weight: 800; color: var(--accent); font-variant-numeric: tabular-nums; letter-spacing: -.5px; }
+.mission-pass-hero.live .mission-hero-aos b { color: var(--accent-2); }
+.mission-hero-when { display: block; margin-top: 7px; font-size: 10px; color: var(--text-dim); font-variant-numeric: tabular-nums; }
+
+.mission-hero-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 9px 14px; }
+.mission-hero-polar { flex: none; width: 112px; height: 112px; }
+.mission-pass-polar { width: 112px; height: 112px; }
+
+/* ---- shared stat cell (small dim label over a bold value; .hi pops in accent-2) ---- */
+.mc-stat small { display: block; text-transform: uppercase; letter-spacing: .8px; font-size: 8px; font-weight: 800; color: var(--text-dim); white-space: nowrap; }
+.mc-stat b { display: block; margin-top: 2px; font-size: 13px; font-weight: 750; font-variant-numeric: tabular-nums; color: var(--text); white-space: nowrap; }
+.mc-stat.hi b { color: var(--accent-2); }
+.mission-hero-stats .mc-stat.hi b { font-size: 16px; }
+
+/* ---- upcoming pass rows ---- */
+.mission-console .pass-row {
+  position: relative; display: grid; grid-template-columns: 54px minmax(0, 1fr) 50px;
+  align-items: center; gap: 11px; min-height: var(--mc-passrow-h); margin-bottom: 10px;
+  padding: 10px 13px; border-radius: 9px; border: 1px solid transparent;
+  background: rgba(8,19,33,.5); cursor: pointer; transition: border-color .12s, box-shadow .12s, background .12s;
+}
+.mission-console .pass-row:hover { background: rgba(12,26,44,.7); border-color: color-mix(in srgb, var(--accent) 50%, var(--line)); }
+.mission-console .pass-row.selected { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent), 0 0 18px var(--mission-glow); }
+.mission-console .pass-row.live { border-color: var(--accent-2); }
+.mission-console .pass-row.armed { box-shadow: inset 3px 0 0 var(--accent); }
+
+.mission-console .pass-when { align-self: stretch; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; border-right: 1px solid var(--line); padding-right: 9px; }
+.mission-console .pass-when > span:first-child { font-size: 8px; font-weight: 800; letter-spacing: .8px; color: var(--text-dim); text-transform: uppercase; }
+.mission-console .pass-when b { font-size: 14px; font-weight: 800; line-height: 1.05; color: var(--accent); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.mission-console .pass-when.soon b { color: var(--warn); }
+.mission-console .pass-when.now b { color: var(--accent-2); }
+.mission-console .pass-when-date { font-size: 8px; color: var(--text-dim); }
+
+.mission-console .pass-main { min-width: 0; }
+.mission-console .pass-l1 { display: flex; align-items: center; gap: 7px; min-width: 0; }
+.mission-console .pass-l1 .dot { width: 9px; height: 9px; flex: none; border-radius: 50%; box-shadow: 0 0 6px currentColor; }
+.mission-console .pass-sat { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 700; color: var(--text); }
+.mission-console .pass-vis { flex: none; font-size: 11px; line-height: 1; }
+.mission-console .pass-l2 { display: flex; align-items: baseline; gap: 5px; margin-top: 5px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.mission-console .pass-l2-k { font-size: 8px; font-weight: 800; letter-spacing: .6px; color: var(--text-dim); text-transform: uppercase; }
+.mission-console .pass-maxel { font-size: 14px; font-weight: 800; color: var(--accent-2); }
+.mission-console .pass-l2-sep { color: var(--text-dim); opacity: .6; }
+.mission-console .pass-dur { font-size: 11px; color: var(--text-dim); }
+.mission-console .pass-l3 { margin-top: 4px; }
+.mission-console .pass-times { font-size: 9px; color: var(--text-dim); font-variant-numeric: tabular-nums; }
+
+.mission-console .pass-mini { width: 50px; height: 50px; flex: none; }
+
+.mission-console .pass-arm {
+  position: absolute; top: 7px; right: 9px; z-index: 3;
+  font-size: 8px; font-weight: 700; letter-spacing: .4px;
+  padding: 2px 7px; border-radius: 5px; border: 1px solid var(--line);
+  background: rgba(3,10,18,.85); color: var(--text-dim); cursor: pointer;
+  opacity: 0; pointer-events: none; transition: opacity .12s;
+}
+.mission-console .pass-row:hover .pass-arm, .mission-console .pass-arm.on { opacity: 1; pointer-events: auto; }
+.mission-console .pass-arm:hover { border-color: var(--accent); color: var(--text); }
+.mission-console .pass-arm.on { background: var(--accent); border-color: var(--accent); color: #04121d; }
+.mission-console .pass-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; min-width: 72px; }
+.mission-console .pass-stats b { display: block; margin-top: 2px; font-size: 10px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+.mission-console .statusbar { height: var(--mc-sb-h); gap: 10px; margin: 0 12px 12px; padding: 0 16px; border: 1px solid var(--line); border-radius: 9px; background: linear-gradient(100deg, var(--topbar-hi), #091522); }
+.mission-console .statusbar .clock { display: flex; flex-direction: column; justify-content: center; min-width: 176px; font-variant-numeric: tabular-nums; line-height: 1.05; }
+.mission-console .statusbar .clock-time { color: var(--text); font-size: var(--mc-time-fs); font-weight: 750; letter-spacing: -.35px; }
+.mission-console .statusbar .clock-meta { margin-top: 5px; color: var(--text-dim); font-size: 11px; white-space: nowrap; }
+.mission-console .statusbar .sb-item { min-height: 42px; padding: 0 11px; }
+.mission-console .statusbar .sb-track-mode { gap: 9px; }
+.mission-console .statusbar .sb-k { color: var(--accent); }
+.mission-console .statusbar .btn.sm { min-width: 96px; min-height: 44px; border-radius: 8px; }
+.mission-console .statusbar .track-btn { min-width: 78px; }
+.mission-console .statusbar .btn.danger { min-width: 150px; font-size: 14px; letter-spacing: .25px; border-width: 1px; }
+.mission-console .statusbar .btn.danger::before { content: '■ '; }
+
+/* Keep Windows text rasterisation clean at 100–150% display scaling. */
+.mission-console { text-rendering: geometricPrecision; }
+.mission-console .mission-metric, .mission-console .mission-link, .mission-console .tabs button, .mission-console .panel-heading { -webkit-font-smoothing: antialiased; }
+
+@media (max-width: 1500px) { .mission-console .mission-links { display: none; } .mission-console .rightpanel { width: 330px; } }
+@media (max-width: 1240px) {
+  .mission-console .mission-metric:nth-child(5) { display: none; }
+  .mission-console .sidebar { width: 200px; }
+  .mission-console .rightpanel { width: 270px; }
+  /* Panel is now narrow — collapse the tabs to icons so "Hardware" doesn't clip. */
+  .mission-console .tabs button > span:not(.tab-ico) { display: none; }
+  .mission-console .tabs button { padding-left: 6px; padding-right: 6px; }
+  .mission-console .tab-ico { margin: 0; }
+}
+@media (max-width: 1080px) {
+  .mission-console .mission-metric:nth-child(4) { display: none; }
+  .mission-console .topbar .toggle { display: none; }
+  .mission-console .sidebar { width: 180px; }
+  .mission-console .rightpanel { width: 255px; }
+  .mission-console .tabs { padding: 0 5px; }
+  .mission-console .tabs button > span:not(.tab-ico) { display: none; }
+  .mission-console .tabs button { padding-left: 4px; padding-right: 4px; }
+  .mission-console .tab-ico { margin: 0; }
+  .mission-console .statusbar { height: 64px; margin-left: 8px; margin-right: 8px; padding: 0 10px; }
+  .mission-console .statusbar .clock { min-width: 136px; }
+  .mission-console .statusbar .clock-time { font-size: 19px; }
+  .mission-console .statusbar .sb-target, .mission-console .statusbar .sb-wrap, .mission-console .statusbar .sb-sep { display: none; }
+  .mission-console .statusbar .track-btn { min-width: 68px; }
+  .mission-console .statusbar .btn.sm { min-width: 76px; min-height: 40px; }
+  .mission-console .statusbar .btn.danger { min-width: 126px; }
+}
+@media (max-width: 900px) { .mission-console .sidebar { display: none; } .mission-console .statusbar .sb-connection { display: none; } }
+@media (max-width: 840px) { .mission-console .mission-metrics { display: none; } .mission-console .brand-logo { width: 42px; height: 42px; } .mission-console .brand-text small, .mission-target-kind { display: none; } }

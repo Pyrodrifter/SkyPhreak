@@ -189,6 +189,14 @@ class SuperRotClient extends EventEmitter {
   park() {
     return this._write('K\n');
   }
+  // Run the firmware homing routine (el endstop seek + gentle re-approach).
+  home() {
+    return this._write('H\n');
+  }
+  // Unwind the azimuth cable to the 0-turn equivalent of the current heading.
+  unwind() {
+    return this._write('U\n');
+  }
   // Push configuration to the firmware: `C key=value ...` (limits, offsets, backlash).
   // The firmware persists whatever keys it recognises and ignores the rest.
   config(obj = {}) {
