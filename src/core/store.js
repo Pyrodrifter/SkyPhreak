@@ -18,6 +18,7 @@ const DEFAULTS = {
   fieldMode: false, // one-tap field mode (large + Night Ops)
   sideCollapsed: false, // left satellite-browser panel collapsed
   rightCollapsed: false, // right info/settings panel collapsed
+  followSat: false, // keep the active view centred on the selected satellite
   mapStyle: 'vector', // 'vector' = dark blue lines | 'relief' = shaded topographic
   showMoon: true, // draw the Moon on the 2D map
   showPlanets: true, // draw the Sun + planets on the 2D map

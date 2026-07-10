@@ -149,6 +149,15 @@ export class Map2D {
     this.draw(this.frame);
   }
 
+  // Pan so a given lon/lat sits at the viewport centre (for follow-satellite mode).
+  // Sets the offsets only; the caller's next draw() renders them.
+  centerOn(lon, lat) {
+    const [bx, by] = project(lon, lat, this.baseW, this.baseH);
+    this.offsetX = this.w / 2 - bx;
+    this.offsetY = this.h / 2 - by - (this.h - this.baseH) / 2;
+    this._clamp();
+  }
+
   // 'relief' = shaded topographic base, 'vector' = the dark blue line map.
   setStyle(style) {
     this.useRelief = style !== 'vector';

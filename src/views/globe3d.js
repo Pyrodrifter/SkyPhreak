@@ -299,6 +299,13 @@ export class Globe3D {
     this.g.pointOfView({ lat, lng: lon, altitude: 2.2 }, 800);
   }
 
+  // Keep the camera centred on a moving sub-point (follow mode) without changing the
+  // user's zoom, and with no transition so it tracks smoothly each frame.
+  followPoint(lat, lon) {
+    const pov = this.g.pointOfView();
+    this.g.pointOfView({ lat, lng: lon, altitude: pov.altitude }, 0);
+  }
+
   dispose() {
     this._ro?.disconnect();
   }

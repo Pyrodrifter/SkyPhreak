@@ -68,6 +68,10 @@ let lastRadSend = 0;
 // (the 1 Hz tick only decides *which* target and handles the views).
 let motion = null;
 let motionRunning = false;
+// Time-warp preview: a viewing-time offset (ms) for scrubbing the map/globe/polar into
+// the future or past. Renderer-local (resets to live on launch). Hardware tracking
+// stays on real time — the offset only shifts what the visualisation shows.
+let timeWarpOffset = 0;
 let rotTelemetry = null; // last { az, el, azRate, elRate } reported by SuperRot firmware
 let activeTrackId = null; // id the rotator is actively tracking (null when parked/idle)
 let lastDrivenId = null; // last object the smooth controller was driven toward
@@ -122,6 +126,8 @@ async function boot() {
       window.pyro.rotator.setAzEl(az + daz, Math.max(0, el + del));
     },
     connectRadio,
+    // Time-warp scrubber: shift the visualisation time by N minutes (0 = live).
+    setTimeWarp: (minutes) => { timeWarpOffset = (minutes || 0) * 60000; },
   });
 
   map2d = new Map2D(ui.view2d);
@@ -477,7 +483,9 @@ function recomputeTrackedPasses() {
 /* -------------------------------- Tick --------------------------------- */
 function tick() {
   const state = store.get();
-  const date = new Date();
+  const live = timeWarpOffset === 0;
+  // Visualisation time (may be warped for preview); hardware always uses real time.
+  const date = new Date(Date.now() + timeWarpOffset);
   const observer = state.station;
 
   const sats = [];
@@ -533,14 +541,23 @@ function tick() {
     rotor: buildRotorFrame(state.hw.rotator.azOffset || 0, state.hw.rotator.elOffset || 0),
   };
 
+  // Follow-satellite: keep the active view centred on the selected satellite.
+  if (state.followSat) {
+    const sel = sats.find((s) => s.selected);
+    if (sel && sel.sub) {
+      if (state.view === '2d') map2d.centerOn(sel.sub.lon, sel.sub.lat);
+      else globe3d.followPoint(sel.sub.lat, sel.sub.lon);
+    }
+  }
+
   if (state.view === '2d') map2d.draw(frame);
   else globe3d.draw(frame);
   polar.draw(frame);
   ensurePolarMounted();
 
-  ui.updateClock(date);
+  ui.updateClock(date, timeWarpOffset);
   updateSelectedInfo(frame, date);
-  ui.updatePasses(trackedPassesCache.list, date.getTime());
+  ui.updatePasses(trackedPassesCache.list, Date.now());
 
   // Live elevations for the Sky-list chips — only computed while that tab is open.
   if (ui.isSkyActive()) {
@@ -551,7 +568,7 @@ function tick() {
   }
   updateTleStatus();
 
-  driveHardware(frame, date);
+  driveHardware(frame, date, live);
 }
 
 // Insert the polar canvas host into the Info tab once it exists in the DOM.
@@ -949,7 +966,7 @@ function streamRotatorFast() {
   if (sp) motion.setTarget(sp.az, sp.el, sp.azRate, sp.elRate);
 }
 
-function driveHardware(frame, date) {
+function driveHardware(frame, date, live = true) {
   const state = store.get();
   const rot = state.hw.rotator;
   const mode = rot.autoMode || 'off';
@@ -968,8 +985,9 @@ function driveHardware(frame, date) {
     schedLockId = null;
   }
 
-  // No live target but a pass is imminent? Pre-position to its AOS azimuth.
-  const nowMs = date.getTime();
+  // No live target but a pass is imminent? Pre-position to its AOS azimuth. Uses real
+  // time (not the possibly-warped view time) so the countdown and driving stay honest.
+  const nowMs = Date.now();
   let pre = rotConnected && mode !== 'off' && !track ? pickPreslew(nowMs, mode, rot) : null;
 
   // Sun-avoidance guard: how close the intended boresight is to the Sun. During a live
@@ -1032,7 +1050,8 @@ function driveHardware(frame, date) {
   ui.setStatus({
     rotConnected,
     radConnected,
-    tracking: track ? track.name + (sunWarn != null ? ' · ⚠ Sun' : '')
+    tracking: !live ? '⏱ Time-warp preview'
+      : track ? track.name + (sunWarn != null ? ' · ⚠ Sun' : '')
       : pre ? `Pre-slew ${pre.name} · AOS ${countdown(pre.t - nowMs)}`
       : (rotConnected && mode !== 'off' ? 'Parked' : null),
   });
@@ -1040,27 +1059,31 @@ function driveHardware(frame, date) {
   // Drive the rotator: track when there's a target, pre-position when a pass is
   // imminent, else park once. The SuperRot setpoint is refreshed at 10 Hz by
   // streamRotatorFast(); here we decide the target and publish its id for that loop.
-  if (rotConnected && mode !== 'off') {
-    if (track) {
-      driveToTarget(track, date, rot);
-      parkedByAuto = false;
-      preslewId = null;
-      activeTrackId = rot.protocol === 'superrot' ? track.id : null;
-    } else if (pre) {
-      preSlewTo(pre, date, rot);
-      parkedByAuto = false;
-      activeTrackId = null; // holding the AOS point; not chasing the live target yet
+  // Skipped during a time-warp preview — the live 10 Hz loop keeps real-time tracking
+  // untouched while the display scrubs ahead, so we never slew to a previewed future.
+  if (live) {
+    if (rotConnected && mode !== 'off') {
+      if (track) {
+        driveToTarget(track, date, rot);
+        parkedByAuto = false;
+        preslewId = null;
+        activeTrackId = rot.protocol === 'superrot' ? track.id : null;
+      } else if (pre) {
+        preSlewTo(pre, date, rot);
+        parkedByAuto = false;
+        activeTrackId = null; // holding the AOS point; not chasing the live target yet
+      } else {
+        activeTrackId = null;
+        preslewId = null;
+        // Pass over (or none up): park once.
+        if (!parkedByAuto) { parkNow(); parkedByAuto = true; }
+      }
     } else {
-      activeTrackId = null;
+      if (motionRunning) { motion.stop(); motionRunning = false; }
+      parkedByAuto = false;
       preslewId = null;
-      // Pass over (or none up): park once.
-      if (!parkedByAuto) { parkNow(); parkedByAuto = true; }
+      activeTrackId = null;
     }
-  } else {
-    if (motionRunning) { motion.stop(); motionRunning = false; }
-    parkedByAuto = false;
-    preslewId = null;
-    activeTrackId = null;
   }
 
   updateCableWrap(rot);

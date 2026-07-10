@@ -406,6 +406,30 @@ button.btn:disabled { opacity: 0.5; cursor: default; }
 .pass-arm:hover { border-color: var(--accent); color: var(--text); }
 .pass-arm.on { background: var(--accent); border-color: var(--accent); color: #04121d; font-weight: 700; }
 .pass-row.armed { box-shadow: inset 2px 0 0 var(--accent); }
+
+/* Follow toggle (active) + time-warp scrubber + clock preview badge. */
+.stage-tools .btn.active { background: var(--accent); color: #04121d; border-color: var(--accent); }
+.clock-warp { color: var(--warn); font-weight: 600; }
+.warp-bar {
+  position: absolute; bottom: 44px; left: 50%; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 10px; z-index: 15;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+  padding: 8px 14px; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+}
+.warp-bar.warped { border-color: var(--warn); }
+.warp-title { font-size: 14px; }
+.warp-slider { width: 260px; max-width: 40vw; accent-color: var(--accent); }
+.warp-label { font-variant-numeric: tabular-nums; min-width: 64px; text-align: center; font-weight: 600; color: var(--text); }
+.warp-bar.warped .warp-label { color: var(--warn); }
+
+/* Save-to-PNG button on the polar plot. */
+.polar-save {
+  position: absolute; top: 6px; right: 6px; z-index: 5;
+  width: 24px; height: 24px; border-radius: 6px; cursor: pointer; padding: 0;
+  background: var(--panel-2); border: 1px solid var(--line); color: var(--text-dim);
+  font-size: 13px; line-height: 1;
+}
+.polar-save:hover { color: var(--text); border-color: var(--accent); }
 .tle-status { font-size: 11px; color: var(--accent-2); }
 .tle-status.warn { color: var(--warn); }
 .stale-badge {

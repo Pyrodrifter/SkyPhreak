@@ -150,7 +150,36 @@ export function createUI(handlers) {
     },
   }, styleLabel(store.get().mapStyle));
   const resetBtn = h('button', { class: 'btn sm', onclick: () => handlers.resetView() }, 'Reset view');
-  const tools = h('div', { class: 'stage-tools' }, [mapStyleBtn, resetBtn]);
+
+  // Follow-satellite toggle (keeps the active view centred on the selection).
+  const followBtn = h('button', {
+    class: 'btn sm', title: 'Follow the selected satellite — keep it centred in the view',
+    onclick: () => store.patch({ followSat: !store.get().followSat }),
+  }, '⌖ Follow');
+
+  // Time-warp scrubber: a slider that shifts the *view* time to preview passes; hardware
+  // stays live. A ⏱ button in the toolbar reveals it; LIVE snaps back to real time.
+  const warpLabel = h('span', { class: 'warp-label' }, 'LIVE');
+  const warpSlider = h('input', {
+    type: 'range', min: -180, max: 180, step: 1, value: 0, class: 'warp-slider',
+    oninput: (e) => {
+      const m = +e.target.value;
+      handlers.setTimeWarp(m);
+      warpLabel.textContent = m === 0 ? 'LIVE' : (m > 0 ? '+' : '') + m + ' min';
+      warpBar.classList.toggle('warped', m !== 0);
+    },
+  });
+  const resetWarp = () => { warpSlider.value = 0; handlers.setTimeWarp(0); warpLabel.textContent = 'LIVE'; warpBar.classList.remove('warped'); };
+  const warpBar = h('div', { class: 'warp-bar', style: 'display:none' }, [
+    h('span', { class: 'warp-title' }, '⏱'), warpSlider, warpLabel,
+    h('button', { class: 'btn sm', title: 'Return to live', onclick: resetWarp }, 'LIVE'),
+  ]);
+  const warpToggle = h('button', {
+    class: 'btn sm', title: 'Time-warp — scrub the view into the future/past to preview passes',
+    onclick: () => { const show = warpBar.style.display === 'none'; warpBar.style.display = show ? '' : 'none'; if (!show) resetWarp(); },
+  }, '⏱');
+
+  const tools = h('div', { class: 'stage-tools' }, [followBtn, warpToggle, mapStyleBtn, resetBtn]);
 
   // Auto-track mode buttons — now live in the status bar (built below).
   const trackBtns = {};
@@ -170,7 +199,7 @@ export function createUI(handlers) {
     title: 'Emergency stop (Esc) — halt the rotator immediately',
     onclick: () => handlers.stopRotator(),
   }, '⏹ STOP');
-  const stage = h('main', { class: 'stage' }, [view2d, view3d, tools, hint, sideToggle, rightToggle, estopFab]);
+  const stage = h('main', { class: 'stage' }, [view2d, view3d, tools, warpBar, hint, sideToggle, rightToggle, estopFab]);
 
   /* ----------------------------- Right panel ----------------------------- */
   const tabPanes = {};
@@ -258,6 +287,7 @@ export function createUI(handlers) {
     root.classList.add('ui-' + (state.uiScale || 'md'));
     if (sizeBtns) for (const [k] of sizeDefs) sizeBtns[k].classList.toggle('active', k === (state.uiScale || 'md'));
     if (fieldBtn) fieldBtn.classList.toggle('active', !!state.fieldMode);
+    followBtn.classList.toggle('active', !!state.followSat);
   }
   applyLayout(store.get());
 
@@ -442,10 +472,15 @@ export function createUI(handlers) {
     listEl.scrollTop = savedScroll;
   }
 
-  function updateClock(date) {
+  function updateClock(date, warpMs = 0) {
     const utc = date.toISOString().slice(11, 19);
     const loc = date.toLocaleTimeString();
-    clockEl.innerHTML = `<b>${utc}</b> UTC &nbsp;·&nbsp; ${loc}`;
+    let extra = '';
+    if (warpMs) {
+      const m = Math.round(warpMs / 60000);
+      extra = ` &nbsp;·&nbsp; <span class="clock-warp">${m >= 0 ? '+' : ''}${m}m preview</span>`;
+    }
+    clockEl.innerHTML = `<b>${utc}</b> UTC &nbsp;·&nbsp; ${loc}${extra}`;
   }
 
   const kv = (label, value, cls = '') => [h('div', { class: 'k' }, label), h('div', { class: 'v ' + cls }, value)];

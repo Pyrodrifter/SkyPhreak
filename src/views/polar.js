@@ -13,9 +13,36 @@ export class PolarView {
     container.appendChild(this.canvas);
     this.ctx = this.canvas.getContext('2d');
     this.frame = null;
+
+    // Save-to-PNG button (top-right of the plot) — capture a pass's sky track.
+    const save = document.createElement('button');
+    save.className = 'polar-save';
+    save.title = 'Save the polar plot as a PNG image';
+    save.textContent = '⤓';
+    save.addEventListener('click', () => this.savePNG());
+    container.appendChild(save);
+
     this._resize();
     this._ro = new ResizeObserver(() => this._resize());
     this._ro.observe(container);
+  }
+
+  // Export the current polar plot to a PNG download, on an opaque background so it
+  // isn't transparent where the canvas is see-through.
+  savePNG() {
+    const out = document.createElement('canvas');
+    out.width = this.canvas.width;
+    out.height = this.canvas.height;
+    const c = out.getContext('2d');
+    c.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--panel-2').trim() || '#0d1420';
+    c.fillRect(0, 0, out.width, out.height);
+    c.drawImage(this.canvas, 0, 0);
+    const a = document.createElement('a');
+    const sel = this.frame && this.frame.sats && this.frame.sats.find((s) => s.selected);
+    const name = (sel && sel.name ? sel.name : 'sky').replace(/[^\w-]+/g, '_');
+    a.download = `polar_${name}_${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.png`;
+    a.href = out.toDataURL('image/png');
+    a.click();
   }
 
   _resize() {
