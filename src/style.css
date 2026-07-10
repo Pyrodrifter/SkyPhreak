@@ -635,14 +635,19 @@ html.ui-lg .mission-console {
 .mission-console .brand-text { font-size: var(--mc-brand-fs); letter-spacing: .2px; line-height: 1; }
 .mission-console .brand-text small { display: block; margin-top: 7px; text-transform: uppercase; font-size: 8px; letter-spacing: 1.35px; color: var(--text-dim); }
 .mission-target { display: flex; align-items: center; gap: 10px; min-width: 0; width: clamp(178px, 15vw, 270px); }
-.mission-target-dot { width: 13px; height: 13px; border-radius: 50%; background: #ff6387; box-shadow: 0 0 0 3px rgba(255,99,135,.13), 0 0 14px rgba(255,99,135,.65); }
+.mission-target-id { min-width: 0; }
+.mission-target-dot { width: 13px; height: 13px; flex: none; border-radius: 50%; color: #ff6387; background: currentColor; box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 13%, transparent), 0 0 14px color-mix(in srgb, currentColor 60%, transparent); }
+.mission-target-dot.live { animation: mc-pulse 1.6s ease-in-out infinite; }
 .mission-target-kind, .mission-target-state, .mission-metric-label, .mission-link small, .mission-pass-eyebrow, .mission-pass-grid small { display: block; text-transform: uppercase; letter-spacing: .9px; color: var(--text-dim); font-size: 10px; font-weight: 700; }
 .mission-target-name { font-size: var(--mc-name-fs); line-height: 1.25; font-weight: 750; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .mission-target-state { margin-top: 2px; color: var(--warn); letter-spacing: .75px; }
 .mission-target-state.up { color: var(--accent-2); }
+.mission-target-state.standby, .mission-target-state.down { color: var(--text-dim); }
 .mission-metrics { display: flex; align-self: stretch; min-width: 0; flex: 1 1 360px; overflow: hidden; }
 .mission-metric { min-width: 0; flex: 1 1 70px; padding: 9px clamp(10px, .95vw, 16px); border-left: 1px solid var(--line); display: flex; flex-direction: column; justify-content: center; overflow: hidden; }
-.mission-metric b { font-size: var(--mc-metric-fs); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mission-metric b { font-size: var(--mc-metric-fs); font-weight: 750; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mission-metric.hot b { color: var(--accent); }
+.mission-metric.good b { color: var(--accent-2); }
 .mission-metric small { margin-top: 3px; min-height: 10px; color: var(--text-dim); font-size: 9px; }
 .mission-links { display: flex; flex: 0 0 auto; align-self: stretch; border: 1px solid var(--line); border-radius: 9px; overflow: hidden; background: rgba(2,8,17,.26); }
 .mission-link { min-width: 76px; display: flex; align-items: center; gap: 8px; padding: 8px 9px; border-right: 1px solid var(--line); }
