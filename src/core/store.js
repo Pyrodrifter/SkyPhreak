@@ -19,6 +19,9 @@ const DEFAULTS = {
   sideCollapsed: false, // left satellite-browser panel collapsed
   rightCollapsed: false, // right info/settings panel collapsed
   followSat: false, // keep the active view centred on the selected satellite
+  passSort: 'time', // Passes tab order: 'time' (soonest) | 'el' (highest first)
+  notifyPasses: false, // desktop notification before a tracked pass rises
+  notifyLead: 5, // minutes before AOS to notify
   mapStyle: 'vector', // 'vector' = dark blue lines | 'relief' = shaded topographic
   showMoon: true, // draw the Moon on the 2D map
   showPlanets: true, // draw the Sun + planets on the 2D map
@@ -229,6 +232,15 @@ export const store = {
   subscribe(fn) {
     listeners.add(fn);
     return () => listeners.delete(fn);
+  },
+
+  /** Replace all settings from an imported object (backup restore), over defaults. */
+  importSettings(obj) {
+    if (!obj || typeof obj !== 'object') return false;
+    state = deepMerge(structuredClone(DEFAULTS), obj);
+    emit();
+    persist();
+    return true;
   },
 
   /** Load persisted settings from disk, merging over defaults. */

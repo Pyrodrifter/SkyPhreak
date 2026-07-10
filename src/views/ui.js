@@ -115,15 +115,29 @@ export function createUI(handlers) {
   let solarOpen = true; // whether the Solar System list is expanded
   let staleIds = new Set(); // tracked sats whose TLE epoch exceeds the max age
   let skyStatus = {}; // { id: elevation° } — live, for the Sky list chips
+  let wakeLock = null; // screen wake-lock sentinel (Field mode); see applyWakeLock
 
   // Segmented filter — one browser instead of four stacked boxes.
   const filterDefs = [['all', 'All'], ['tracked', 'Tracked'], ['favorites', 'Favs'], ['sky', 'Sky']];
   const filterBtns = {};
   const filterBar = h('div', { class: 'seg' }, filterDefs.map(([k, l]) =>
     (filterBtns[k] = h('button', { class: k === browserFilter ? 'active' : '', onclick: () => { browserFilter = k; syncFilter(); renderList(); } }, l))));
+  // Manual TLE paste — for a satellite not in any Celestrak group.
+  const tlePaste = h('textarea', { class: 'tle-paste', placeholder: 'Paste TLE — name line + 2 element lines…', rows: 4, style: 'display:none' });
+  const tleAddBtn = h('button', { class: 'btn sm', style: 'display:none;margin-top:4px', onclick: () => {
+    if (handlers.addManualTle(tlePaste.value)) { tlePaste.value = ''; tlePaste.style.display = 'none'; tleAddBtn.style.display = 'none'; }
+  } }, 'Add pasted TLE');
+  const pasteToggle = h('button', { class: 'btn sm', title: 'Paste a 2/3-line element set manually', onclick: () => {
+    const show = tlePaste.style.display === 'none';
+    tlePaste.style.display = show ? '' : 'none';
+    tleAddBtn.style.display = show ? '' : 'none';
+    if (show) tlePaste.focus();
+  } }, 'Paste TLE');
   const catalogControls = h('div', { class: 'catalog-controls' }, [
     groupSel,
-    h('div', { class: 'row', style: 'margin-top:6px' }, [refreshBtn, oemBtn]),
+    h('div', { class: 'row', style: 'margin-top:6px' }, [refreshBtn, oemBtn, pasteToggle]),
+    tlePaste,
+    tleAddBtn,
     tleStamp,
   ]);
   function syncFilter() {
@@ -179,7 +193,8 @@ export function createUI(handlers) {
     onclick: () => { const show = warpBar.style.display === 'none'; warpBar.style.display = show ? '' : 'none'; if (!show) resetWarp(); },
   }, '⏱');
 
-  const tools = h('div', { class: 'stage-tools' }, [followBtn, warpToggle, mapStyleBtn, resetBtn]);
+  const helpBtn = h('button', { class: 'btn sm', title: 'Keyboard shortcuts (press ?)', onclick: () => toggleHelp(true) }, '?');
+  const tools = h('div', { class: 'stage-tools' }, [followBtn, warpToggle, mapStyleBtn, resetBtn, helpBtn]);
 
   // Auto-track mode buttons — now live in the status bar (built below).
   const trackBtns = {};
@@ -288,10 +303,32 @@ export function createUI(handlers) {
     if (sizeBtns) for (const [k] of sizeDefs) sizeBtns[k].classList.toggle('active', k === (state.uiScale || 'md'));
     if (fieldBtn) fieldBtn.classList.toggle('active', !!state.fieldMode);
     followBtn.classList.toggle('active', !!state.followSat);
+    applyWakeLock(!!state.fieldMode);
   }
   applyLayout(store.get());
 
-  app.append(topbar, h('div', { class: 'body' }, [sidebar, stage, rightpanel]), statusbar);
+  // Keyboard-shortcut help overlay (toggled by the ? key / toolbar button).
+  const helpOverlay = h('div', { class: 'help-overlay', style: 'display:none', onclick: (e) => { if (e.target === helpOverlay) toggleHelp(false); } }, [
+    h('div', { class: 'help-card' }, [
+      h('div', { class: 'help-title' }, 'Keyboard shortcuts'),
+      ...[
+        ['Esc', 'Emergency-stop the rotator (or close this)'],
+        ['2 / 3', '2D map / 3D globe'],
+        ['F', 'Toggle Field mode'],
+        ['L', 'Follow the selected satellite'],
+        ['P', 'Park the rotator'],
+        ['T', 'Cycle auto-track: Off → Selected → Tracked'],
+        ['?', 'Show / hide this help'],
+      ].map(([k, d]) => h('div', { class: 'help-row' }, [h('kbd', {}, k), h('span', {}, d)])),
+      h('button', { class: 'btn sm', style: 'margin-top:10px', onclick: () => toggleHelp(false) }, 'Close'),
+    ]),
+  ]);
+  function toggleHelp(force) {
+    const show = force === undefined ? helpOverlay.style.display === 'none' : force;
+    helpOverlay.style.display = show ? 'flex' : 'none';
+  }
+
+  app.append(topbar, h('div', { class: 'body' }, [sidebar, stage, rightpanel]), statusbar, helpOverlay);
 
   /* ------------------------------ Rendering ------------------------------ */
   // A sat-like {noradId,name,line1,line2} for an id, from catalog or favorites.
@@ -590,7 +627,17 @@ export function createUI(handlers) {
   function updatePasses(items, now) {
     const pane = tabPanes.passes;
     pane.innerHTML = '';
-    pane.append(h('div', { class: 'section-title' }, 'Upcoming passes · tracked satellites'));
+    const sort = store.get().passSort || 'time';
+    pane.append(h('div', { class: 'passes-head' }, [
+      h('div', { class: 'section-title', style: 'margin:0' }, 'Upcoming passes'),
+      h('div', { class: 'passes-tools' }, [
+        h('div', { class: 'seg mini' }, [
+          h('button', { class: sort === 'time' ? 'active' : '', title: 'Soonest first', onclick: () => store.patch({ passSort: 'time' }) }, 'Soonest'),
+          h('button', { class: sort === 'el' ? 'active' : '', title: 'Highest elevation first', onclick: () => store.patch({ passSort: 'el' }) }, 'Highest'),
+        ]),
+        h('button', { class: 'btn sm', title: 'Export upcoming passes as an .ics calendar', onclick: () => exportICS(items) }, '.ics'),
+      ]),
+    ]));
 
     if (!items || !items.length) {
       const anyTracked = store.get().tracked.length;
@@ -602,7 +649,8 @@ export function createUI(handlers) {
 
     const selId = store.get().selected;
     const ap = store.get().hw.rotator.armedPass;
-    for (const it of items) {
+    const ordered = sort === 'el' ? [...items].sort((a, b) => b.pass.maxEl - a.pass.maxEl) : items;
+    for (const it of ordered) {
       const p = it.pass;
       const live = now >= p.aos && now <= p.los;
       const untilMs = p.aos.getTime() - now;
@@ -642,6 +690,31 @@ export function createUI(handlers) {
     }
   }
 
+  // Export the upcoming passes as an .ics calendar (one VEVENT per pass).
+  function exportICS(items) {
+    if (!items || !items.length) return;
+    const pad = (n) => String(n).padStart(2, '0');
+    const dt = (d) => `${d.getUTCFullYear()}${pad(d.getUTCMonth() + 1)}${pad(d.getUTCDate())}T${pad(d.getUTCHours())}${pad(d.getUTCMinutes())}${pad(d.getUTCSeconds())}Z`;
+    let ics = 'BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//SkyPhreak//Passes//EN\r\n';
+    for (const it of items) {
+      const p = it.pass;
+      ics += 'BEGIN:VEVENT\r\n'
+        + `UID:${it.id}-${p.aos.getTime()}@skyphreak\r\n`
+        + `DTSTAMP:${dt(new Date())}\r\n`
+        + `DTSTART:${dt(p.aos)}\r\n`
+        + `DTEND:${dt(p.los)}\r\n`
+        + `SUMMARY:${it.name} pass (max ${p.maxEl}°)${it.visible ? ' \u{1F441}' : ''}\r\n`
+        + `DESCRIPTION:AOS ${azName(p.aosAz)} → LOS ${azName(p.losAz)}\\, max ${p.maxEl}°\r\n`
+        + 'END:VEVENT\r\n';
+    }
+    ics += 'END:VCALENDAR\r\n';
+    const a = document.createElement('a');
+    a.download = 'skyphreak-passes.ics';
+    a.href = URL.createObjectURL(new Blob([ics], { type: 'text/calendar' }));
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }
+
   function setActiveView(view) {
     btn2d.classList.toggle('active', view === '2d');
     btn3d.classList.toggle('active', view === '3d');
@@ -668,12 +741,46 @@ export function createUI(handlers) {
     estopFab.classList.toggle('show', !!connected);
   }
 
-  // Esc = emergency stop, from anywhere (unless typing in a field).
+  // Keyboard shortcuts (ignored while typing in a field). Esc always stops / closes help.
   document.addEventListener('keydown', (e) => {
-    if (e.key !== 'Escape') return;
     const t = e.target;
-    if (t && (t.tagName === 'INPUT' || t.tagName === 'SELECT' || t.tagName === 'TEXTAREA')) return;
-    handlers.stopRotator();
+    const typing = t && (t.tagName === 'INPUT' || t.tagName === 'SELECT' || t.tagName === 'TEXTAREA');
+    if (e.key === 'Escape') {
+      if (helpOverlay.style.display !== 'none') { toggleHelp(false); return; }
+      if (!typing) handlers.stopRotator();
+      return;
+    }
+    if (typing || e.ctrlKey || e.metaKey || e.altKey) return;
+    switch (e.key) {
+      case '2': store.patch({ view: '2d' }); break;
+      case '3': store.patch({ view: '3d' }); break;
+      case 'f': case 'F': fieldBtn.click(); break;
+      case 'l': case 'L': store.patch({ followSat: !store.get().followSat }); break;
+      case 'p': case 'P': handlers.parkRotator(); break;
+      case 't': case 'T': {
+        const order = ['off', 'selected', 'schedule'];
+        const cur = store.get().hw.rotator.autoMode || 'off';
+        store.patchIn('hw.rotator', { autoMode: order[(order.indexOf(cur) + 1) % order.length] });
+        break;
+      }
+      case '?': toggleHelp(); break;
+    }
+  });
+
+  // Screen wake-lock: keep the display awake in Field mode (long unattended passes).
+  async function applyWakeLock(want) {
+    try {
+      if (want && !wakeLock && 'wakeLock' in navigator) {
+        wakeLock = await navigator.wakeLock.request('screen');
+        wakeLock.addEventListener('release', () => { wakeLock = null; });
+      } else if (!want && wakeLock) {
+        await wakeLock.release();
+        wakeLock = null;
+      }
+    } catch { /* unsupported or denied — ignore */ }
+  }
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && store.get().fieldMode) applyWakeLock(true);
   });
 
   // Update which tracked rows are flagged stale; re-render only on change.
@@ -771,6 +878,49 @@ function buildStationPane(pane, handlers) {
     h('div', { class: 'section-title' }, 'Space weather'),
     spaceWxEl,
     h('div', { class: 'muted', style: 'margin-top:6px' }, 'Planetary K-index (NOAA SWPC): geomagnetic activity. High Kp = auroral absorption / disturbed HF, better aurora. Updates when online.')
+  );
+
+  // Pass alerts (desktop notifications).
+  const notifyChk = checkbox(store.get().notifyPasses, async (v) => {
+    if (v && typeof Notification !== 'undefined' && Notification.permission !== 'granted') {
+      const perm = await Notification.requestPermission();
+      if (perm !== 'granted') { notifyChk.checked = false; return; }
+    }
+    store.patch({ notifyPasses: v });
+  });
+  const notifyLead = inputNum(store.get().notifyLead, '1', (v) => store.patch({ notifyLead: Math.max(1, Math.round(v)) }));
+
+  // Backup / restore all settings.
+  const dataMsg = h('div', { class: 'muted', style: 'font-size:11px;margin-top:6px' }, '');
+  const exportBtn = h('button', { class: 'btn sm', onclick: () => {
+    const a = document.createElement('a');
+    a.download = 'skyphreak-settings-' + new Date().toISOString().slice(0, 10) + '.json';
+    a.href = URL.createObjectURL(new Blob([JSON.stringify(store.get(), null, 2)], { type: 'application/json' }));
+    a.click();
+    URL.revokeObjectURL(a.href);
+  } }, 'Export settings');
+  const importInput = h('input', { type: 'file', accept: 'application/json', style: 'display:none', onchange: (e) => {
+    const f = e.target.files[0];
+    if (!f) return;
+    const r = new FileReader();
+    r.onload = () => {
+      try {
+        if (store.importSettings(JSON.parse(r.result))) { dataMsg.textContent = 'Imported — reloading…'; setTimeout(() => location.reload(), 400); }
+        else dataMsg.textContent = 'Import failed: not a settings file';
+      } catch { dataMsg.textContent = 'Import failed: invalid JSON'; }
+    };
+    r.readAsText(f);
+  } });
+  const importBtn = h('button', { class: 'btn sm', onclick: () => importInput.click() }, 'Import settings');
+
+  pane.append(
+    h('hr', { class: 'hr' }),
+    h('div', { class: 'section-title' }, 'Pass alerts'),
+    h('div', { class: 'toggle-line switch' }, [h('span', {}, 'Notify before a pass'), notifyChk]),
+    h('label', { class: 'fld' }, [h('span', {}, 'Lead time (minutes)'), notifyLead]),
+    h('div', { class: 'section-title' }, 'Backup'),
+    h('div', { class: 'row', style: 'display:flex;gap:8px' }, [exportBtn, importBtn, importInput]),
+    dataMsg
   );
 
   return { tleStatusEl, spaceWxEl };

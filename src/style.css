@@ -438,6 +438,31 @@ button.btn:disabled { opacity: 0.5; cursor: default; }
 .space-wx.quiet b { color: var(--accent-2); }
 .space-wx.active b { color: var(--warn); }
 .space-wx.storm b { color: var(--danger); }
+
+/* Manual TLE paste box. */
+.tle-paste { width: 100%; margin-top: 6px; font-family: ui-monospace, monospace; font-size: 11px; resize: vertical; }
+
+/* Passes tab header: sort toggle + export. */
+.passes-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
+.passes-tools { display: flex; align-items: center; gap: 8px; }
+.seg.mini button { padding: 3px 8px; font-size: 11px; }
+
+/* Keyboard-shortcut help overlay. */
+.help-overlay {
+  position: fixed; inset: 0; z-index: 100; display: none;
+  align-items: center; justify-content: center; background: rgba(0, 0, 0, 0.55);
+}
+.help-card {
+  background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+  padding: 20px 24px; min-width: 320px; box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+}
+.help-title { font-weight: 700; font-size: 15px; margin-bottom: 12px; color: var(--text); }
+.help-row { display: flex; align-items: center; gap: 12px; padding: 4px 0; color: var(--text-dim); }
+.help-row kbd {
+  min-width: 46px; text-align: center; padding: 3px 8px; border-radius: 6px;
+  background: var(--panel-2); border: 1px solid var(--line);
+  font-family: ui-monospace, monospace; font-size: 12px; color: var(--text);
+}
 .tle-status { font-size: 11px; color: var(--accent-2); }
 .tle-status.warn { color: var(--warn); }
 .stale-badge {

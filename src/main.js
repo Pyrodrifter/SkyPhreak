@@ -130,6 +130,8 @@ async function boot() {
     setTimeWarp: (minutes) => { timeWarpOffset = (minutes || 0) * 60000; },
     // EME readout frequency (MHz).
     setEmeFreq: (mhz) => store.patch({ emeFreqMHz: Math.max(1, mhz || 144) }),
+    // Manually paste in a TLE (2/3-line set) for a sat not in any Celestrak group.
+    addManualTle: (text) => addManualTle(text),
   });
 
   map2d = new Map2D(ui.view2d);
@@ -307,6 +309,23 @@ async function doRefreshPersistedTles() {
     onState(store.get());
     ui.renderList();
   }
+}
+
+// Add pasted TLE text to the catalog: parse, cache (tracked so it persists offline),
+// track and select. Returns the number of objects added.
+function addManualTle(text) {
+  const sats = parseCatalog(text || '');
+  if (!sats.length) { ui.setTleStamp('No valid TLE/OMM found in the pasted text'); return 0; }
+  for (const s of sats) {
+    catalogById.set(s.noradId, s);
+    if (!store.get().tracked.includes(s.noradId)) store.toggleTracked(s.noradId, s); // caches its TLE
+  }
+  store.patch({ selected: sats[0].noradId });
+  selCache.key = '';
+  trackedPassesCache.key = '';
+  ui.setTleStamp(`Added ${sats.length} pasted object${sats.length > 1 ? 's' : ''}`);
+  ui.renderList();
+  return sats.length;
 }
 
 function applyTle(text, fetchedAt) {
@@ -608,8 +627,30 @@ function tick() {
     ui.updateSky(skyStatus);
   }
   updateTleStatus();
+  checkPassNotifications();
 
   driveHardware(frame, date, live);
+}
+
+// Fire a desktop notification a configurable lead time before a tracked pass rises.
+const notifiedPasses = new Set();
+function checkPassNotifications() {
+  const st = store.get();
+  if (!st.notifyPasses || typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+  const now = Date.now();
+  const lead = (st.notifyLead || 5) * 60000;
+  for (const p of trackedPassesCache.list) {
+    const aos = p.pass.aos.getTime();
+    const key = p.id + '@' + aos;
+    if (aos > now && aos - now <= lead && !notifiedPasses.has(key)) {
+      notifiedPasses.add(key);
+      const mins = Math.max(1, Math.round((aos - now) / 60000));
+      new Notification(`${p.name} rising`, {
+        body: `AOS in ~${mins} min · max ${p.pass.maxEl}°${p.visible ? ' · visible pass' : ''}`,
+      });
+    }
+  }
+  if (notifiedPasses.size > 300) notifiedPasses.clear();
 }
 
 // Insert the polar canvas host into the Info tab once it exists in the DOM.
