@@ -1,6 +1,7 @@
 import { store } from '../core/store.js';
 import { THEMES } from '../core/themes.js';
 import { DSOS } from '../core/dso.js';
+import { icon } from './icons.js';
 
 // Sun, Moon and planets shown in the Sky box (id, label, marker colour).
 const SKY_BODIES = [
@@ -37,6 +38,7 @@ function h(tag, attrs = {}, children = []) {
 export function createUI(handlers) {
   const app = document.getElementById('app');
   app.innerHTML = '';
+  app.classList.add('mission-console');
 
   /* ------------------------------- Topbar -------------------------------- */
   const clockEl = h('div', { class: 'clock' });
@@ -44,13 +46,23 @@ export function createUI(handlers) {
   const btn2d = h('button', { class: 'active', onclick: () => store.patch({ view: '2d' }) }, '2D Map');
   const btn3d = h('button', { onclick: () => store.patch({ view: '3d' }) }, '3D Globe');
 
-  // Theme picker — restyles the whole app (panels + map/globe/polar) live.
+  // Theme picker — restyles the whole app (panels + map/globe/polar) live. The last
+  // option is a user 'Custom' theme (a base palette + an accent colour you choose).
   const themeSel = h('select', {
     class: 'theme-sel',
     title: 'Color theme',
-    onchange: (e) => store.patch({ theme: e.target.value }),
-  }, Object.entries(THEMES).map(([id, t]) => h('option', { value: id }, t.name)));
+    onchange: (e) => { store.patch({ theme: e.target.value }); syncThemeCustom(); },
+  }, [
+    ...Object.entries(THEMES).map(([id, t]) => h('option', { value: id }, t.name)),
+    h('option', { value: 'custom' }, 'Custom…'),
+  ]);
   themeSel.value = store.get().theme;
+  const themeAccent = h('input', {
+    type: 'color', class: 'theme-accent', title: 'Custom accent colour',
+    value: store.get().customTheme?.accent || '#4a9fd4',
+    oninput: (e) => store.patchIn('customTheme', { accent: e.target.value }),
+  });
+  function syncThemeCustom() { if (apAccentRow) apAccentRow.style.display = store.get().theme === 'custom' ? '' : 'none'; }
 
   // UI size (S/M/L). Changing it manually exits Field mode.
   const sizeDefs = [['sm', 'S'], ['md', 'M'], ['lg', 'L']];
@@ -68,19 +80,65 @@ export function createUI(handlers) {
         ? { fieldMode: true, uiScale: 'lg', theme: 'nightops' }
         : { fieldMode: false, uiScale: 'md', theme: 'midnight' });
       themeSel.value = store.get().theme;
+      syncThemeCustom();
     },
   }, '⛶ Field');
+
+  // Appearance popover — size, theme, accent and field mode consolidated behind one
+  // ⚙ button so the topbar stays to brand · target · view.
+  const apAccentRow = h('div', { class: 'ap-row' }, [h('span', { class: 'ap-label' }, 'Accent'), themeAccent]);
+  const appearancePop = h('div', { class: 'appearance-pop', style: 'display:none' }, [
+    h('div', { class: 'ap-row' }, [h('span', { class: 'ap-label' }, 'Size'), sizeSeg]),
+    h('div', { class: 'ap-row' }, [h('span', { class: 'ap-label' }, 'Theme'), themeSel]),
+    apAccentRow,
+    h('div', { class: 'ap-row' }, [h('span', { class: 'ap-label' }, 'Field mode'), fieldBtn]),
+  ]);
+  let apOpen = false;
+  const onApDocDown = (e) => { if (!appearanceWrap.contains(e.target)) closeAppearance(); };
+  function closeAppearance() { appearancePop.style.display = 'none'; apOpen = false; document.removeEventListener('mousedown', onApDocDown, true); }
+  function openAppearance() { appearancePop.style.display = ''; apOpen = true; setTimeout(() => document.addEventListener('mousedown', onApDocDown, true), 0); }
+  const appearanceBtn = h('button', { class: 'btn sm', title: 'Appearance — size, theme, field mode', onclick: () => (apOpen ? closeAppearance() : openAppearance()) }, '⚙');
+  const appearanceWrap = h('div', { class: 'appearance-wrap' }, [appearanceBtn, appearancePop]);
+  syncThemeCustom();
+
+  const missionName = h('div', { class: 'mission-target-name' }, 'Select a target');
+  const missionKind = h('div', { class: 'mission-target-kind' }, 'SkyPhreak tracking station');
+  const missionState = h('div', { class: 'mission-target-state' }, 'STANDBY');
+  const missionAos = h('b', {}, '—');
+  const missionAz = h('b', {}, '—');
+  const missionEl = h('b', {}, '—');
+  const missionMax = h('b', {}, '—');
+  const missionDur = h('b', {}, '—');
+  const missionTle = h('b', {}, '—');
+  const missionMetric = (label, value, note = '') => h('div', { class: 'mission-metric' }, [
+    h('span', { class: 'mission-metric-label' }, label), value, note ? h('small', {}, note) : h('small', {}, ''),
+  ]);
+  const missionDot = (label) => {
+    const dot = h('span', { class: 'mission-dot' });
+    const value = h('span', {}, 'Offline');
+    return { el: h('div', { class: 'mission-link' }, [dot, h('div', {}, [h('small', {}, label), value])]), set: (on, text) => {
+      dot.classList.toggle('on', !!on); value.textContent = text || (on ? 'Connected' : 'Offline');
+    } };
+  };
+  const missionGps = missionDot('Station');
+  const missionRot = missionDot('Rotator');
+  const missionRad = missionDot('Radio');
 
   const topbar = h('div', { class: 'topbar' }, [
     h('div', { class: 'brand' }, [
       h('img', { class: 'brand-logo', src: './icon.png', alt: '' }),
-      h('span', { class: 'brand-text', html: 'Sky<span>Phreak</span>' }),
+      h('div', { class: 'brand-text', html: 'Sky<span>Phreak</span><small>Satellite sky tracking</small>' }),
     ]),
-    h('div', { class: 'spacer' }),
-    selReadout,
-    sizeSeg,
-    fieldBtn,
-    themeSel,
+    h('div', { class: 'mission-target' }, [
+      h('div', { class: 'mission-target-dot' }),
+      h('div', {}, [missionKind, missionName, missionState]),
+    ]),
+    h('div', { class: 'mission-metrics' }, [
+      missionMetric('AOS IN', missionAos), missionMetric('AZ', missionAz), missionMetric('EL', missionEl),
+      missionMetric('MAX EL', missionMax), missionMetric('DURATION', missionDur),
+    ]),
+    h('div', { class: 'mission-links' }, [missionGps.el, missionRot.el, missionRad.el, missionMetric('TLE AGE', missionTle)]),
+    appearanceWrap,
     h('div', { class: 'toggle' }, [btn2d, btn3d]),
   ]);
 
@@ -145,31 +203,49 @@ export function createUI(handlers) {
     catalogControls.style.display = browserFilter === 'all' ? '' : 'none';
   }
 
+  // Bulk track/untrack for whatever the list is currently showing (respects the
+  // active filter + search). shownIds is refreshed by renderList each render.
+  let shownIds = [];
+  function bulkTrack() {
+    if (!shownIds.length) return;
+    if (shownIds.length > 60 && !confirm(`Track all ${shownIds.length} shown satellites? Tracking a lot at once can slow things down.`)) return;
+    store.trackMany(shownIds.map((id) => { const s = satLike(id); return { id, name: s && s.name, line1: s && s.line1, line2: s && s.line2 }; }));
+  }
+  function bulkUntrack() { if (shownIds.length) store.untrackMany(shownIds); }
+  const bulkInfo = h('span', { class: 'bulk-info' }, '');
+  const listBar = h('div', { class: 'list-bar' }, [
+    bulkInfo,
+    h('div', { class: 'spacer' }),
+    h('button', { class: 'btn xs', title: 'Track every satellite shown', onclick: bulkTrack }, '✓ Track all'),
+    h('button', { class: 'btn xs', title: 'Untrack every satellite shown', onclick: bulkUntrack }, '✕ None'),
+  ]);
+
   const sidebar = h('aside', { class: 'sidebar' }, [
-    h('div', { class: 'side-top' }, [search, filterBar, catalogControls]),
+    h('div', { class: 'side-top' }, [h('div', { class: 'panel-heading' }, ['Targets', h('span', { html: icon('setup', 14) })]), search, filterBar, catalogControls]),
+    listBar,
     listEl,
   ]);
 
   /* -------------------------------- Stage -------------------------------- */
   const view2d = h('div', { id: 'view-2d' });
   const view3d = h('div', { id: 'view-3d' });
-  const styleLabel = (s) => (s === 'vector' ? 'Map: Vector' : 'Map: Shaded');
+  const mapStyleLbl = h('span', {}, store.get().mapStyle === 'vector' ? 'Vector' : 'Shaded');
   const mapStyleBtn = h('button', {
     class: 'btn sm',
     title: 'Toggle shaded-relief / vector map',
     onclick: () => {
       const next = store.get().mapStyle === 'vector' ? 'relief' : 'vector';
       store.patch({ mapStyle: next });
-      mapStyleBtn.textContent = styleLabel(next);
+      mapStyleLbl.textContent = next === 'vector' ? 'Vector' : 'Shaded';
     },
-  }, styleLabel(store.get().mapStyle));
-  const resetBtn = h('button', { class: 'btn sm', onclick: () => handlers.resetView() }, 'Reset view');
+  }, [h('span', { class: 'btn-ico', html: icon('map', 14) }), mapStyleLbl]);
+  const resetBtn = h('button', { class: 'btn sm', title: 'Reset the map/globe view', onclick: () => handlers.resetView() }, [h('span', { class: 'btn-ico', html: icon('reset', 14) }), 'Reset']);
 
   // Follow-satellite toggle (keeps the active view centred on the selection).
   const followBtn = h('button', {
     class: 'btn sm', title: 'Follow the selected satellite — keep it centred in the view',
     onclick: () => store.patch({ followSat: !store.get().followSat }),
-  }, '⌖ Follow');
+  }, [h('span', { class: 'btn-ico', html: icon('follow', 14) }), 'Follow']);
 
   // Time-warp scrubber: a slider that shifts the *view* time to preview passes; hardware
   // stays live. A ⏱ button in the toolbar reveals it; LIVE snaps back to real time.
@@ -191,9 +267,9 @@ export function createUI(handlers) {
   const warpToggle = h('button', {
     class: 'btn sm', title: 'Time-warp — scrub the view into the future/past to preview passes',
     onclick: () => { const show = warpBar.style.display === 'none'; warpBar.style.display = show ? '' : 'none'; if (!show) resetWarp(); },
-  }, '⏱');
+  }, [h('span', { class: 'btn-ico', html: icon('time', 14) }), 'Time']);
 
-  const helpBtn = h('button', { class: 'btn sm', title: 'Keyboard shortcuts (press ?)', onclick: () => toggleHelp(true) }, '?');
+  const helpBtn = h('button', { class: 'btn sm', title: 'Keyboard shortcuts (press ?)', onclick: () => toggleHelp(true) }, [h('span', { class: 'btn-ico', html: icon('help', 14) }), 'Help']);
   const tools = h('div', { class: 'stage-tools' }, [followBtn, warpToggle, mapStyleBtn, resetBtn, helpBtn]);
 
   // Auto-track mode buttons — now live in the status bar (built below).
@@ -219,14 +295,18 @@ export function createUI(handlers) {
   /* ----------------------------- Right panel ----------------------------- */
   const tabPanes = {};
   const tabBtns = {};
-  const tabNames = { info: 'Info', passes: 'Passes', station: 'Station', hw: 'Hardware' };
+  const tabNames = { passes: 'Passes', info: 'Info', station: 'Setup', hw: 'Hardware' };
+  const tabIcons = { info: 'info', passes: 'passes', station: 'setup', hw: 'hardware' };
   const tabsBar = h('div', { class: 'tabs' });
-  let activeTab = 'info';
+  let activeTab = 'passes';
   for (const key of Object.keys(tabNames)) {
-    const b = h('button', { class: key === 'info' ? 'active' : '', onclick: () => setTab(key) }, tabNames[key]);
+    const b = h('button', { class: key === activeTab ? 'active' : '', onclick: () => setTab(key) }, [
+      h('span', { class: 'tab-ico', html: icon(tabIcons[key], 15) }),
+      h('span', {}, tabNames[key]),
+    ]);
     tabBtns[key] = b;
     tabsBar.append(b);
-    tabPanes[key] = h('div', { class: 'tabpane' + (key === 'info' ? ' active' : '') });
+    tabPanes[key] = h('div', { class: 'tabpane' + (key === activeTab ? ' active' : '') });
   }
   function setTab(key) {
     activeTab = key;
@@ -240,21 +320,26 @@ export function createUI(handlers) {
   const stationRefs = buildStationPane(tabPanes.station, handlers);
   const hwRefs = buildHwPane(tabPanes.hw, handlers);
 
-  // The Info pane has a text block (rebuilt each tick) plus the polar/radar
-  // canvas, which is mounted once and must persist across rebuilds.
+  // The Info pane has a text block (rebuilt each tick), a persistent space-weather
+  // strip (glanceable, not buried in settings), plus the polar/radar canvas mounted
+  // once — both must survive the per-tick rebuild of infoText.
   const infoText = h('div');
-  tabPanes.info.append(infoText);
+  const spaceWxEl = h('div', { class: 'space-wx' }, 'Kp —');
+  const infoWx = h('div', { class: 'info-wx', title: 'Geomagnetic activity (NOAA planetary K-index)' }, [
+    h('span', { class: 'info-wx-k' }, '☀ Space wx'), spaceWxEl,
+  ]);
+  tabPanes.info.append(infoText, infoWx);
 
   /* ----------------------------- Status bar ------------------------------ */
   // Persistent bottom strip: clock, hardware connection state, and what the rotator
   // is currently tracking — the sort of at-a-glance status a finished app carries.
-  const sbDot = (label) => {
+  const sbDot = (label, cls) => {
     const dot = h('span', { class: 'sb-dot' });
-    const el = h('div', { class: 'sb-item', title: label }, [dot, h('span', { class: 'sb-txt' }, label)]);
+    const el = h('div', { class: 'sb-item sb-connection ' + (cls || ''), title: label }, [dot, h('span', { class: 'sb-txt' }, label)]);
     return { el, set: (on) => dot.classList.toggle('on', on) };
   };
-  const sbRot = sbDot('Rotator');
-  const sbRad = sbDot('Radio');
+  const sbRot = sbDot('Rotator', 'sb-rotator');
+  const sbRad = sbDot('Radio', 'sb-radio');
   const sbTrack = h('span', { class: 'sb-val' }, 'Idle');
   // Cable-wrap gauge — azimuth turns accumulated away from north (hidden when idle).
   const sbWrapVal = h('span', { class: 'sb-val sb-wrap-val' }, '—');
@@ -264,7 +349,7 @@ export function createUI(handlers) {
   const statusbar = h('footer', { class: 'statusbar' }, [
     clockEl,
     h('div', { class: 'sb-sep' }),
-    h('div', { class: 'sb-item' }, [h('span', { class: 'sb-k' }, 'Track'), trackBar]),
+    h('div', { class: 'sb-item sb-track-mode' }, [h('span', { class: 'sb-k' }, 'Track'), trackBar]),
     h('div', { class: 'sb-item sb-target' }, [h('span', { class: 'sb-k' }, 'Target'), sbTrack]),
     h('div', { class: 'spacer' }),
     sbWrap,
@@ -279,6 +364,9 @@ export function createUI(handlers) {
     sbRot.set(rotConnected);
     sbRad.set(radConnected);
     sbTrack.textContent = tracking || 'Idle';
+    missionGps.set(true, 'Station ready');
+    missionRot.set(rotConnected, rotConnected ? 'Connected' : 'Offline');
+    missionRad.set(radConnected, radConnected ? 'Connected' : 'Offline');
   }
   // Cable-wrap readout: {az, turns, level, warn, max} or null to hide.
   function setCableWrap(info) {
@@ -482,7 +570,8 @@ export function createUI(handlers) {
     const savedScroll = listEl.scrollTop;
     listEl.innerHTML = '';
 
-    if (browserFilter === 'sky') { renderSky(listEl); return; }
+    if (browserFilter === 'sky') { listBar.style.display = 'none'; shownIds = []; renderSky(listEl); return; }
+    listBar.style.display = '';
 
     let entries;
     let emptyMsg;
@@ -499,6 +588,10 @@ export function createUI(handlers) {
     }
     if (searchTerm) entries = entries.filter(({ id, s }) => (s && s.name || '').toLowerCase().includes(searchTerm) || id.includes(searchTerm));
     if (browserFilter === 'all') entries = entries.slice(0, 250);
+
+    shownIds = entries.map((e) => e.id);
+    const nTracked = entries.filter((e) => tracked.has(e.id)).length;
+    bulkInfo.textContent = `${entries.length} shown · ${nTracked} tracked`;
 
     if (!entries.length) {
       listEl.append(h('div', { class: 'empty' }, emptyMsg));
@@ -522,7 +615,7 @@ export function createUI(handlers) {
       const m = Math.round(warpMs / 60000);
       extra = ` &nbsp;·&nbsp; <span class="clock-warp">${m >= 0 ? '+' : ''}${m}m preview</span>`;
     }
-    clockEl.innerHTML = `<b>${utc}</b> UTC &nbsp;·&nbsp; ${loc}${extra}`;
+    clockEl.innerHTML = `<span class="clock-time">${utc}</span><span class="clock-meta">UTC · ${loc}${extra}</span>`;
   }
 
   const kv = (label, value, cls = '') => [h('div', { class: 'k' }, label), h('div', { class: 'v ' + cls }, value)];
@@ -570,6 +663,13 @@ export function createUI(handlers) {
     if (selBody) {
       const up = selBody.el >= 0;
       selReadout.innerHTML = `<b>${selBody.name}</b> &nbsp; ${selBody.el.toFixed(1)}° el / ${selBody.az.toFixed(0)}° az`;
+      missionName.textContent = selBody.name;
+      missionKind.textContent = selBody.kind === 'dso' ? 'Deep-sky object' : selBody.kind === 'moon' ? 'Lunar target' : 'Solar-system target';
+      missionState.textContent = up ? 'ABOVE HORIZON' : 'BELOW HORIZON';
+      missionState.className = 'mission-target-state ' + (up ? 'up' : 'down');
+      missionAz.textContent = selBody.az.toFixed(1) + '°';
+      missionEl.textContent = selBody.el.toFixed(1) + '°';
+      missionTle.textContent = 'LOCAL';
       infoText.append(
         h('div', { class: 'dash-head' }, [
           h('div', { class: 'dash-name' }, selBody.name),
@@ -588,11 +688,23 @@ export function createUI(handlers) {
 
     if (!info) {
       selReadout.innerHTML = '<span class="muted">No target selected</span>';
+      missionName.textContent = 'Select a target';
+      missionKind.textContent = 'SkyPhreak tracking station';
+      missionState.textContent = 'STANDBY';
+      missionState.className = 'mission-target-state';
+      missionAz.textContent = '—'; missionEl.textContent = '—'; missionTle.textContent = '—';
       infoText.append(h('div', { class: 'empty' }, 'Select a satellite, planet, the Moon, or a deep-sky object'));
     } else {
       selReadout.innerHTML = info.aboveHorizon
         ? `<b>${info.name}</b> &nbsp; ${info.el.toFixed(1)}° el / ${info.az.toFixed(0)}° az`
         : `<b>${info.name}</b> &nbsp; ${info.statusText}`;
+      missionName.textContent = info.name;
+      missionKind.textContent = 'NORAD ' + info.noradId + ' · satellite target';
+      missionState.textContent = info.statusText.toUpperCase();
+      missionState.className = 'mission-target-state ' + (info.aboveHorizon ? 'up' : 'down');
+      missionAz.textContent = info.az.toFixed(1) + '°';
+      missionEl.textContent = info.el.toFixed(1) + '°';
+      missionTle.textContent = fmtAge(info.tleAgeDays);
       const rf = store.get().hw.radio;
       infoText.append(
         h('div', { class: 'dash-head' }, [
@@ -650,11 +762,51 @@ export function createUI(handlers) {
     const selId = store.get().selected;
     const ap = store.get().hw.rotator.armedPass;
     const ordered = sort === 'el' ? [...items].sort((a, b) => b.pass.maxEl - a.pass.maxEl) : items;
+    const missionPass = ordered.find((it) => it.id === selId && it.pass.los.getTime() >= now)
+      || ordered.find((it) => it.pass.los.getTime() >= now);
+    if (missionPass) {
+      const p = missionPass.pass;
+      const live = now >= p.aos && now <= p.los;
+      missionAos.textContent = live ? 'LIVE' : fmtCountdown(p.aos.getTime() - now);
+      missionMax.textContent = p.maxEl.toFixed(1) + '°';
+      missionDur.textContent = `${Math.floor(p.durationS / 60)}m ${p.durationS % 60}s`;
+      const heroMini = h('canvas', { class: 'mission-pass-polar', title: 'Pass sky track' });
+      const hstat = (l, v, cls) => h('div', { class: 'mc-stat' + (cls ? ' ' + cls : '') }, [h('small', {}, l), h('b', {}, v)]);
+      pane.append(h('div', { class: 'mission-pass-hero' + (live ? ' live' : '') }, [
+        h('div', { class: 'mission-hero-top' }, [
+          h('span', { class: 'mission-pass-eyebrow' }, live ? 'NOW · ACTIVE PASS' : 'NOW / NEXT PASS'),
+          h('span', { class: 'mission-live' + (live ? ' on' : '') }, [h('span', { class: 'mission-live-dot' }), live ? 'LIVE' : 'STANDBY']),
+        ]),
+        h('div', { class: 'mission-hero-body' }, [
+          h('div', { class: 'mission-hero-info' }, [
+            h('div', { class: 'mission-pass-title' }, [
+              h('span', { class: 'dot', style: `background:${missionPass.color};color:${missionPass.color}` }),
+              h('span', { class: 'mission-hero-name' }, missionPass.name),
+            ]),
+            h('div', { class: 'mission-hero-aos' }, [
+              h('small', {}, live ? 'LOS IN' : 'AOS IN'),
+              h('b', {}, (live ? fmtCountdown(p.los.getTime() - now) : fmtCountdown(p.aos.getTime() - now)).replace(/^in\s+/, '')),
+              h('span', { class: 'mission-hero-when' }, `AOS ${p.aos.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })} · ${p.aos.toLocaleDateString([], { month: 'short', day: 'numeric' })}`),
+            ]),
+            h('div', { class: 'mission-hero-stats' }, [
+              hstat('MAX EL', p.maxEl.toFixed(1) + '°', 'hi'),
+              hstat('DURATION', `${Math.floor(p.durationS / 60)}m ${p.durationS % 60}s`),
+              hstat('AZ AOS', Math.round(p.aosAz) + '°'),
+              hstat('AZ LOS', Math.round(p.losAz) + '°'),
+            ]),
+          ]),
+          h('div', { class: 'mission-hero-polar' }, [heroMini]),
+        ]),
+      ]));
+      drawPassMini(heroMini, missionPass.arc, missionPass.color, 112);
+    } else {
+      missionAos.textContent = '—'; missionMax.textContent = '—'; missionDur.textContent = '—';
+    }
     for (const it of ordered) {
       const p = it.pass;
       const live = now >= p.aos && now <= p.los;
       const untilMs = p.aos.getTime() - now;
-      const count = live ? 'LOS ' + fmtCountdown(p.los.getTime() - now) : fmtCountdown(untilMs);
+      const count = live ? fmtCountShort(p.los.getTime() - now) : fmtCountShort(untilMs);
       const countCls = live ? 'now' : untilMs < 10 * 60000 ? 'soon' : '';
       const armed = ap && ap.id === it.id && Math.abs(ap.aos - p.aos.getTime()) < 60000;
       const mini = h('canvas', { class: 'pass-mini', title: `Max ${p.maxEl}° · AOS ${azName(p.aosAz)} → LOS ${azName(p.losAz)}` });
@@ -664,26 +816,33 @@ export function createUI(handlers) {
           class: 'pass-row' + (live ? ' live' : '') + (armed ? ' armed' : '') + (it.id === selId ? ' selected' : ''),
           onclick: () => store.patch({ selected: it.id }),
         }, [
+          h('div', { class: 'pass-when ' + countCls }, [
+            h('span', {}, live ? 'LOS IN' : 'IN'),
+            h('b', {}, count),
+            h('span', { class: 'pass-when-date' }, p.aos.toLocaleDateString([], { month: 'short', day: 'numeric' })),
+          ]),
           h('div', { class: 'pass-main' }, [
             h('div', { class: 'pass-l1' }, [
-              h('span', { class: 'dot', style: `background:${it.color}` }),
+              h('span', { class: 'dot', style: `background:${it.color};color:${it.color}` }),
               h('span', { class: 'pass-sat' }, it.name),
-              h('span', { class: 'pass-norad' }, '#' + it.id),
-              it.visible ? h('span', { class: 'pass-vis', title: 'Optically visible — satellite sunlit while you are in darkness' }, '👁') : h('span', {}),
-              h('span', { class: 'pass-count ' + countCls }, count),
-              h('button', {
-                class: 'pass-arm' + (armed ? ' on' : ''),
-                title: armed ? 'Armed — the rotator is committed to this pass. Click to release.' : 'Arm the rotator for this specific pass (switches to Tracked mode)',
-                onclick: (e) => { e.stopPropagation(); armed ? handlers.disarmPass() : handlers.armPass(it.id, p.aos.getTime(), p.los.getTime()); },
-              }, armed ? '● Armed' : 'Arm'),
+              it.visible ? h('span', { class: 'pass-vis', title: 'Optically visible — satellite sunlit while you are in darkness' }, '👁') : '',
             ]),
             h('div', { class: 'pass-l2' }, [
-              h('span', { class: 'pass-times' }, fmtDateTime(p.aos) + ' → ' + p.los.toLocaleTimeString()),
+              h('span', { class: 'pass-l2-k' }, 'MAX'),
+              h('span', { class: 'pass-maxel' }, `${p.maxEl.toFixed(1)}°`),
+              h('span', { class: 'pass-l2-sep' }, '·'),
               h('span', { class: 'pass-dur' }, `${Math.floor(p.durationS / 60)}m ${p.durationS % 60}s`),
-              h('span', { class: 'pass-el' }, `${p.maxEl}°`),
+            ]),
+            h('div', { class: 'pass-l3' }, [
+              h('span', { class: 'pass-times' }, `AOS ${p.aos.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} · #${it.id}`),
             ]),
           ]),
           mini,
+          h('button', {
+            class: 'pass-arm' + (armed ? ' on' : ''),
+            title: armed ? 'Armed — the rotator is committed to this pass. Click to release.' : 'Arm the rotator for this specific pass (switches to Tracked mode)',
+            onclick: (e) => { e.stopPropagation(); armed ? handlers.disarmPass() : handlers.armPass(it.id, p.aos.getTime(), p.los.getTime()); },
+          }, armed ? '● Armed' : 'Arm'),
         ])
       );
       drawPassMini(mini, it.arc, it.color);
@@ -792,7 +951,7 @@ export function createUI(handlers) {
 
   // Space-weather readout: { ok, kp, time } or { ok:false }.
   function setSpaceWeather(info) {
-    const el = stationRefs && stationRefs.spaceWxEl;
+    const el = spaceWxEl;
     if (!el) return;
     if (!info || !info.ok || !Number.isFinite(info.kp)) { el.textContent = 'Kp — (unavailable offline)'; el.className = 'space-wx'; return; }
     const kp = info.kp;
@@ -851,7 +1010,7 @@ function buildStationPane(pane, handlers) {
     ]),
     h('div', { class: 'grid2' }, [
       mk('Altitude (m)', Math.round(st.altKm * 1000), '1', (v) => store.patchIn('station', { altKm: v / 1000 })),
-      mk('Min elevation (°)', store.get().minEl, '1', (v) => store.patch({ minEl: v })),
+      mk('Pass-list min el (°)', store.get().minEl, '1', (v) => store.patch({ minEl: v })),
     ]),
     h('div', { class: 'muted' }, 'Pass predictions and look angles are computed for this location.')
   );
@@ -869,15 +1028,6 @@ function buildStationPane(pane, handlers) {
     h('button', { class: 'btn', onclick: () => handlers.updateTlesNow() }, 'Update now'),
     tleStatusEl,
     h('div', { class: 'muted', style: 'margin-top:6px' }, 'Celestrak is fetched as OMM (JSON), falling back to TLE; both carry the same epoch, so this age check covers either. Loaded OEM ephemerides take priority and are used as-is (no auto-refresh).')
-  );
-
-  // Space weather: latest planetary K-index (geomagnetic activity / HF & aurora).
-  const spaceWxEl = h('div', { class: 'space-wx' }, 'Kp —');
-  pane.append(
-    h('hr', { class: 'hr' }),
-    h('div', { class: 'section-title' }, 'Space weather'),
-    spaceWxEl,
-    h('div', { class: 'muted', style: 'margin-top:6px' }, 'Planetary K-index (NOAA SWPC): geomagnetic activity. High Kp = auroral absorption / disturbed HF, better aurora. Updates when online.')
   );
 
   // Pass alerts (desktop notifications).
@@ -923,12 +1073,26 @@ function buildStationPane(pane, handlers) {
     dataMsg
   );
 
-  return { tleStatusEl, spaceWxEl };
+  return { tleStatusEl };
 }
 
 /* ----------------------------- Hardware pane ---------------------------- */
 function buildHwPane(pane, handlers) {
   const hw = store.get().hw;
+
+  // A collapsible sub-section: header toggles a body open/closed. Advanced/occasional
+  // controls live in these (collapsed by default) so the pane isn't a wall of fields.
+  function section(title, children, open = false) {
+    let expanded = open;
+    const body = h('div', { class: 'hw-sec-body', style: expanded ? '' : 'display:none' }, children);
+    const chev = h('span', { class: 'hw-sec-chev' }, expanded ? '▾' : '▸');
+    const head = h('button', { class: 'hw-sec-head', type: 'button', onclick: () => {
+      expanded = !expanded;
+      body.style.display = expanded ? '' : 'none';
+      chev.textContent = expanded ? '▾' : '▸';
+    } }, [chev, h('span', {}, title)]);
+    return h('div', { class: 'hw-sec' }, [head, body]);
+  }
 
   // Rotator
   const rotPill = statusPill('Rotator disconnected');
@@ -1001,7 +1165,7 @@ function buildHwPane(pane, handlers) {
     const r = store.get().hw.rotator;
     const superrot = r.protocol === 'superrot';
     transportRow.style.display = superrot ? '' : 'none';
-    rotLimits.style.display = superrot ? '' : 'none';
+    if (motionSection) motionSection.style.display = superrot ? '' : 'none';
     rotConn.innerHTML = '';
     if (superrot && r.transport === 'serial') {
       const baud = inputNum(r.baud, '1', (v) => store.patchIn('hw.rotator', { baud: v }));
@@ -1066,8 +1230,8 @@ function buildHwPane(pane, handlers) {
           onclick: () => store.patchIn('hw.rotator', { parkDefault: p.name }),
         }, isDef ? '★' : '☆'),
         h('span', { class: 'park-nm' }, p.name),
-        h('span', { class: 'park-pos' }, p.home ? 'Home · limit switches' : `${Math.round(p.az)}° / ${Math.round(p.el)}°`),
-        h('button', { class: 'btn sm', title: 'Park here now', onclick: () => handlers.parkTo(p) }, 'Park'),
+        h('span', { class: 'park-pos' }, p.home ? 'Firmware home · EL endstop' : `${Math.round(p.az)}° / ${Math.round(p.el)}°`),
+        h('button', { class: 'btn sm', title: p.home ? 'Run the firmware homing sequence' : 'Park here now', onclick: () => handlers.parkTo(p) }, p.home ? 'Home' : 'Park'),
         p.name === 'Home'
           ? h('span', { class: 'park-x-spacer' })
           : h('button', { class: 'btn sm park-x', title: 'Delete preset', onclick: () => store.removeParkPreset(p.name) }, '✕'),
@@ -1102,7 +1266,41 @@ function buildHwPane(pane, handlers) {
   const doppler = checkbox(hw.radio.doppler, (v) => store.patchIn('hw.radio', { doppler: v }));
   const radFreqLive = h('div', { class: 'kv' }, []);
 
+  // Advanced / occasional controls live in collapsible sections (collapsed by default)
+  // so the everyday connect + auto-track + jog controls aren't buried.
+  const motionSection = section('Motion & limits', [rotLimits]);
+  const parkSection = section('Park positions', [
+    parkList,
+    h('div', { class: 'row', style: 'display:flex;gap:8px;margin-top:6px;align-items:center' }, [parkNameInp, savePark]),
+  ]);
+  const calibSection = section('Calibration & safety', [
+    h('div', { class: 'grid2' }, [
+      h('label', { class: 'fld' }, [h('span', {}, 'Az offset (°)'), azOffInp]),
+      h('label', { class: 'fld' }, [h('span', {}, 'El offset (°)'), elOffInp]),
+    ]),
+    h('div', { class: 'row', style: 'display:flex;gap:8px;margin-top:6px' }, [calibNorth, calibLevel]),
+    h('div', { class: 'grid2' }, [
+      h('label', { class: 'fld' }, [h('span', {}, 'Az backlash (°)'), inputNum(hw.rotator.backlashAz, '0.1', (v) => store.patchIn('hw.rotator', { backlashAz: Math.max(0, v) }))]),
+      h('label', { class: 'fld' }, [h('span', {}, 'El backlash (°)'), inputNum(hw.rotator.backlashEl, '0.1', (v) => store.patchIn('hw.rotator', { backlashEl: Math.max(0, v) }))]),
+    ]),
+    h('div', { class: 'muted', style: 'font-size:11px' }, 'Offsets correct mount misalignment; aim at the reference then capture. Backlash is compensated on the MCU — push settings to apply.'),
+    h('div', { class: 'toggle-line switch', style: 'margin-top:8px' }, [h('span', {}, 'Sun-avoidance guard'), sunAvoidChk]),
+    h('label', { class: 'fld' }, [h('span', {}, 'Keep-out radius (°)'), sunAvoidDeg]),
+  ]);
+  const radioSection = section('Radio (rigctld / Hamlib)', [
+    radPill,
+    h('div', { class: 'grid2', style: 'margin-top:8px' }, [
+      h('label', { class: 'fld' }, [h('span', {}, 'Host'), radHost]),
+      h('label', { class: 'fld' }, [h('span', {}, 'Port'), radPort]),
+    ]),
+    radConnect,
+    h('label', { class: 'fld', style: 'margin-top:8px' }, [h('span', {}, 'Downlink frequency (MHz)'), downlink]),
+    h('div', { class: 'toggle-line switch' }, [h('span', {}, 'Doppler correction'), doppler]),
+    radFreqLive,
+  ]);
+
   pane.append(
+    // --- Connection: the essentials, always visible ---
     h('div', { class: 'section-title' }, 'Rotator'),
     rotPill,
     h('label', { class: 'fld', style: 'margin-top:8px' }, [h('span', {}, 'Protocol'), rotProtocol]),
@@ -1113,47 +1311,29 @@ function buildHwPane(pane, handlers) {
       h('button', { class: 'btn', onclick: () => handlers.stopRotator() }, 'Stop'),
       h('button', { class: 'btn', onclick: () => handlers.parkRotator() }, 'Park'),
     ]),
+    h('div', { class: 'row', style: 'display:flex;gap:8px;margin-top:6px' }, [
+      h('button', { class: 'btn sm', title: 'Run the homing sequence — seeks the elevation endstop; azimuth zero is the compass-set position (SuperRot only)', onclick: () => handlers.homeRotator() }, 'Home'),
+      h('button', { class: 'btn sm', title: 'Unwind the azimuth cable to a neutral wrap without changing heading (SuperRot only)', onclick: () => handlers.unwindRotator() }, 'Unwind'),
+    ]),
+
+    // --- Auto-track: everyday controls, visible ---
     h('label', { class: 'fld', style: 'margin-top:8px' }, [h('span', {}, 'Auto-track'), autoMode]),
     h('div', { class: 'grid2' }, [
-      h('label', { class: 'fld' }, [h('span', {}, 'Track above elevation (°)'), rotMinEl]),
+      h('label', { class: 'fld' }, [h('span', {}, 'Rotator tracking min el (°)'), rotMinEl]),
       h('label', { class: 'fld' }, [h('span', {}, 'Pre-slew lead (s)'), preslewInp]),
     ]),
-    h('div', { class: 'muted', style: 'font-size:11px' }, 'Scheduled passes follows whichever tracked satellite is up, switching as passes come and go. Below the elevation limit the rotator parks. Pre-slew aims the mount at the next pass\'s rise azimuth this many seconds early (0 = off).'),
-    rotLimits,
+    h('div', { class: 'muted', style: 'font-size:11px' }, 'Scheduled mode follows whichever tracked satellite is up. Pre-slew aims at the next rise azimuth this many seconds early (0 = off).'),
     rotTarget,
 
-    h('div', { class: 'section-title' }, 'Park positions'),
-    parkList,
-    h('div', { class: 'row', style: 'display:flex;gap:8px;margin-top:6px;align-items:center' }, [parkNameInp, savePark]),
-
-    h('div', { class: 'section-title' }, 'Calibration & safety'),
-    h('div', { class: 'grid2' }, [
-      h('label', { class: 'fld' }, [h('span', {}, 'Az offset (°)'), azOffInp]),
-      h('label', { class: 'fld' }, [h('span', {}, 'El offset (°)'), elOffInp]),
-    ]),
-    h('div', { class: 'row', style: 'display:flex;gap:8px;margin-top:6px' }, [calibNorth, calibLevel]),
-    h('div', { class: 'grid2' }, [
-      h('label', { class: 'fld' }, [h('span', {}, 'Az backlash (°)'), inputNum(hw.rotator.backlashAz, '0.1', (v) => store.patchIn('hw.rotator', { backlashAz: Math.max(0, v) }))]),
-      h('label', { class: 'fld' }, [h('span', {}, 'El backlash (°)'), inputNum(hw.rotator.backlashEl, '0.1', (v) => store.patchIn('hw.rotator', { backlashEl: Math.max(0, v) }))]),
-    ]),
-    h('div', { class: 'muted', style: 'font-size:11px' }, 'Offsets correct mount misalignment (added to every commanded angle). Aim the mount at the reference, then capture. Backlash is compensated on the MCU — push settings to apply.'),
-    h('div', { class: 'toggle-line switch', style: 'margin-top:8px' }, [h('span', {}, 'Sun-avoidance guard'), sunAvoidChk]),
-    h('label', { class: 'fld' }, [h('span', {}, 'Keep-out radius (°)'), sunAvoidDeg]),
-
+    // --- Manual jog: primary hands-on control, visible ---
     h('div', { class: 'section-title' }, 'Manual jog'),
     h('div', { class: 'jog-wrap' }, [jogPad, h('div', { class: 'jog-step' }, [h('span', { class: 'sub-label' }, 'Step'), stepSeg])]),
 
-    h('hr', { class: 'hr' }),
-    h('div', { class: 'section-title' }, 'Radio (rigctld / Hamlib)'),
-    radPill,
-    h('div', { class: 'grid2', style: 'margin-top:8px' }, [
-      h('label', { class: 'fld' }, [h('span', {}, 'Host'), radHost]),
-      h('label', { class: 'fld' }, [h('span', {}, 'Port'), radPort]),
-    ]),
-    radConnect,
-    h('label', { class: 'fld', style: 'margin-top:8px' }, [h('span', {}, 'Downlink frequency (MHz)'), downlink]),
-    h('div', { class: 'toggle-line switch' }, [h('span', {}, 'Doppler correction'), doppler]),
-    radFreqLive,
+    // --- Collapsed by default ---
+    motionSection,
+    parkSection,
+    calibSection,
+    radioSection,
   );
 
   renderRotDynamic();
@@ -1216,10 +1396,20 @@ function fmtCountdown(ms) {
   return `in ${ss}s`;
 }
 
+// Compact single-line countdown for the tight pass-row column: mm:ss under an hour,
+// "Hh MMm" beyond (no seconds), so it never wraps to two/three lines.
+function fmtCountShort(ms) {
+  if (ms <= 0) return 'now';
+  const s = Math.floor(ms / 1000);
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const p = (n) => String(n).padStart(2, '0');
+  return h > 0 ? `${h}h ${p(m)}m` : `${p(m)}:${p(s % 60)}`;
+}
+
 // Draw a pass's sky-track into a small polar plot: horizon + rings, the az/el arc
 // in the satellite's colour, a green AOS dot and a red LOS dot (north at top).
-function drawPassMini(canvas, arc, color) {
-  const size = 58;
+function drawPassMini(canvas, arc, color, size = 58) {
   const dpr = window.devicePixelRatio || 1;
   canvas.width = size * dpr;
   canvas.height = size * dpr;

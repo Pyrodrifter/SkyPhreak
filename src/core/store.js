@@ -13,7 +13,8 @@ const DEFAULTS = {
   tleStore: {}, // { id: { name, line1, line2 } } — cached TLEs for tracked sats (offline)
   tleSched: { auto: true, maxAgeDays: 2 }, // auto-refresh cached TLEs so they stay < maxAgeDays old
   view: '2d', // '2d' | '3d'
-  theme: 'midnight', // UI theme id — see core/themes.js (midnight/ember/nightops/phosphor)
+  theme: 'midnight', // UI theme id — see core/themes.js (midnight/ember/nightops/phosphor/custom)
+  customTheme: { base: 'midnight', accent: '#4a9fd4' }, // user 'custom' theme: a base + accent
   uiScale: 'md', // UI size: 'sm' | 'md' | 'lg'
   fieldMode: false, // one-tap field mode (large + Night Ops)
   sideCollapsed: false, // left satellite-browser panel collapsed
@@ -164,6 +165,33 @@ export const store = {
     if (state.selected !== 'MOON' && !set.has(state.selected)) {
       state.selected = [...set][0] ?? 'MOON';
     }
+    emit();
+    persist();
+  },
+
+  /** Track many satellites at once (bulk "select all"), caching each TLE. */
+  trackMany(list) {
+    const set = new Set(state.tracked);
+    const tleStore = { ...state.tleStore };
+    for (const s of list) {
+      if (!s || !s.id) continue;
+      set.add(s.id);
+      if (s.line1 && s.line2) tleStore[s.id] = { name: s.name, line1: s.line1, line2: s.line2 };
+    }
+    state = { ...state, tracked: [...set], tleStore };
+    emit();
+    persist();
+  },
+
+  /** Untrack many satellites at once (bulk "deselect all"). */
+  untrackMany(ids) {
+    const rm = new Set(ids);
+    const tracked = state.tracked.filter((id) => !rm.has(id));
+    const tleStore = { ...state.tleStore };
+    for (const id of rm) delete tleStore[id];
+    let selected = state.selected;
+    if (selected !== 'MOON' && !tracked.includes(selected)) selected = tracked[0] ?? 'MOON';
+    state = { ...state, tracked, tleStore, selected };
     emit();
     persist();
   },

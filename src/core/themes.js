@@ -12,6 +12,34 @@
  */
 
 export const THEMES = {
+  // Mission Control — the SkyPhreak house look: deep navy HUD with sky-blue / cyan
+  // accents (matches the icon sheet: Sky Blue #4fc3ff, Accent Cyan #00e5ff).
+  mission: {
+    name: 'Mission',
+    vars: {
+      '--bg': '#070b12', '--panel': '#0b1220', '--panel-2': '#0f1a2b',
+      '--line': '#1b2c44', '--text': '#dbe7f5', '--text-dim': '#7f93ac',
+      '--accent': '#4fc3ff', '--accent-2': '#00e5ff',
+      '--warn': '#ffc53f', '--danger': '#ff5a5f',
+      '--topbar-hi': '#0c1626', '--topbar-lo': '#08101c',
+    },
+    map: {
+      bg: '#08182b', land: '#123553', landStroke: 'rgba(90,180,255,0.55)',
+      graticule: 'rgba(100,170,230,0.10)', equator: 'rgba(100,170,230,0.18)',
+      terminator: 'rgba(2,6,14,0.50)', labelBg: 'rgba(6,12,22,0.7)',
+      labelText: 'rgba(220,235,250,0.85)', moonShadow: '#14243a',
+    },
+    polar: {
+      grid: 'rgba(100,180,255,0.22)', gridDim: 'rgba(100,180,255,0.15)',
+      ticks: 'rgba(100,180,255,0.45)', labels: 'rgba(180,220,255,0.85)',
+    },
+    globe: {
+      atmosphere: '#4fc3ff', polyCap: 'rgba(30,90,140,0.9)',
+      polySide: 'rgba(18,55,85,0.4)', polyStroke: 'rgba(90,180,255,0.6)',
+      sphere: '#08182b', sphereEmissive: '#050f1c',
+    },
+  },
+
   midnight: {
     name: 'Midnight',
     vars: {
@@ -125,9 +153,31 @@ let active = THEMES.midnight;
 /** The active theme's canvas palette — views read this on every draw. */
 export const palette = () => active;
 
-/** Apply a theme by id: set the CSS vars and remember the canvas palette. */
-export function applyTheme(id) {
-  active = THEMES[id] || THEMES.midnight;
+// Shift a #rrggbb toward white by `amt` (0..1) — used to derive a lighter secondary
+// accent for custom themes so chips/links still read as a related tint.
+function lighten(hex, amt) {
+  const n = parseInt(hex.replace('#', ''), 16);
+  const mix = (c) => Math.round(c + (255 - c) * amt);
+  const r = mix((n >> 16) & 255), g = mix((n >> 8) & 255), b = mix(n & 255);
+  return `#${((1 << 24) | (r << 16) | (g << 8) | b).toString(16).slice(1)}`;
+}
+
+// Build a 'custom' theme: a base palette with the user's accent applied to the DOM
+// chrome and the globe atmosphere. Everything else inherits the (dark) base.
+function buildCustom(custom) {
+  const base = THEMES[custom && custom.base] || THEMES.midnight;
+  const accent = (custom && custom.accent) || base.vars['--accent'];
+  return {
+    ...base,
+    name: 'Custom',
+    vars: { ...base.vars, '--accent': accent, '--accent-2': lighten(accent, 0.25) },
+    globe: { ...base.globe, atmosphere: accent },
+  };
+}
+
+/** Apply a theme by id (or a built 'custom' theme): set CSS vars + canvas palette. */
+export function applyTheme(id, custom) {
+  active = id === 'custom' ? buildCustom(custom) : (THEMES[id] || THEMES.midnight);
   const root = document.documentElement;
   for (const [k, v] of Object.entries(active.vars)) root.style.setProperty(k, v);
   return active;

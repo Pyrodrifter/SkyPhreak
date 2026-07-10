@@ -100,6 +100,20 @@ async function boot() {
       store.addParkPreset({ name, az: Math.round(az * 10) / 10, el: Math.round(Math.max(0, el) * 10) / 10 });
     },
     stopRotator: () => { if (motionRunning) { motion.stop(); motionRunning = false; } else if (rotConnected) window.pyro.rotator.stop(); },
+    // Run the firmware homing sequence (SuperRot 'H' — el endstop, az compass-zero).
+    homeRotator: () => {
+      if (!rotConnected) return;
+      if (store.get().hw.rotator.autoMode !== 'off') store.patchIn('hw.rotator', { autoMode: 'off' });
+      if (motionRunning) { motion.stop(); motionRunning = false; }
+      window.pyro.rotator.home();
+    },
+    // Unwind the cable: drive azimuth to its 0-turn equivalent (same heading, no wrap).
+    unwindRotator: () => {
+      if (!rotConnected) return;
+      if (store.get().hw.rotator.autoMode !== 'off') store.patchIn('hw.rotator', { autoMode: 'off' });
+      if (motionRunning) { motion.stop(); motionRunning = false; }
+      window.pyro.rotator.unwind();
+    },
     // Calibration: capture the current telemetry as the true-north / level reference.
     captureCalibNorth: () => { if (rotTelemetry && Number.isFinite(rotTelemetry.az)) store.patchIn('hw.rotator', { azOffset: Math.round(rotTelemetry.az * 10) / 10 }); },
     captureCalibLevel: () => { if (rotTelemetry && Number.isFinite(rotTelemetry.el)) store.patchIn('hw.rotator', { elOffset: Math.round(rotTelemetry.el * 10) / 10 }); },
@@ -421,10 +435,12 @@ function onState(state) {
     globe3d.setStyle(state.mapStyle);
   }
   // Theme: set the CSS vars; the 2D/polar canvases pick the palette up on their
-  // next repaint, the globe re-applies its materials explicitly.
-  if (state.theme !== lastTheme) {
-    lastTheme = state.theme;
-    applyTheme(state.theme);
+  // next repaint, the globe re-applies its materials explicitly. The key includes the
+  // custom accent so tweaking it (while on the 'custom' theme) re-applies live.
+  const themeKey = state.theme + (state.theme === 'custom' ? '|' + JSON.stringify(state.customTheme) : '');
+  if (themeKey !== lastTheme) {
+    lastTheme = themeKey;
+    applyTheme(state.theme, state.customTheme);
     globe3d.refreshTheme();
     map2d.draw(map2d.frame);
   }
@@ -926,9 +942,9 @@ function defaultParkPreset() {
   return presets.find((p) => p.name === rot.parkDefault) || presets[0] || { name: 'Home', home: true };
 }
 
-// Park to a named preset: 'home' presets run the firmware homing sequence; others
-// slew to a saved az/el. Either way we take manual control (auto-track off) so the
-// scheduler doesn't immediately re-drive the mount off the park position.
+// Park to a named preset: the built-in Home preset runs the firmware homing sequence;
+// other presets slew to their saved az/el. Either way we take manual control so the
+// scheduler doesn't immediately re-drive the mount off the requested position.
 function parkToPreset(preset) {
   if (motionRunning) { motion.stop(); motionRunning = false; }
   if (store.get().hw.rotator.autoMode !== 'off') store.patchIn('hw.rotator', { autoMode: 'off' });
@@ -936,7 +952,7 @@ function parkToPreset(preset) {
   preslewId = null;
   activeTrackId = null;
   if (!rotConnected) return;
-  if (!preset || preset.home) window.pyro.rotator.park();
+  if (!preset || preset.home) window.pyro.rotator.home();
   else window.pyro.rotator.setAzEl(preset.az, Math.max(0, preset.el || 0));
 }
 
@@ -1092,6 +1108,9 @@ function driveHardware(frame, date, live = true) {
     if (selected && selected.look && selected.look.el >= rot.minEl) track = selected;
   } else if (mode === 'schedule') {
     track = pickScheduledTarget(frame, date.getTime());
+    // Respect the rotator's tracking minimum too (pass prediction uses the pass-list
+    // minimum, which may be lower) — don't drive the mount below rot.minEl.
+    if (track && track.look && track.look.el < rot.minEl) track = null;
   } else {
     schedLockId = null;
   }
