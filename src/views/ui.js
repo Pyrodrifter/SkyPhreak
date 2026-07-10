@@ -1,4 +1,5 @@
 import { store } from '../core/store.js';
+import { THEMES } from '../core/themes.js';
 import { DSOS } from '../core/dso.js';
 
 // Sun, Moon and planets shown in the Sky box (id, label, marker colour).
@@ -13,6 +14,12 @@ const SKY_BODIES = [
   ['URANUS', 'Uranus', '#9fe0e6'],
   ['NEPTUNE', 'Neptune', '#5b7cdf'],
 ];
+
+// Traditional astronomical symbols — cleaner than emoji, and they inherit theme color.
+const SKY_GLYPH = {
+  MOON: '☾', SUN: '☉', MERCURY: '☿', VENUS: '♀', MARS: '♂',
+  JUPITER: '♃', SATURN: '♄', URANUS: '♅', NEPTUNE: '♆',
+};
 
 // Tiny DOM helper.
 function h(tag, attrs = {}, children = []) {
@@ -37,14 +44,43 @@ export function createUI(handlers) {
   const btn2d = h('button', { class: 'active', onclick: () => store.patch({ view: '2d' }) }, '2D Map');
   const btn3d = h('button', { onclick: () => store.patch({ view: '3d' }) }, '3D Globe');
 
+  // Theme picker — restyles the whole app (panels + map/globe/polar) live.
+  const themeSel = h('select', {
+    class: 'theme-sel',
+    title: 'Color theme',
+    onchange: (e) => store.patch({ theme: e.target.value }),
+  }, Object.entries(THEMES).map(([id, t]) => h('option', { value: id }, t.name)));
+  themeSel.value = store.get().theme;
+
+  // UI size (S/M/L). Changing it manually exits Field mode.
+  const sizeDefs = [['sm', 'S'], ['md', 'M'], ['lg', 'L']];
+  const sizeBtns = {};
+  const sizeSeg = h('div', { class: 'seg size-seg', title: 'UI size' }, sizeDefs.map(([k, l]) =>
+    (sizeBtns[k] = h('button', { onclick: () => store.patch({ uiScale: k, fieldMode: false }) }, l))));
+
+  // Field mode: one tap → large controls + Night Ops theme (and back).
+  const fieldBtn = h('button', {
+    class: 'btn sm field-btn',
+    title: 'Field mode — large touch controls + Night Ops theme',
+    onclick: () => {
+      const on = !store.get().fieldMode;
+      store.patch(on
+        ? { fieldMode: true, uiScale: 'lg', theme: 'nightops' }
+        : { fieldMode: false, uiScale: 'md', theme: 'midnight' });
+      themeSel.value = store.get().theme;
+    },
+  }, '⛶ Field');
+
   const topbar = h('div', { class: 'topbar' }, [
     h('div', { class: 'brand' }, [
       h('img', { class: 'brand-logo', src: './icon.png', alt: '' }),
       h('span', { class: 'brand-text', html: 'Sky<span>Phreak</span>' }),
     ]),
-    clockEl,
     h('div', { class: 'spacer' }),
     selReadout,
+    sizeSeg,
+    fieldBtn,
+    themeSel,
     h('div', { class: 'toggle' }, [btn2d, btn3d]),
   ]);
 
@@ -65,45 +101,53 @@ export function createUI(handlers) {
   groupSel.value = store.get().group;
 
   const refreshBtn = h('button', { class: 'btn sm', onclick: () => handlers.refreshTLE() }, 'Refresh');
+  const oemBtn = h('button', {
+    class: 'btn sm',
+    title: 'Load a CCSDS OEM ephemeris file (.oem/.txt/.xml) — precise tabulated state vectors, interpolated instead of SGP4',
+    onclick: () => handlers.loadOem(),
+  }, 'Load OEM…');
   const tleStamp = h('div', { class: 'muted', style: 'font-size:11px;margin-top:6px' }, '');
-  const search = h('input', { type: 'text', placeholder: 'Search satellites…', oninput: (e) => { searchTerm = e.target.value.toLowerCase(); renderList(); } });
-  const listEl = h('div', { class: 'satlist' });
-  const skyEl = h('div', { class: 'satlist box-list' });
-  const trackedEl = h('div', { class: 'satlist box-list' });
-  const favEl = h('div', { class: 'satlist box-list' });
+  const search = h('input', { type: 'text', placeholder: 'Search…', oninput: (e) => { searchTerm = e.target.value.toLowerCase(); renderList(); } });
+  const listEl = h('div', { class: 'satlist grow' });
   let searchTerm = '';
-  let dsoOpen = false; // whether the deep-sky list is expanded in the sidebar
+  let browserFilter = 'all'; // all | tracked | favorites | sky
+  let dsoOpen = false; // whether the deep-sky list is expanded
   let solarOpen = true; // whether the Solar System list is expanded
   let staleIds = new Set(); // tracked sats whose TLE epoch exceeds the max age
+  let skyStatus = {}; // { id: elevation° } — live, for the Sky list chips
+  let wakeLock = null; // screen wake-lock sentinel (Field mode); see applyWakeLock
+
+  // Segmented filter — one browser instead of four stacked boxes.
+  const filterDefs = [['all', 'All'], ['tracked', 'Tracked'], ['favorites', 'Favs'], ['sky', 'Sky']];
+  const filterBtns = {};
+  const filterBar = h('div', { class: 'seg' }, filterDefs.map(([k, l]) =>
+    (filterBtns[k] = h('button', { class: k === browserFilter ? 'active' : '', onclick: () => { browserFilter = k; syncFilter(); renderList(); } }, l))));
+  // Manual TLE paste — for a satellite not in any Celestrak group.
+  const tlePaste = h('textarea', { class: 'tle-paste', placeholder: 'Paste TLE — name line + 2 element lines…', rows: 4, style: 'display:none' });
+  const tleAddBtn = h('button', { class: 'btn sm', style: 'display:none;margin-top:4px', onclick: () => {
+    if (handlers.addManualTle(tlePaste.value)) { tlePaste.value = ''; tlePaste.style.display = 'none'; tleAddBtn.style.display = 'none'; }
+  } }, 'Add pasted TLE');
+  const pasteToggle = h('button', { class: 'btn sm', title: 'Paste a 2/3-line element set manually', onclick: () => {
+    const show = tlePaste.style.display === 'none';
+    tlePaste.style.display = show ? '' : 'none';
+    tleAddBtn.style.display = show ? '' : 'none';
+    if (show) tlePaste.focus();
+  } }, 'Paste TLE');
+  const catalogControls = h('div', { class: 'catalog-controls' }, [
+    groupSel,
+    h('div', { class: 'row', style: 'margin-top:6px' }, [refreshBtn, oemBtn, pasteToggle]),
+    tlePaste,
+    tleAddBtn,
+    tleStamp,
+  ]);
+  function syncFilter() {
+    for (const [k] of filterDefs) filterBtns[k].classList.toggle('active', k === browserFilter);
+    catalogControls.style.display = browserFilter === 'all' ? '' : 'none';
+  }
 
   const sidebar = h('aside', { class: 'sidebar' }, [
-    h('div', { class: 'side-box' }, [
-      h('div', { class: 'side-title pad' }, 'Sky'),
-      skyEl,
-    ]),
-    h('div', { class: 'side-box' }, [
-      h('div', { class: 'side-title pad' }, 'Tracked'),
-      trackedEl,
-    ]),
-    h('div', { class: 'side-box' }, [
-      h('div', { class: 'side-title pad' }, 'Favorites'),
-      favEl,
-    ]),
-    h('div', { class: 'side-box grow' }, [
-      h('div', { class: 'side-head' }, [
-        h('div', { class: 'side-title' }, 'Catalog'),
-        groupSel,
-        h('div', { class: 'row', style: 'margin-top:8px' }, [search, refreshBtn]),
-        h('button', {
-          class: 'btn sm',
-          style: 'margin-top:6px',
-          title: 'Load a CCSDS OEM ephemeris file (.oem/.txt/.xml) — precise tabulated state vectors, interpolated instead of SGP4',
-          onclick: () => handlers.loadOem(),
-        }, 'Load OEM…'),
-        tleStamp,
-      ]),
-      listEl,
-    ]),
+    h('div', { class: 'side-top' }, [search, filterBar, catalogControls]),
+    listEl,
   ]);
 
   /* -------------------------------- Stage -------------------------------- */
@@ -120,23 +164,57 @@ export function createUI(handlers) {
     },
   }, styleLabel(store.get().mapStyle));
   const resetBtn = h('button', { class: 'btn sm', onclick: () => handlers.resetView() }, 'Reset view');
-  const tools = h('div', { class: 'stage-tools' }, [mapStyleBtn, resetBtn]);
 
-  // Quick-access auto-track controls on the map: the three tracking modes + a
-  // rotor connection light (red = disconnected, green = connected).
+  // Follow-satellite toggle (keeps the active view centred on the selection).
+  const followBtn = h('button', {
+    class: 'btn sm', title: 'Follow the selected satellite — keep it centred in the view',
+    onclick: () => store.patch({ followSat: !store.get().followSat }),
+  }, '⌖ Follow');
+
+  // Time-warp scrubber: a slider that shifts the *view* time to preview passes; hardware
+  // stays live. A ⏱ button in the toolbar reveals it; LIVE snaps back to real time.
+  const warpLabel = h('span', { class: 'warp-label' }, 'LIVE');
+  const warpSlider = h('input', {
+    type: 'range', min: -180, max: 180, step: 1, value: 0, class: 'warp-slider',
+    oninput: (e) => {
+      const m = +e.target.value;
+      handlers.setTimeWarp(m);
+      warpLabel.textContent = m === 0 ? 'LIVE' : (m > 0 ? '+' : '') + m + ' min';
+      warpBar.classList.toggle('warped', m !== 0);
+    },
+  });
+  const resetWarp = () => { warpSlider.value = 0; handlers.setTimeWarp(0); warpLabel.textContent = 'LIVE'; warpBar.classList.remove('warped'); };
+  const warpBar = h('div', { class: 'warp-bar', style: 'display:none' }, [
+    h('span', { class: 'warp-title' }, '⏱'), warpSlider, warpLabel,
+    h('button', { class: 'btn sm', title: 'Return to live', onclick: resetWarp }, 'LIVE'),
+  ]);
+  const warpToggle = h('button', {
+    class: 'btn sm', title: 'Time-warp — scrub the view into the future/past to preview passes',
+    onclick: () => { const show = warpBar.style.display === 'none'; warpBar.style.display = show ? '' : 'none'; if (!show) resetWarp(); },
+  }, '⏱');
+
+  const helpBtn = h('button', { class: 'btn sm', title: 'Keyboard shortcuts (press ?)', onclick: () => toggleHelp(true) }, '?');
+  const tools = h('div', { class: 'stage-tools' }, [followBtn, warpToggle, mapStyleBtn, resetBtn, helpBtn]);
+
+  // Auto-track mode buttons — now live in the status bar (built below).
   const trackBtns = {};
   const trackModes = [['off', 'Off'], ['selected', 'Selected'], ['schedule', 'Tracked']];
-  const trackBar = h('div', { class: 'toggle' }, trackModes.map(([m, label]) =>
-    (trackBtns[m] = h('button', { title: trackTitle(m), onclick: () => store.patchIn('hw.rotator', { autoMode: m }) }, label))));
-  const rotorDot = h('span', { class: 'rotor-dot', title: 'Rotor disconnected' });
-  const trackCluster = h('div', { class: 'track-cluster' }, [
-    h('span', { class: 'track-label' }, 'Auto-track'),
-    trackBar,
-    h('span', { class: 'rotor-status' }, [rotorDot, h('span', { class: 'rotor-text' }, 'Rotor')]),
-  ]);
+  const trackBar = h('div', { class: 'track-btns' }, trackModes.map(([m, label]) =>
+    (trackBtns[m] = h('button', { class: 'btn sm track-btn', title: trackTitle(m), onclick: () => store.patchIn('hw.rotator', { autoMode: m }) }, label))));
+
+  // Edge handles to collapse/expand the side panels (map-first mode).
+  const sideToggle = h('button', { class: 'panel-toggle side', title: 'Collapse / expand the list', onclick: () => store.patch({ sideCollapsed: !store.get().sideCollapsed }) }, '◂');
+  const rightToggle = h('button', { class: 'panel-toggle right', title: 'Collapse / expand the panel', onclick: () => store.patch({ rightCollapsed: !store.get().rightCollapsed }) }, '▸');
 
   const hint = h('div', { class: 'view-hint' }, 'Scroll to zoom · drag to pan · click a satellite to select');
-  const stage = h('main', { class: 'stage' }, [view2d, view3d, trackCluster, tools, hint]);
+  // Persistent emergency stop — always on the map while the rotator is connected,
+  // so a halt is one tap away from any tab. Also bound to the Esc key (below).
+  const estopFab = h('button', {
+    class: 'estop-fab',
+    title: 'Emergency stop (Esc) — halt the rotator immediately',
+    onclick: () => handlers.stopRotator(),
+  }, '⏹ STOP');
+  const stage = h('main', { class: 'stage' }, [view2d, view3d, tools, warpBar, hint, sideToggle, rightToggle, estopFab]);
 
   /* ----------------------------- Right panel ----------------------------- */
   const tabPanes = {};
@@ -167,7 +245,90 @@ export function createUI(handlers) {
   const infoText = h('div');
   tabPanes.info.append(infoText);
 
-  app.append(topbar, h('div', { class: 'body' }, [sidebar, stage, rightpanel]));
+  /* ----------------------------- Status bar ------------------------------ */
+  // Persistent bottom strip: clock, hardware connection state, and what the rotator
+  // is currently tracking — the sort of at-a-glance status a finished app carries.
+  const sbDot = (label) => {
+    const dot = h('span', { class: 'sb-dot' });
+    const el = h('div', { class: 'sb-item', title: label }, [dot, h('span', { class: 'sb-txt' }, label)]);
+    return { el, set: (on) => dot.classList.toggle('on', on) };
+  };
+  const sbRot = sbDot('Rotator');
+  const sbRad = sbDot('Radio');
+  const sbTrack = h('span', { class: 'sb-val' }, 'Idle');
+  // Cable-wrap gauge — azimuth turns accumulated away from north (hidden when idle).
+  const sbWrapVal = h('span', { class: 'sb-val sb-wrap-val' }, '—');
+  const sbWrap = h('div', { class: 'sb-item sb-wrap', style: 'display:none', title: 'Cable wrap' }, [
+    h('span', { class: 'sb-k' }, 'Wrap'), sbWrapVal,
+  ]);
+  const statusbar = h('footer', { class: 'statusbar' }, [
+    clockEl,
+    h('div', { class: 'sb-sep' }),
+    h('div', { class: 'sb-item' }, [h('span', { class: 'sb-k' }, 'Track'), trackBar]),
+    h('div', { class: 'sb-item sb-target' }, [h('span', { class: 'sb-k' }, 'Target'), sbTrack]),
+    h('div', { class: 'spacer' }),
+    sbWrap,
+    // Field controls always within reach — no digging into the Hardware tab.
+    h('button', { class: 'btn sm', title: 'Park the rotator (to the default preset)', onclick: () => handlers.parkRotator() }, 'Park'),
+    h('button', { class: 'btn sm danger', title: 'Stop the rotator (Esc)', onclick: () => handlers.stopRotator() }, 'Stop'),
+    h('div', { class: 'sb-sep' }),
+    sbRot.el,
+    sbRad.el,
+  ]);
+  function setStatus({ rotConnected, radConnected, tracking }) {
+    sbRot.set(rotConnected);
+    sbRad.set(radConnected);
+    sbTrack.textContent = tracking || 'Idle';
+  }
+  // Cable-wrap readout: {az, turns, level, warn, max} or null to hide.
+  function setCableWrap(info) {
+    if (!info) { sbWrap.style.display = 'none'; return; }
+    sbWrap.style.display = '';
+    const t = info.turns;
+    sbWrapVal.textContent = (t >= 0 ? '+' : '−') + Math.abs(t).toFixed(2) + 't';
+    sbWrapVal.className = 'sb-val sb-wrap-val ' + info.level;
+    sbWrap.title = `Cable wrap: ${info.az.toFixed(0)}° from north (${t.toFixed(2)} turns). `
+      + `Amber ≥ ${info.warn}°, red ≥ ${info.max}° — unwind manually.`;
+  }
+
+  // Collapse/expand the side panels, and set the global UI size class.
+  function applyLayout(state) {
+    sidebar.classList.toggle('collapsed', !!state.sideCollapsed);
+    rightpanel.classList.toggle('collapsed', !!state.rightCollapsed);
+    sideToggle.textContent = state.sideCollapsed ? '▸' : '◂';
+    rightToggle.textContent = state.rightCollapsed ? '◂' : '▸';
+    const root = document.documentElement;
+    root.classList.remove('ui-sm', 'ui-md', 'ui-lg');
+    root.classList.add('ui-' + (state.uiScale || 'md'));
+    if (sizeBtns) for (const [k] of sizeDefs) sizeBtns[k].classList.toggle('active', k === (state.uiScale || 'md'));
+    if (fieldBtn) fieldBtn.classList.toggle('active', !!state.fieldMode);
+    followBtn.classList.toggle('active', !!state.followSat);
+    applyWakeLock(!!state.fieldMode);
+  }
+  applyLayout(store.get());
+
+  // Keyboard-shortcut help overlay (toggled by the ? key / toolbar button).
+  const helpOverlay = h('div', { class: 'help-overlay', style: 'display:none', onclick: (e) => { if (e.target === helpOverlay) toggleHelp(false); } }, [
+    h('div', { class: 'help-card' }, [
+      h('div', { class: 'help-title' }, 'Keyboard shortcuts'),
+      ...[
+        ['Esc', 'Emergency-stop the rotator (or close this)'],
+        ['2 / 3', '2D map / 3D globe'],
+        ['F', 'Toggle Field mode'],
+        ['L', 'Follow the selected satellite'],
+        ['P', 'Park the rotator'],
+        ['T', 'Cycle auto-track: Off → Selected → Tracked'],
+        ['?', 'Show / hide this help'],
+      ].map(([k, d]) => h('div', { class: 'help-row' }, [h('kbd', {}, k), h('span', {}, d)])),
+      h('button', { class: 'btn sm', style: 'margin-top:10px', onclick: () => toggleHelp(false) }, 'Close'),
+    ]),
+  ]);
+  function toggleHelp(force) {
+    const show = force === undefined ? helpOverlay.style.display === 'none' : force;
+    helpOverlay.style.display = show ? 'flex' : 'none';
+  }
+
+  app.append(topbar, h('div', { class: 'body' }, [sidebar, stage, rightpanel]), statusbar, helpOverlay);
 
   /* ------------------------------ Rendering ------------------------------ */
   // A sat-like {noradId,name,line1,line2} for an id, from catalog or favorites.
@@ -178,6 +339,43 @@ export function createUI(handlers) {
     if (f) return { noradId: f.id, name: f.name, line1: f.line1, line2: f.line2 };
     const t = (store.get().tleStore || {})[id];
     return t ? { noradId: id, name: t.name, line1: t.line1, line2: t.line2 } : null;
+  }
+
+  // Floating swatch picker for a satellite's color.
+  let colorPop = null;
+  const closeColorPop = () => {
+    if (!colorPop) return;
+    colorPop.remove();
+    colorPop = null;
+    document.removeEventListener('mousedown', onColorDocDown, true);
+  };
+  function onColorDocDown(e) { if (colorPop && !colorPop.contains(e.target)) closeColorPop(); }
+  function openColorPicker(id, anchor) {
+    const wasThis = colorPop && colorPop.dataset.id === id;
+    closeColorPop();
+    if (wasThis) return; // toggle off if clicking the same dot
+    const cur = store.get().satColors[id];
+    colorPop = h('div', { class: 'color-pop' }, [
+      h('div', { class: 'color-grid' }, SWATCHES.map((c) =>
+        h('button', {
+          class: 'color-sw' + (c.toLowerCase() === (cur || '').toLowerCase() ? ' sel' : ''),
+          style: `background:${c}`, title: c,
+          onclick: (e) => { e.stopPropagation(); store.setSatColor(id, c); closeColorPop(); },
+        }))),
+      h('div', { class: 'color-actions' }, [
+        h('label', { class: 'color-custom', title: 'Custom color' }, [
+          h('input', { type: 'color', value: cur || colorFor(id, store.get().tracked), oninput: (e) => store.setSatColor(id, e.target.value) }),
+          'Custom',
+        ]),
+        h('button', { class: 'btn sm', onclick: (e) => { e.stopPropagation(); store.clearSatColor(id); closeColorPop(); } }, 'Auto'),
+      ]),
+    ]);
+    colorPop.dataset.id = id;
+    document.body.appendChild(colorPop);
+    const r = anchor.getBoundingClientRect();
+    colorPop.style.left = Math.max(6, Math.min(r.left - 4, window.innerWidth - 190)) + 'px';
+    colorPop.style.top = r.bottom + 5 + 'px';
+    setTimeout(() => document.addEventListener('mousedown', onColorDocDown, true), 0);
   }
 
   function satRow({ id, name, tracked, favorite, selected, color }) {
@@ -193,27 +391,38 @@ export function createUI(handlers) {
       onclick: (e) => { e.stopPropagation(); const s = satLike(id); if (s) store.toggleFavorite(s); },
     }, favorite ? '★' : '☆');
     const stale = staleIds.has(id);
+    const dot = tracked
+      ? h('button', {
+          class: 'dot dot-btn', style: `background:${color}`, title: 'Click to change colour',
+          onclick: (e) => { e.stopPropagation(); openColorPicker(id, e.currentTarget); },
+        })
+      : h('span', { class: 'dot', style: 'background:transparent;border:1px solid var(--line)' });
     return h('div', {
       class: 'sat-row' + (selected ? ' selected' : ''),
       onclick: () => store.patch({ selected: id }),
     }, [
       cb,
-      h('span', { class: 'dot', style: tracked ? `background:${color}` : 'background:transparent;border:1px solid var(--line)' }),
+      dot,
       h('span', { class: 'nm' }, name),
       stale ? h('span', { class: 'stale-badge', title: 'TLE older than the max age — update when online' }, 'old TLE') : h('span', { class: 'nid' }, id),
       star,
     ]);
   }
 
-  // A selectable sky-target row (Moon/Sun/planet/DSO) — no track/favorite.
-  function bodyRow(id, name, color, selected, sub) {
+  // A selectable sky-target row (Moon/Sun/planet/DSO): symbol · name · type · live el.
+  function bodyRow(id, name, color, selected, opts = {}) {
+    const { glyph = '✦', sub = '', el } = opts;
+    const hasEl = Number.isFinite(el);
+    const up = hasEl && el >= 0;
     return h('div', {
-      class: 'sat-row' + (selected ? ' selected' : ''),
+      class: 'sat-row sky-row' + (selected ? ' selected' : ''),
       onclick: () => store.patch({ selected: id }),
     }, [
-      h('span', { class: 'dot', style: `background:${color}` }),
+      h('span', { class: 'sky-glyph', style: `color:${color}` }, glyph),
       h('span', { class: 'nm' }, name),
-      h('span', { class: 'nid' }, sub || ''),
+      sub ? h('span', { class: 'sky-sub' }, sub) : h('span', {}),
+      h('span', { class: 'sky-el' + (hasEl ? (up ? ' up' : ' down') : ' none') },
+        hasEl ? (up ? el.toFixed(0) + '°' : '↓') : ''),
     ]);
   }
 
@@ -230,86 +439,115 @@ export function createUI(handlers) {
     return h('label', { class: 'on-map', title }, [cb, h('span', {}, 'on map')]);
   };
 
-  function renderSky() {
+  // Render the Sky filter (Solar System + deep sky) into the unified list.
+  function renderSky(target) {
     const st = store.get();
     const sel = st.selected;
-    skyEl.innerHTML = '';
+    const q = searchTerm; // a search reveals matches regardless of collapse state
+    const solar = SKY_BODIES.filter(([, name]) => !q || name.toLowerCase().includes(q));
+    const dsos = DSOS.filter((d) => !q || d.name.toLowerCase().includes(q) || (d.id + '').toLowerCase().includes(q));
 
-    // Solar System: the Moon, Sun and planets. "on map" controls the 2D-map
-    // overlay (Moon + planets); they always remain on the radar view.
-    skyEl.append(groupHead(solarOpen, 'Solar System', () => { solarOpen = !solarOpen; renderSky(); },
+    target.append(groupHead(solarOpen, `Solar System${q ? ` (${solar.length})` : ''}`, () => { solarOpen = !solarOpen; renderList(); },
       h('div', { class: 'chk-group' }, [
         h('label', { class: 'on-map', title: 'Show the Moon on the 2D map' }, [checkbox(st.showMoon, (v) => store.patch({ showMoon: v })), h('span', {}, 'Moon')]),
         h('label', { class: 'on-map', title: 'Show the Sun & planets on the 2D map' }, [checkbox(st.showPlanets, (v) => store.patch({ showPlanets: v })), h('span', {}, 'Planets')]),
       ])));
-    if (solarOpen) for (const [id, name, color] of SKY_BODIES) skyEl.append(bodyRow(id, name, color, sel === id));
-
-    // Deep sky: expand to pick a target; "on map" overlays all DSOs (off by
-    // default). The selected DSO always shows on the map regardless.
-    skyEl.append(groupHead(dsoOpen, 'Deep sky', () => { dsoOpen = !dsoOpen; renderSky(); },
-      onMapChk('showDso', 'Overlay all deep-sky objects on the 2D map')));
-    if (dsoOpen) for (const d of DSOS) {
-      skyEl.append(bodyRow('DSO:' + d.id, d.name, '#c792ea', sel === 'DSO:' + d.id, d.type.replace(/ ?nebula/i, '').trim() || d.type));
+    if (solarOpen || q) for (const [id, name, color] of solar) {
+      target.append(bodyRow(id, name, color, sel === id, { glyph: SKY_GLYPH[id], el: skyStatus[id] }));
     }
+
+    target.append(groupHead(dsoOpen, `Deep sky${q ? ` (${dsos.length})` : ''}`, () => { dsoOpen = !dsoOpen; renderList(); },
+      onMapChk('showDso', 'Overlay all deep-sky objects on the 2D map')));
+    if (dsoOpen || q) for (const d of dsos) {
+      const did = 'DSO:' + d.id;
+      const type = d.type.replace(/ nebula/i, ' Neb.').replace(/ cluster/i, ' Cl.').replace(/ galaxy/i, ' Gal.');
+      const sub = (d.mag != null ? 'm' + d.mag + ' · ' : '') + type;
+      target.append(bodyRow(did, d.name, '#c792ea', sel === did, { glyph: '✦', sub, el: skyStatus[did] }));
+    }
+    if (q && !solar.length && !dsos.length) target.append(h('div', { class: 'empty' }, 'No sky objects match'));
   }
 
+  // Live elevation for the Sky-list chips (main.js feeds it each tick when active).
+  function updateSky(map) {
+    skyStatus = map || {};
+    if (browserFilter === 'sky') renderList();
+  }
+  const isSkyActive = () => browserFilter === 'sky';
+
+  // Unified satellite browser: one list driven by the segmented filter + search.
   function renderList() {
     const st = store.get();
-    const catalog = store.getCatalog();
     const tracked = new Set(st.tracked);
     const favIds = new Set(st.favorites.map((f) => f.id));
-
-    renderSky();
-
-    // Tracked box: tracked satellites.
-    trackedEl.innerHTML = '';
-    if (!st.tracked.length) trackedEl.append(h('div', { class: 'mini-empty' }, 'No satellites tracked'));
-    for (const id of st.tracked) {
-      const s = satLike(id);
-      trackedEl.append(satRow({
-        id, name: s ? s.name : 'NORAD ' + id, tracked: true,
-        favorite: favIds.has(id), selected: st.selected === id, color: colorFor(id, st.tracked),
-      }));
-    }
-
-    // Favorites box.
-    favEl.innerHTML = '';
-    if (!st.favorites.length) favEl.append(h('div', { class: 'mini-empty' }, 'Tap ☆ on a satellite to add it'));
-    for (const f of st.favorites) {
-      favEl.append(satRow({
-        id: f.id, name: f.name, tracked: tracked.has(f.id),
-        favorite: true, selected: st.selected === f.id, color: colorFor(f.id, st.tracked),
-      }));
-    }
-
-    // Catalog box: the loaded group, filtered by search (capped). Preserve the
-    // scroll position — renderList runs on every state change (incl. selecting a
-    // satellite), and rebuilding the list would otherwise jump it back to the top.
     const savedScroll = listEl.scrollTop;
     listEl.innerHTML = '';
-    let pool = catalog;
-    if (searchTerm) pool = catalog.filter((s) => s.name.toLowerCase().includes(searchTerm) || s.noradId.includes(searchTerm));
-    const rows = pool.slice(0, 200);
-    if (!rows.length) {
-      listEl.append(h('div', { class: 'empty' }, catalog.length ? 'No matches' : 'Loading catalog…'));
+
+    if (browserFilter === 'sky') { renderSky(listEl); return; }
+
+    let entries;
+    let emptyMsg;
+    if (browserFilter === 'tracked') {
+      entries = st.tracked.map((id) => ({ id, s: satLike(id) }));
+      emptyMsg = 'No satellites tracked — check one in All';
+    } else if (browserFilter === 'favorites') {
+      entries = st.favorites.map((f) => ({ id: f.id, s: { name: f.name } }));
+      emptyMsg = 'Tap ☆ on a satellite to add it';
+    } else {
+      const catalog = store.getCatalog();
+      entries = catalog.map((s) => ({ id: s.noradId, s }));
+      emptyMsg = catalog.length ? 'No matches' : 'Loading catalog…';
+    }
+    if (searchTerm) entries = entries.filter(({ id, s }) => (s && s.name || '').toLowerCase().includes(searchTerm) || id.includes(searchTerm));
+    if (browserFilter === 'all') entries = entries.slice(0, 250);
+
+    if (!entries.length) {
+      listEl.append(h('div', { class: 'empty' }, emptyMsg));
       return;
     }
-    for (const s of rows) {
+    for (const { id, s } of entries) {
       listEl.append(satRow({
-        id: s.noradId, name: s.name, tracked: tracked.has(s.noradId),
-        favorite: favIds.has(s.noradId), selected: st.selected === s.noradId, color: colorFor(s.noradId, st.tracked),
+        id, name: s ? s.name : 'NORAD ' + id,
+        tracked: tracked.has(id), favorite: favIds.has(id),
+        selected: st.selected === id, color: colorFor(id, st.tracked),
       }));
     }
     listEl.scrollTop = savedScroll;
   }
 
-  function updateClock(date) {
+  function updateClock(date, warpMs = 0) {
     const utc = date.toISOString().slice(11, 19);
     const loc = date.toLocaleTimeString();
-    clockEl.innerHTML = `<b>${utc}</b> UTC &nbsp;·&nbsp; ${loc}`;
+    let extra = '';
+    if (warpMs) {
+      const m = Math.round(warpMs / 60000);
+      extra = ` &nbsp;·&nbsp; <span class="clock-warp">${m >= 0 ? '+' : ''}${m}m preview</span>`;
+    }
+    clockEl.innerHTML = `<b>${utc}</b> UTC &nbsp;·&nbsp; ${loc}${extra}`;
   }
 
   const kv = (label, value, cls = '') => [h('div', { class: 'k' }, label), h('div', { class: 'v ' + cls }, value)];
+
+  // EME (Moon-bounce) working figures for the selected Moon, with an editable frequency.
+  function appendEmeSection(eme) {
+    const freq = h('input', {
+      type: 'number', step: '1', value: eme.freqMHz, style: 'width:80px',
+      oninput: (e) => { const v = parseFloat(e.target.value); if (!Number.isNaN(v)) handlers.setEmeFreq(v); },
+    });
+    const dop = eme.dopplerHz;
+    infoText.append(
+      h('div', { class: 'section-title' }, '☾ EME · Moon-bounce'),
+      h('label', { class: 'fld' }, [h('span', {}, 'Frequency (MHz)'), freq]),
+      h('div', { class: 'stat-grid' }, [
+        statCard('Path loss (echo)', eme.echoPathLoss.toFixed(1) + ' dB'),
+        statCard('Path loss (1-way)', eme.fsplOneWay.toFixed(1) + ' dB'),
+        statCard('Echo Doppler', (dop >= 0 ? '+' : '') + (dop / 1000).toFixed(2) + ' kHz'),
+        statCard('Declination', eme.declination.toFixed(1) + '°'),
+        statCard('Degradation', '+' + eme.degradationDb.toFixed(1) + ' dB'),
+        statCard('Range', Math.round(eme.rangeKm).toLocaleString() + ' km'),
+      ]),
+      h('div', { class: 'muted', style: 'font-size:11px' }, 'Free-space path loss + self-echo Doppler for the current Moon geometry. Degradation is extra two-way loss vs. perigee (sky-noise and libration not modelled).')
+    );
+  }
 
   function appendMoonSection(moon) {
     const up = moon.look.el >= 0;
@@ -326,7 +564,6 @@ export function createUI(handlers) {
   }
 
   function updateInfo(info, moon, selBody) {
-    const k = kv;
     infoText.innerHTML = '';
 
     // A non-satellite sky target (Moon / Sun / planet / DSO) is selected.
@@ -334,14 +571,17 @@ export function createUI(handlers) {
       const up = selBody.el >= 0;
       selReadout.innerHTML = `<b>${selBody.name}</b> &nbsp; ${selBody.el.toFixed(1)}° el / ${selBody.az.toFixed(0)}° az`;
       infoText.append(
-        h('div', { class: 'section-title' }, selBody.name),
-        h('div', { class: 'kv' }, [
-          ...k('Elevation', selBody.el.toFixed(1) + '°', up ? 'up big' : 'down big'),
-          ...k('Azimuth', selBody.az.toFixed(1) + '°'),
-          ...selBody.extra.flatMap(([a, b]) => k(a, b)),
+        h('div', { class: 'dash-head' }, [
+          h('div', { class: 'dash-name' }, selBody.name),
+          h('div', { class: 'dash-badge ' + (up ? 'up' : 'down') }, up ? 'ABOVE HORIZON' : 'BELOW HORIZON'),
         ]),
-        h('div', { class: 'muted', style: 'margin-top:6px' }, up ? 'Above the horizon — trackable now.' : 'Below the horizon.')
+        h('div', { class: 'stat-grid' }, [
+          statCard('Azimuth', selBody.az.toFixed(1) + '°', 'big'),
+          statCard('Elevation', selBody.el.toFixed(1) + '°', 'big ' + (up ? 'up' : 'down')),
+          ...selBody.extra.map(([a, b]) => statCard(a, b)),
+        ])
       );
+      if (selBody.eme) appendEmeSection(selBody.eme);
       if (moon && selBody.kind !== 'moon') appendMoonSection(moon);
       return;
     }
@@ -353,32 +593,29 @@ export function createUI(handlers) {
       selReadout.innerHTML = info.aboveHorizon
         ? `<b>${info.name}</b> &nbsp; ${info.el.toFixed(1)}° el / ${info.az.toFixed(0)}° az`
         : `<b>${info.name}</b> &nbsp; ${info.statusText}`;
-
-      const head = h('div', { class: 'kv' }, [
-        ...k('Status', info.statusText, info.aboveHorizon ? 'up big' : 'big'),
-        ...k('TLE age', fmtAge(info.tleAgeDays), info.tleStale ? 'warn' : ''),
-      ]);
-      const pos = h('div', { class: 'kv' }, [
-        ...k('Latitude', info.lat.toFixed(3) + '°'),
-        ...k('Longitude', info.lon.toFixed(3) + '°'),
-        ...k('Altitude', info.altKm.toFixed(1) + ' km'),
-        ...k('Velocity', info.velocityKmS.toFixed(3) + ' km/s'),
-      ]);
-      const look = h('div', { class: 'kv' }, [
-        ...k('Azimuth', info.aboveHorizon ? info.az.toFixed(1) + '°' : '—'),
-        ...k('Elevation', info.aboveHorizon ? info.el.toFixed(1) + '°' : '—', info.aboveHorizon ? 'up' : 'down'),
-        ...k('Range', info.rangeKm ? info.rangeKm.toFixed(0) + ' km' : '—'),
-        ...k('Downlink', (store.get().hw.radio.downlinkHz / 1e6).toFixed(4) + ' MHz'),
-        ...k('Doppler shift', (info.dopplerHz >= 0 ? '+' : '') + (info.dopplerHz / 1000).toFixed(2) + ' kHz'),
-        ...k('Observed freq', (info.observedHz / 1e6).toFixed(5) + ' MHz'),
-      ]);
+      const rf = store.get().hw.radio;
       infoText.append(
-        h('div', { class: 'section-title' }, info.name + ' · NORAD ' + info.noradId),
-        head,
+        h('div', { class: 'dash-head' }, [
+          h('div', { class: 'dash-name' }, info.name),
+          h('div', { class: 'dash-id' }, 'NORAD ' + info.noradId),
+        ]),
+        h('div', { class: 'dash-status ' + (info.aboveHorizon ? 'up' : '') }, info.statusText),
+        h('div', { class: 'stat-grid' }, [
+          statCard('Azimuth', info.aboveHorizon ? info.az.toFixed(1) + '°' : '—', 'big'),
+          statCard('Elevation', info.aboveHorizon ? info.el.toFixed(1) + '°' : '—', 'big ' + (info.aboveHorizon ? 'up' : 'down')),
+          statCard('Range', info.rangeKm ? info.rangeKm.toFixed(0) + ' km' : '—'),
+          statCard('Altitude', info.altKm.toFixed(0) + ' km'),
+          statCard('Velocity', info.velocityKmS.toFixed(2) + ' km/s'),
+          statCard('TLE age', fmtAge(info.tleAgeDays), info.tleStale ? 'warn' : ''),
+          statCard('Doppler', (info.dopplerHz >= 0 ? '+' : '') + (info.dopplerHz / 1000).toFixed(2) + ' kHz'),
+          statCard('Downlink', (rf.downlinkHz / 1e6).toFixed(3) + ' MHz'),
+        ]),
         h('div', { class: 'section-title' }, 'Sub-satellite point'),
-        pos,
-        h('div', { class: 'section-title' }, 'From ' + store.get().station.name),
-        look,
+        h('div', { class: 'kv' }, [
+          ...kv('Latitude', info.lat.toFixed(3) + '°'),
+          ...kv('Longitude', info.lon.toFixed(3) + '°'),
+          ...kv('Observed freq', (info.observedHz / 1e6).toFixed(5) + ' MHz'),
+        ])
       );
     }
 
@@ -390,7 +627,17 @@ export function createUI(handlers) {
   function updatePasses(items, now) {
     const pane = tabPanes.passes;
     pane.innerHTML = '';
-    pane.append(h('div', { class: 'section-title' }, 'Upcoming passes · tracked satellites'));
+    const sort = store.get().passSort || 'time';
+    pane.append(h('div', { class: 'passes-head' }, [
+      h('div', { class: 'section-title', style: 'margin:0' }, 'Upcoming passes'),
+      h('div', { class: 'passes-tools' }, [
+        h('div', { class: 'seg mini' }, [
+          h('button', { class: sort === 'time' ? 'active' : '', title: 'Soonest first', onclick: () => store.patch({ passSort: 'time' }) }, 'Soonest'),
+          h('button', { class: sort === 'el' ? 'active' : '', title: 'Highest elevation first', onclick: () => store.patch({ passSort: 'el' }) }, 'Highest'),
+        ]),
+        h('button', { class: 'btn sm', title: 'Export upcoming passes as an .ics calendar', onclick: () => exportICS(items) }, '.ics'),
+      ]),
+    ]));
 
     if (!items || !items.length) {
       const anyTracked = store.get().tracked.length;
@@ -401,31 +648,71 @@ export function createUI(handlers) {
     }
 
     const selId = store.get().selected;
-    for (const it of items) {
+    const ap = store.get().hw.rotator.armedPass;
+    const ordered = sort === 'el' ? [...items].sort((a, b) => b.pass.maxEl - a.pass.maxEl) : items;
+    for (const it of ordered) {
       const p = it.pass;
       const live = now >= p.aos && now <= p.los;
-      const dur = `${Math.floor(p.durationS / 60)}m ${p.durationS % 60}s`;
+      const untilMs = p.aos.getTime() - now;
+      const count = live ? 'LOS ' + fmtCountdown(p.los.getTime() - now) : fmtCountdown(untilMs);
+      const countCls = live ? 'now' : untilMs < 10 * 60000 ? 'soon' : '';
+      const armed = ap && ap.id === it.id && Math.abs(ap.aos - p.aos.getTime()) < 60000;
+      const mini = h('canvas', { class: 'pass-mini', title: `Max ${p.maxEl}° · AOS ${azName(p.aosAz)} → LOS ${azName(p.losAz)}` });
+
       pane.append(
         h('div', {
-          class: 'pass-row' + (live ? ' live' : '') + (it.id === selId ? ' selected' : ''),
+          class: 'pass-row' + (live ? ' live' : '') + (armed ? ' armed' : '') + (it.id === selId ? ' selected' : ''),
           onclick: () => store.patch({ selected: it.id }),
         }, [
-          h('div', { class: 'when pass-head' }, [
-            h('span', { class: 'dot', style: `background:${it.color}` }),
-            h('span', { class: 'pass-sat' }, it.name),
-            h('span', { class: 'pass-when' }, fmtDateTime(p.aos) + (live ? ' · LIVE' : '')),
+          h('div', { class: 'pass-main' }, [
+            h('div', { class: 'pass-l1' }, [
+              h('span', { class: 'dot', style: `background:${it.color}` }),
+              h('span', { class: 'pass-sat' }, it.name),
+              h('span', { class: 'pass-norad' }, '#' + it.id),
+              it.visible ? h('span', { class: 'pass-vis', title: 'Optically visible — satellite sunlit while you are in darkness' }, '👁') : h('span', {}),
+              h('span', { class: 'pass-count ' + countCls }, count),
+              h('button', {
+                class: 'pass-arm' + (armed ? ' on' : ''),
+                title: armed ? 'Armed — the rotator is committed to this pass. Click to release.' : 'Arm the rotator for this specific pass (switches to Tracked mode)',
+                onclick: (e) => { e.stopPropagation(); armed ? handlers.disarmPass() : handlers.armPass(it.id, p.aos.getTime(), p.los.getTime()); },
+              }, armed ? '● Armed' : 'Arm'),
+            ]),
+            h('div', { class: 'pass-l2' }, [
+              h('span', { class: 'pass-times' }, fmtDateTime(p.aos) + ' → ' + p.los.toLocaleTimeString()),
+              h('span', { class: 'pass-dur' }, `${Math.floor(p.durationS / 60)}m ${p.durationS % 60}s`),
+              h('span', { class: 'pass-el' }, `${p.maxEl}°`),
+            ]),
           ]),
-          h('div', { class: 'meta' }, [
-            h('span', {}, `Max el ${p.maxEl}°`),
-            h('span', {}, `${dur}`),
-          ]),
-          h('div', { class: 'meta' }, [
-            h('span', {}, `AOS ${azName(p.aosAz)} (${p.aosAz}°)`),
-            h('span', {}, `LOS ${azName(p.losAz)} (${p.losAz}°)`),
-          ]),
+          mini,
         ])
       );
+      drawPassMini(mini, it.arc, it.color);
     }
+  }
+
+  // Export the upcoming passes as an .ics calendar (one VEVENT per pass).
+  function exportICS(items) {
+    if (!items || !items.length) return;
+    const pad = (n) => String(n).padStart(2, '0');
+    const dt = (d) => `${d.getUTCFullYear()}${pad(d.getUTCMonth() + 1)}${pad(d.getUTCDate())}T${pad(d.getUTCHours())}${pad(d.getUTCMinutes())}${pad(d.getUTCSeconds())}Z`;
+    let ics = 'BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//SkyPhreak//Passes//EN\r\n';
+    for (const it of items) {
+      const p = it.pass;
+      ics += 'BEGIN:VEVENT\r\n'
+        + `UID:${it.id}-${p.aos.getTime()}@skyphreak\r\n`
+        + `DTSTAMP:${dt(new Date())}\r\n`
+        + `DTSTART:${dt(p.aos)}\r\n`
+        + `DTEND:${dt(p.los)}\r\n`
+        + `SUMMARY:${it.name} pass (max ${p.maxEl}°)${it.visible ? ' \u{1F441}' : ''}\r\n`
+        + `DESCRIPTION:AOS ${azName(p.aosAz)} → LOS ${azName(p.losAz)}\\, max ${p.maxEl}°\r\n`
+        + 'END:VEVENT\r\n';
+    }
+    ics += 'END:VCALENDAR\r\n';
+    const a = document.createElement('a');
+    a.download = 'skyphreak-passes.ics';
+    a.href = URL.createObjectURL(new Blob([ics], { type: 'text/calendar' }));
+    a.click();
+    URL.revokeObjectURL(a.href);
   }
 
   function setActiveView(view) {
@@ -447,17 +734,72 @@ export function createUI(handlers) {
     if (hwRefs.autoModeSel) hwRefs.autoModeSel.value = mode;
   }
 
-  // Rotor connection light on the map (red = disconnected, green = connected).
+  // Rotor connection light (status-bar dot) + the floating emergency-stop button,
+  // which only appears while the rotator is connected.
   function setRotorConnected(connected) {
-    rotorDot.classList.toggle('on', !!connected);
-    rotorDot.title = connected ? 'Rotor connected' : 'Rotor disconnected';
+    sbRot.set(!!connected);
+    estopFab.classList.toggle('show', !!connected);
   }
+
+  // Keyboard shortcuts (ignored while typing in a field). Esc always stops / closes help.
+  document.addEventListener('keydown', (e) => {
+    const t = e.target;
+    const typing = t && (t.tagName === 'INPUT' || t.tagName === 'SELECT' || t.tagName === 'TEXTAREA');
+    if (e.key === 'Escape') {
+      if (helpOverlay.style.display !== 'none') { toggleHelp(false); return; }
+      if (!typing) handlers.stopRotator();
+      return;
+    }
+    if (typing || e.ctrlKey || e.metaKey || e.altKey) return;
+    switch (e.key) {
+      case '2': store.patch({ view: '2d' }); break;
+      case '3': store.patch({ view: '3d' }); break;
+      case 'f': case 'F': fieldBtn.click(); break;
+      case 'l': case 'L': store.patch({ followSat: !store.get().followSat }); break;
+      case 'p': case 'P': handlers.parkRotator(); break;
+      case 't': case 'T': {
+        const order = ['off', 'selected', 'schedule'];
+        const cur = store.get().hw.rotator.autoMode || 'off';
+        store.patchIn('hw.rotator', { autoMode: order[(order.indexOf(cur) + 1) % order.length] });
+        break;
+      }
+      case '?': toggleHelp(); break;
+    }
+  });
+
+  // Screen wake-lock: keep the display awake in Field mode (long unattended passes).
+  async function applyWakeLock(want) {
+    try {
+      if (want && !wakeLock && 'wakeLock' in navigator) {
+        wakeLock = await navigator.wakeLock.request('screen');
+        wakeLock.addEventListener('release', () => { wakeLock = null; });
+      } else if (!want && wakeLock) {
+        await wakeLock.release();
+        wakeLock = null;
+      }
+    } catch { /* unsupported or denied — ignore */ }
+  }
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && store.get().fieldMode) applyWakeLock(true);
+  });
 
   // Update which tracked rows are flagged stale; re-render only on change.
   function setStaleIds(set) {
     if (set.size === staleIds.size && [...set].every((id) => staleIds.has(id))) return;
     staleIds = set;
     renderList();
+  }
+
+  // Space-weather readout: { ok, kp, time } or { ok:false }.
+  function setSpaceWeather(info) {
+    const el = stationRefs && stationRefs.spaceWxEl;
+    if (!el) return;
+    if (!info || !info.ok || !Number.isFinite(info.kp)) { el.textContent = 'Kp — (unavailable offline)'; el.className = 'space-wx'; return; }
+    const kp = info.kp;
+    const level = kp >= 5 ? 'storm' : kp >= 4 ? 'active' : 'quiet';
+    const label = kp >= 5 ? 'Storm' : kp >= 4 ? 'Active' : 'Quiet';
+    el.className = 'space-wx ' + level;
+    el.innerHTML = `<b>Kp ${kp.toFixed(1)}</b> · ${label}` + (info.time ? ` <span class="muted">· ${new Date(info.time + 'Z').toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>` : '');
   }
 
   function setTleStatus({ maxDays, stale, auto, online }) {
@@ -473,10 +815,19 @@ export function createUI(handlers) {
 
   return {
     view2d, view3d,
-    renderList, updateClock, updateInfo, updatePasses, setActiveView, setTleStamp,
-    setStaleIds, setTleStatus, syncAutoMode, setRotorConnected,
+    renderList, updateClock, updateInfo, updatePasses, setActiveView, setTleStamp, setStatus,
+    setStaleIds, setTleStatus, syncAutoMode, setRotorConnected, applyLayout, updateSky, isSkyActive,
+    setCableWrap, setSpaceWeather,
     hw: hwRefs,
   };
+}
+
+// A big instrument-style readout card: small label over a large value.
+function statCard(label, value, cls = '') {
+  return h('div', { class: 'stat ' + cls }, [
+    h('div', { class: 'stat-l' }, label),
+    h('div', { class: 'stat-v' }, value),
+  ]);
 }
 
 function trackTitle(m) {
@@ -520,7 +871,59 @@ function buildStationPane(pane, handlers) {
     h('div', { class: 'muted', style: 'margin-top:6px' }, 'Celestrak is fetched as OMM (JSON), falling back to TLE; both carry the same epoch, so this age check covers either. Loaded OEM ephemerides take priority and are used as-is (no auto-refresh).')
   );
 
-  return { tleStatusEl };
+  // Space weather: latest planetary K-index (geomagnetic activity / HF & aurora).
+  const spaceWxEl = h('div', { class: 'space-wx' }, 'Kp —');
+  pane.append(
+    h('hr', { class: 'hr' }),
+    h('div', { class: 'section-title' }, 'Space weather'),
+    spaceWxEl,
+    h('div', { class: 'muted', style: 'margin-top:6px' }, 'Planetary K-index (NOAA SWPC): geomagnetic activity. High Kp = auroral absorption / disturbed HF, better aurora. Updates when online.')
+  );
+
+  // Pass alerts (desktop notifications).
+  const notifyChk = checkbox(store.get().notifyPasses, async (v) => {
+    if (v && typeof Notification !== 'undefined' && Notification.permission !== 'granted') {
+      const perm = await Notification.requestPermission();
+      if (perm !== 'granted') { notifyChk.checked = false; return; }
+    }
+    store.patch({ notifyPasses: v });
+  });
+  const notifyLead = inputNum(store.get().notifyLead, '1', (v) => store.patch({ notifyLead: Math.max(1, Math.round(v)) }));
+
+  // Backup / restore all settings.
+  const dataMsg = h('div', { class: 'muted', style: 'font-size:11px;margin-top:6px' }, '');
+  const exportBtn = h('button', { class: 'btn sm', onclick: () => {
+    const a = document.createElement('a');
+    a.download = 'skyphreak-settings-' + new Date().toISOString().slice(0, 10) + '.json';
+    a.href = URL.createObjectURL(new Blob([JSON.stringify(store.get(), null, 2)], { type: 'application/json' }));
+    a.click();
+    URL.revokeObjectURL(a.href);
+  } }, 'Export settings');
+  const importInput = h('input', { type: 'file', accept: 'application/json', style: 'display:none', onchange: (e) => {
+    const f = e.target.files[0];
+    if (!f) return;
+    const r = new FileReader();
+    r.onload = () => {
+      try {
+        if (store.importSettings(JSON.parse(r.result))) { dataMsg.textContent = 'Imported — reloading…'; setTimeout(() => location.reload(), 400); }
+        else dataMsg.textContent = 'Import failed: not a settings file';
+      } catch { dataMsg.textContent = 'Import failed: invalid JSON'; }
+    };
+    r.readAsText(f);
+  } });
+  const importBtn = h('button', { class: 'btn sm', onclick: () => importInput.click() }, 'Import settings');
+
+  pane.append(
+    h('hr', { class: 'hr' }),
+    h('div', { class: 'section-title' }, 'Pass alerts'),
+    h('div', { class: 'toggle-line switch' }, [h('span', {}, 'Notify before a pass'), notifyChk]),
+    h('label', { class: 'fld' }, [h('span', {}, 'Lead time (minutes)'), notifyLead]),
+    h('div', { class: 'section-title' }, 'Backup'),
+    h('div', { class: 'row', style: 'display:flex;gap:8px' }, [exportBtn, importBtn, importInput]),
+    dataMsg
+  );
+
+  return { tleStatusEl, spaceWxEl };
 }
 
 /* ----------------------------- Hardware pane ---------------------------- */
@@ -559,22 +962,24 @@ function buildHwPane(pane, handlers) {
   const transportRow = h('label', { class: 'fld' }, [h('span', {}, 'Transport'), rotTransport]);
 
   // Connection fields and speed limits are rebuilt by renderRotDynamic() on change.
+  // Smoothness profile — accel/jerk ramp shaping (SuperRot only).
+  const motionProfileSel = h('select', { onchange: (e) => store.patchIn('hw.rotator', { motionProfile: e.target.value }) }, [
+    h('option', { value: 'gentle' }, 'Gentle (EME / heavy)'),
+    h('option', { value: 'normal' }, 'Normal'),
+    h('option', { value: 'fast' }, 'Fast (light LEO)'),
+  ]);
+  motionProfileSel.value = hw.rotator.motionProfile || 'normal';
+
   const rotConn = h('div', {});
   const rotLimits = h('div', {}, [
-    h('div', { class: 'toggle-line switch' }, [
-      h('span', {}, 'Auto-unwind after pass (return home)'),
-      checkbox(hw.rotator.autoUnwind !== false, (v) => store.patchIn('hw.rotator', { autoUnwind: v })),
-    ]),
     h('div', { class: 'grid2' }, [
       h('label', { class: 'fld' }, [h('span', {}, 'Max Az speed (°/s)'), inputNum(hw.rotator.maxVelAz, '0.5', (v) => store.patchIn('hw.rotator', { maxVelAz: v }))]),
       h('label', { class: 'fld' }, [h('span', {}, 'Max El speed (°/s)'), inputNum(hw.rotator.maxVelEl, '0.5', (v) => store.patchIn('hw.rotator', { maxVelEl: v }))]),
     ]),
-    h('div', { class: 'grid2' }, [
-      h('label', { class: 'fld' }, [h('span', {}, 'Az min (°)'), inputNum(hw.rotator.azMin, '1', (v) => store.patchIn('hw.rotator', { azMin: v }))]),
-      h('label', { class: 'fld' }, [h('span', {}, 'Az max (°)'), inputNum(hw.rotator.azMax, '1', (v) => store.patchIn('hw.rotator', { azMax: v }))]),
-    ]),
-    h('label', { class: 'fld' }, [h('span', {}, 'El max (° — 180 for flip-over)'), inputNum(hw.rotator.elMax, '1', (v) => store.patchIn('hw.rotator', { elMax: v }))]),
-    h('div', { class: 'muted', style: 'font-size:11px' }, 'Absolute travel range. Az is streamed continuously into this range — values over 360° give cable overlap before a manual unwind.'),
+    h('label', { class: 'fld' }, [h('span', {}, 'Motion profile'), motionProfileSel]),
+    h('label', { class: 'fld' }, [h('span', {}, 'El max (° — 180 enables flip-over)'), inputNum(hw.rotator.elMax, '1', (v) => store.patchIn('hw.rotator', { elMax: v }))]),
+    h('div', { class: 'muted', style: 'font-size:11px' }, 'Azimuth is free 360° shortest-path (no travel limit — it can go negative). Set El max to 180 to let the mount flip over the top on high passes instead of whipping the azimuth. Gentle profile spares heavy EME dishes; fast suits light LEO rigs.'),
+    h('button', { class: 'btn sm', style: 'margin-top:6px', title: 'Send the speed limits, offsets and backlash values to the firmware so they persist on the MCU', onclick: () => handlers.pushRotatorConfig() }, 'Push settings to rotator'),
   ]);
 
   // USB serial-port picker: enumerates devices by friendly name, persists the path.
@@ -618,16 +1023,75 @@ function buildHwPane(pane, handlers) {
     }
   }
 
-  // Cable-wrap warning + one-click unwind (SuperRot only; shown by setRotWarn()).
-  const rotWarnMsg = h('span', { style: 'flex:1' }, '');
-  const rotWarn = h('div', { class: 'rot-warn', style: 'display:none' }, [
-    rotWarnMsg,
-    h('button', { class: 'btn sm', onclick: () => handlers.unwindRotator() }, 'Unwind 360°'),
+  // Manual jog pad (touch-friendly): nudge az/el by the selected step.
+  let jogStep = 5;
+  const stepDefs = [[1, '1°'], [5, '5°'], [10, '10°']];
+  const stepBtns = {};
+  const stepSeg = h('div', { class: 'seg' }, stepDefs.map(([v, l]) =>
+    (stepBtns[v] = h('button', {
+      class: v === jogStep ? 'active' : '',
+      onclick: () => { jogStep = v; for (const [vv] of stepDefs) stepBtns[vv].classList.toggle('active', vv === jogStep); },
+    }, l))));
+  const jogPad = h('div', { class: 'jog-pad' }, [
+    h('button', { class: 'jog up', title: 'Elevation up', onclick: () => handlers.jogRotator(0, jogStep) }, '▲'),
+    h('button', { class: 'jog left', title: 'Azimuth left', onclick: () => handlers.jogRotator(-jogStep, 0) }, '◀'),
+    h('button', { class: 'jog stop', title: 'Stop', onclick: () => handlers.stopRotator() }, '■'),
+    h('button', { class: 'jog right', title: 'Azimuth right', onclick: () => handlers.jogRotator(jogStep, 0) }, '▶'),
+    h('button', { class: 'jog down', title: 'Elevation down', onclick: () => handlers.jogRotator(0, -jogStep) }, '▼'),
   ]);
-  function setRotWarn(text) {
-    if (text) { rotWarnMsg.textContent = text; rotWarn.style.display = ''; }
-    else rotWarn.style.display = 'none';
+
+  // Pre-slew lead: seconds before AOS to pre-position to the pass's rise azimuth.
+  const preslewInp = inputNum(hw.rotator.preslewLead, '5', (v) => store.patchIn('hw.rotator', { preslewLead: Math.max(0, Math.round(v)) }));
+
+  // Park-position presets. Rebuilt from the store whenever the preset set changes.
+  const parkList = h('div', { class: 'park-list' });
+  const parkNameInp = h('input', { type: 'text', placeholder: 'Name (e.g. Cable-safe)', class: 'park-name' });
+  const savePark = h('button', {
+    class: 'btn sm',
+    title: 'Save the rotator\'s current position as a park preset',
+    onclick: () => { const n = parkNameInp.value.trim(); if (!n) return; handlers.saveParkPreset(n); parkNameInp.value = ''; },
+  }, 'Save current position');
+  let parkSig = '';
+  function renderParkPresets() {
+    const rot = store.get().hw.rotator;
+    const sig = JSON.stringify([rot.parkPresets, rot.parkDefault]);
+    if (sig === parkSig) return; // only redraw when presets actually change
+    parkSig = sig;
+    parkList.innerHTML = '';
+    for (const p of rot.parkPresets || []) {
+      const isDef = p.name === rot.parkDefault;
+      parkList.append(h('div', { class: 'park-item' }, [
+        h('button', {
+          class: 'star' + (isDef ? ' on' : ''), title: isDef ? 'Default (Park button uses this)' : 'Set as default',
+          onclick: () => store.patchIn('hw.rotator', { parkDefault: p.name }),
+        }, isDef ? '★' : '☆'),
+        h('span', { class: 'park-nm' }, p.name),
+        h('span', { class: 'park-pos' }, p.home ? 'Home · limit switches' : `${Math.round(p.az)}° / ${Math.round(p.el)}°`),
+        h('button', { class: 'btn sm', title: 'Park here now', onclick: () => handlers.parkTo(p) }, 'Park'),
+        p.name === 'Home'
+          ? h('span', { class: 'park-x-spacer' })
+          : h('button', { class: 'btn sm park-x', title: 'Delete preset', onclick: () => store.removeParkPreset(p.name) }, '✕'),
+      ]));
+    }
   }
+  store.subscribe(renderParkPresets);
+  renderParkPresets();
+
+  // Calibration: mount-alignment offsets (sky → mount) with capture helpers.
+  const azOffInp = inputNum(hw.rotator.azOffset, '0.1', (v) => store.patchIn('hw.rotator', { azOffset: v }));
+  const elOffInp = inputNum(hw.rotator.elOffset, '0.1', (v) => store.patchIn('hw.rotator', { elOffset: v }));
+  const calibNorth = h('button', {
+    class: 'btn sm', title: 'Point the mount at true north, then capture the azimuth offset',
+    onclick: () => { handlers.captureCalibNorth(); azOffInp.value = store.get().hw.rotator.azOffset; },
+  }, 'Set North here');
+  const calibLevel = h('button', {
+    class: 'btn sm', title: 'Level the mount (0° elevation), then capture the elevation offset',
+    onclick: () => { handlers.captureCalibLevel(); elOffInp.value = store.get().hw.rotator.elOffset; },
+  }, 'Set level here');
+
+  // Sun-avoidance guard.
+  const sunAvoidChk = checkbox(hw.rotator.sunAvoid, (v) => store.patchIn('hw.rotator', { sunAvoid: v }));
+  const sunAvoidDeg = inputNum(hw.rotator.sunAvoidDeg, '0.5', (v) => store.patchIn('hw.rotator', { sunAvoidDeg: Math.max(0, v) }));
 
   // Radio
   const radPill = statusPill('Radio disconnected');
@@ -650,11 +1114,34 @@ function buildHwPane(pane, handlers) {
       h('button', { class: 'btn', onclick: () => handlers.parkRotator() }, 'Park'),
     ]),
     h('label', { class: 'fld', style: 'margin-top:8px' }, [h('span', {}, 'Auto-track'), autoMode]),
-    h('label', { class: 'fld' }, [h('span', {}, 'Track above elevation (°)'), rotMinEl]),
-    h('div', { class: 'muted', style: 'font-size:11px' }, 'Scheduled passes follows whichever tracked satellite is up, switching as passes come and go. Below the elevation limit the rotator parks.'),
+    h('div', { class: 'grid2' }, [
+      h('label', { class: 'fld' }, [h('span', {}, 'Track above elevation (°)'), rotMinEl]),
+      h('label', { class: 'fld' }, [h('span', {}, 'Pre-slew lead (s)'), preslewInp]),
+    ]),
+    h('div', { class: 'muted', style: 'font-size:11px' }, 'Scheduled passes follows whichever tracked satellite is up, switching as passes come and go. Below the elevation limit the rotator parks. Pre-slew aims the mount at the next pass\'s rise azimuth this many seconds early (0 = off).'),
     rotLimits,
-    rotWarn,
     rotTarget,
+
+    h('div', { class: 'section-title' }, 'Park positions'),
+    parkList,
+    h('div', { class: 'row', style: 'display:flex;gap:8px;margin-top:6px;align-items:center' }, [parkNameInp, savePark]),
+
+    h('div', { class: 'section-title' }, 'Calibration & safety'),
+    h('div', { class: 'grid2' }, [
+      h('label', { class: 'fld' }, [h('span', {}, 'Az offset (°)'), azOffInp]),
+      h('label', { class: 'fld' }, [h('span', {}, 'El offset (°)'), elOffInp]),
+    ]),
+    h('div', { class: 'row', style: 'display:flex;gap:8px;margin-top:6px' }, [calibNorth, calibLevel]),
+    h('div', { class: 'grid2' }, [
+      h('label', { class: 'fld' }, [h('span', {}, 'Az backlash (°)'), inputNum(hw.rotator.backlashAz, '0.1', (v) => store.patchIn('hw.rotator', { backlashAz: Math.max(0, v) }))]),
+      h('label', { class: 'fld' }, [h('span', {}, 'El backlash (°)'), inputNum(hw.rotator.backlashEl, '0.1', (v) => store.patchIn('hw.rotator', { backlashEl: Math.max(0, v) }))]),
+    ]),
+    h('div', { class: 'muted', style: 'font-size:11px' }, 'Offsets correct mount misalignment (added to every commanded angle). Aim the mount at the reference, then capture. Backlash is compensated on the MCU — push settings to apply.'),
+    h('div', { class: 'toggle-line switch', style: 'margin-top:8px' }, [h('span', {}, 'Sun-avoidance guard'), sunAvoidChk]),
+    h('label', { class: 'fld' }, [h('span', {}, 'Keep-out radius (°)'), sunAvoidDeg]),
+
+    h('div', { class: 'section-title' }, 'Manual jog'),
+    h('div', { class: 'jog-wrap' }, [jogPad, h('div', { class: 'jog-step' }, [h('span', { class: 'sub-label' }, 'Step'), stepSeg])]),
 
     h('hr', { class: 'hr' }),
     h('div', { class: 'section-title' }, 'Radio (rigctld / Hamlib)'),
@@ -671,7 +1158,7 @@ function buildHwPane(pane, handlers) {
 
   renderRotDynamic();
 
-  return { rotPill, radPill, rotConnect, radConnect, rotTarget, radFreqLive, autoModeSel: autoMode, setRotWarn };
+  return { rotPill, radPill, rotConnect, radConnect, rotTarget, radFreqLive, autoModeSel: autoMode };
 }
 
 /* -------------------------------- helpers ------------------------------- */
@@ -694,9 +1181,12 @@ function statusPill(text) {
   return pill;
 }
 
-// Stable color per tracked satellite (by position in the tracked list).
+// A user override wins; otherwise a stable auto color by position in the tracked list.
 const PALETTE = ['#57d0a0', '#4a9fd4', '#ffd23f', '#ff8c6b', '#c792ea', '#7ee787', '#ff6b9d', '#5fd3e0'];
+export const SWATCHES = [...PALETTE, '#ff5252', '#e0e0e0'];
 export function colorFor(id, tracked) {
+  const custom = store.get().satColors;
+  if (custom && custom[id]) return custom[id];
   const i = tracked.indexOf(id);
   return PALETTE[(i < 0 ? tracked.length : i) % PALETTE.length];
 }
@@ -711,4 +1201,69 @@ function fmtAge(days) {
 function azName(az) {
   const dirs = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
   return dirs[Math.round(((az % 360) / 45)) % 8];
+}
+
+// Compact "in 1h 55m 03s" / "in 4m 12s" / "in 38s" countdown for the pass list.
+function fmtCountdown(ms) {
+  if (ms <= 0) return 'now';
+  const s = Math.floor(ms / 1000);
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const ss = s % 60;
+  const p = (n) => String(n).padStart(2, '0');
+  if (h > 0) return `in ${h}h ${p(m)}m ${p(ss)}s`;
+  if (m > 0) return `in ${m}m ${p(ss)}s`;
+  return `in ${ss}s`;
+}
+
+// Draw a pass's sky-track into a small polar plot: horizon + rings, the az/el arc
+// in the satellite's colour, a green AOS dot and a red LOS dot (north at top).
+function drawPassMini(canvas, arc, color) {
+  const size = 58;
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = size * dpr;
+  canvas.height = size * dpr;
+  canvas.style.width = size + 'px';
+  canvas.style.height = size + 'px';
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+  const cx = size / 2, cy = size / 2, R = size / 2 - 3;
+  const pos = (az, el) => {
+    const rr = (1 - Math.max(0, el) / 90) * R;
+    const a = (az - 90) * (Math.PI / 180);
+    return [cx + rr * Math.cos(a), cy + rr * Math.sin(a)];
+  };
+
+  ctx.strokeStyle = 'rgba(150,170,200,0.30)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.arc(cx, cy, R, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.strokeStyle = 'rgba(150,170,200,0.13)';
+  for (const el of [30, 60]) {
+    ctx.beginPath();
+    ctx.arc(cx, cy, (1 - el / 90) * R, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  ctx.beginPath();
+  ctx.moveTo(cx, cy - R); ctx.lineTo(cx, cy + R);
+  ctx.moveTo(cx - R, cy); ctx.lineTo(cx + R, cy);
+  ctx.stroke();
+
+  if (arc && arc.length > 1) {
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.6;
+    ctx.beginPath();
+    arc.forEach((pt, i) => { const [x, y] = pos(pt.az, pt.el); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
+    ctx.stroke();
+    const [ax, ay] = pos(arc[0].az, arc[0].el);
+    const [lx, ly] = pos(arc[arc.length - 1].az, arc[arc.length - 1].el);
+    ctx.fillStyle = '#3ce07a';
+    ctx.beginPath(); ctx.arc(ax, ay, 2.6, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#ff5a5a';
+    ctx.beginPath(); ctx.arc(lx, ly, 2.6, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.fillStyle = 'rgba(160,180,210,0.6)';
+  ctx.font = '7px ui-sans-serif, system-ui';
+  ctx.fillText('N', cx - 2.5, 7.5);
 }

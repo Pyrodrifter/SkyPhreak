@@ -1,0 +1,53 @@
+name: Release
+
+# Build SkyPhreak installers for Windows, macOS and Linux and publish them to the
+# GitHub Release for the pushed tag. Trigger by pushing a version tag, e.g.:
+#   git tag v0.3.0 && git push origin v0.3.0
+# Manual runs (workflow_dispatch) build the artifacts without publishing.
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            platform: Windows
+          - os: macos-latest
+            platform: macOS
+          - os: ubuntu-latest
+            platform: Linux
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build and publish (${{ matrix.platform }})
+        env:
+          # electron-builder publishes to the GitHub Release matching the tag.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # No Apple/Windows signing certs in CI — build unsigned rather than fail.
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            npm run dist -- --publish always
+          else
+            npm run dist -- --publish never
+          fi

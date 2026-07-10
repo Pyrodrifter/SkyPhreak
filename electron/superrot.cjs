@@ -143,6 +143,18 @@ class SuperRotClient extends EventEmitter {
       if (line[0] === 'T') {
         const p = line.split(/\s+/);
         const t = { az: +p[1], el: +p[2], azRate: +p[3], elRate: +p[4] };
+        // Optional extended diagnostics appended as key=value tokens — backward
+        // compatible (old firmware sends only the 4 positional fields). Known keys:
+        // tempC, curA (motor current), esAz/esEl (endstop hit 0/1), lossAz/lossEl
+        // (step-loss detected 0/1), homed (0/1).
+        for (let i = 5; i < p.length; i++) {
+          const eq = p[i].indexOf('=');
+          if (eq <= 0) continue;
+          const k = p[i].slice(0, eq);
+          const v = p[i].slice(eq + 1);
+          const num = Number(v);
+          t[k] = v !== '' && Number.isFinite(num) ? num : v;
+        }
         if (Number.isFinite(t.az) && Number.isFinite(t.el)) {
           this.telemetry = t;
           this.emitStatus({ telemetry: t });
@@ -176,6 +188,15 @@ class SuperRotClient extends EventEmitter {
   }
   park() {
     return this._write('K\n');
+  }
+  // Push configuration to the firmware: `C key=value ...` (limits, offsets, backlash).
+  // The firmware persists whatever keys it recognises and ignores the rest.
+  config(obj = {}) {
+    const parts = Object.entries(obj)
+      .filter(([, v]) => v != null && Number.isFinite(Number(v)))
+      .map(([k, v]) => `${k}=${Number(v)}`);
+    if (!parts.length) return { ok: false, error: 'no config values' };
+    return this._write('C ' + parts.join(' ') + '\n');
   }
 
   close() {

@@ -180,6 +180,19 @@ ipcMain.handle('tle:fetchOne', async (_e, id) => {
 
 ipcMain.handle('tle:cache', () => readJson(tleCachePath(), {}));
 
+// Latest planetary K-index (geomagnetic activity) from NOAA SWPC — a quick
+// space-weather / HF-propagation / aurora gauge. Best-effort; offline returns an error.
+ipcMain.handle('space:weather', async () => {
+  try {
+    const txt = await httpGet('https://services.swpc.noaa.gov/products/noaa-planetary-k-index.json');
+    const rows = JSON.parse(txt);
+    const last = rows[rows.length - 1]; // [time_tag, Kp, a_running, station_count]
+    return { ok: true, kp: parseFloat(last[1]), time: last[0] };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+});
+
 /* ------------------------------ OEM load -------------------------------- */
 
 // OEM ephemerides aren't served by Celestrak's gp.php — they're operator/agency
@@ -253,6 +266,12 @@ const rotatorMgr = {
     if (this.protocol === 'superrot') return this.client.stopMotion();
     return { ok: true }; // rotctld has no soft-stop; it stops at the last goto
   },
+  // Push config (speed limits, offsets, backlash) down to the firmware — SuperRot only.
+  config(cfg) {
+    if (!this.client) return { ok: false, error: 'not connected' };
+    if (this.protocol === 'superrot') return this.client.config(cfg);
+    return { ok: false, error: 'config sync is SuperRot-only' };
+  },
   close() {
     if (this.client) {
       this.client.removeAllListeners('status');
@@ -298,6 +317,7 @@ ipcMain.handle('rotator:setAzEl', (_e, { az, el }) => rotatorMgr.setAzEl(az, el)
 ipcMain.handle('rotator:track', (_e, { az, el, azRate, elRate }) => rotatorMgr.track(az, el, azRate, elRate));
 ipcMain.handle('rotator:stop', () => rotatorMgr.stop());
 ipcMain.handle('rotator:park', () => rotatorMgr.park());
+ipcMain.handle('rotator:config', (_e, cfg) => rotatorMgr.config(cfg));
 
 ipcMain.handle('radio:connect', (_e, { host, port }) => radio.connect(host, port));
 ipcMain.handle('radio:disconnect', () => radio.close());

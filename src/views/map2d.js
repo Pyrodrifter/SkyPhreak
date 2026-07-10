@@ -1,4 +1,5 @@
 import { landRings, project } from '../core/geo.js';
+import { palette } from '../core/themes.js';
 import { bakeReliefMap } from './earthTexture.js';
 import {
   subPoint,
@@ -148,6 +149,15 @@ export class Map2D {
     this.draw(this.frame);
   }
 
+  // Pan so a given lon/lat sits at the viewport centre (for follow-satellite mode).
+  // Sets the offsets only; the caller's next draw() renders them.
+  centerOn(lon, lat) {
+    const [bx, by] = project(lon, lat, this.baseW, this.baseH);
+    this.offsetX = this.w / 2 - bx;
+    this.offsetY = this.h / 2 - by - (this.h - this.baseH) / 2;
+    this._clamp();
+  }
+
   // 'relief' = shaded topographic base, 'vector' = the dark blue line map.
   setStyle(style) {
     this.useRelief = style !== 'vector';
@@ -161,7 +171,7 @@ export class Map2D {
     ctx.scale(this.dpr, this.dpr);
     ctx.clearRect(0, 0, this.w, this.h);
 
-    ctx.fillStyle = '#0c1a2b';
+    ctx.fillStyle = palette().map.bg;
     ctx.fillRect(0, 0, this.w, this.h);
 
     if (this.relief && this.useRelief) {
@@ -200,7 +210,7 @@ export class Map2D {
   }
 
   _drawGraticule(ctx) {
-    ctx.strokeStyle = 'rgba(120,160,200,0.10)';
+    ctx.strokeStyle = palette().map.graticule;
     ctx.lineWidth = 1;
     ctx.beginPath();
     for (let lon = -180; lon <= 180; lon += 30) {
@@ -216,7 +226,7 @@ export class Map2D {
       ctx.lineTo(x1, y1);
     }
     ctx.stroke();
-    ctx.strokeStyle = 'rgba(120,160,200,0.18)';
+    ctx.strokeStyle = palette().map.equator;
     ctx.beginPath();
     const [ex0, ey0] = this._toScreen(-180, 0);
     const [ex1, ey1] = this._toScreen(180, 0);
@@ -226,8 +236,8 @@ export class Map2D {
   }
 
   _drawLand(ctx) {
-    ctx.fillStyle = '#16314a';
-    ctx.strokeStyle = 'rgba(120,190,230,0.55)';
+    ctx.fillStyle = palette().map.land;
+    ctx.strokeStyle = palette().map.landStroke;
     ctx.lineWidth = 0.8;
     for (const ring of landRings) {
       // Unwrap longitudes so dateline-crossing polygons (Russia, Antarctica,
@@ -275,7 +285,7 @@ export class Map2D {
       ctx.lineTo(lx, ty);
     }
     ctx.closePath();
-    ctx.fillStyle = 'rgba(3,6,16,0.45)';
+    ctx.fillStyle = palette().map.terminator;
     ctx.fill();
   }
 
@@ -362,9 +372,9 @@ export class Map2D {
     ctx.shadowBlur = 0;
     ctx.font = `${b.selected ? '600 ' : ''}11px ui-sans-serif, system-ui`;
     const tw = ctx.measureText(b.name).width;
-    ctx.fillStyle = 'rgba(8,12,20,0.6)';
+    ctx.fillStyle = palette().map.labelBg;
     ctx.fillRect(x + 7, y - 8, tw + 6, 15);
-    ctx.fillStyle = b.selected ? '#fff' : 'rgba(220,230,245,0.8)';
+    ctx.fillStyle = b.selected ? '#fff' : palette().map.labelText;
     ctx.fillText(b.name, x + 10, y + 4);
   }
 
@@ -385,14 +395,14 @@ export class Map2D {
     ctx.beginPath();
     ctx.arc(x, y, R, 0, Math.PI * 2);
     ctx.clip();
-    ctx.fillStyle = '#1a2433';
+    ctx.fillStyle = palette().map.moonShadow;
     ctx.beginPath();
     ctx.arc(x - moon.illum * 2 * R, y, R, 0, Math.PI * 2);
     ctx.fill();
     ctx.restore();
     ctx.font = '11px ui-sans-serif, system-ui';
     const tw = ctx.measureText('Moon').width;
-    ctx.fillStyle = 'rgba(8,12,20,0.7)';
+    ctx.fillStyle = palette().map.labelBg;
     ctx.fillRect(x + 9, y - 8, tw + 8, 16);
     ctx.fillStyle = 'rgba(230,235,245,0.9)';
     ctx.fillText('Moon', x + 13, y + 4);
@@ -432,9 +442,9 @@ export class Map2D {
     ctx.font = `${s.selected ? '600 12px' : '11px'} ui-sans-serif, system-ui`;
     const label = s.name;
     const tw = ctx.measureText(label).width;
-    ctx.fillStyle = 'rgba(8,12,20,0.7)';
+    ctx.fillStyle = palette().map.labelBg;
     ctx.fillRect(x + 8, y - 9, tw + 8, 16);
-    ctx.fillStyle = s.selected ? '#fff' : 'rgba(220,230,245,0.85)';
+    ctx.fillStyle = s.selected ? '#fff' : palette().map.labelText;
     ctx.fillText(label, x + 12, y + 3);
   }
 }

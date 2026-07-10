@@ -1,3 +1,5 @@
+import { palette } from '../core/themes.js';
+
 /**
  * Polar (radar) sky view: azimuth around the circle, elevation as radius
  * (90° at centre, horizon at edge). Shows every tracked satellite currently
@@ -11,9 +13,36 @@ export class PolarView {
     container.appendChild(this.canvas);
     this.ctx = this.canvas.getContext('2d');
     this.frame = null;
+
+    // Save-to-PNG button (top-right of the plot) — capture a pass's sky track.
+    const save = document.createElement('button');
+    save.className = 'polar-save';
+    save.title = 'Save the polar plot as a PNG image';
+    save.textContent = '⤓';
+    save.addEventListener('click', () => this.savePNG());
+    container.appendChild(save);
+
     this._resize();
     this._ro = new ResizeObserver(() => this._resize());
     this._ro.observe(container);
+  }
+
+  // Export the current polar plot to a PNG download, on an opaque background so it
+  // isn't transparent where the canvas is see-through.
+  savePNG() {
+    const out = document.createElement('canvas');
+    out.width = this.canvas.width;
+    out.height = this.canvas.height;
+    const c = out.getContext('2d');
+    c.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--panel-2').trim() || '#0d1420';
+    c.fillRect(0, 0, out.width, out.height);
+    c.drawImage(this.canvas, 0, 0);
+    const a = document.createElement('a');
+    const sel = this.frame && this.frame.sats && this.frame.sats.find((s) => s.selected);
+    const name = (sel && sel.name ? sel.name : 'sky').replace(/[^\w-]+/g, '_');
+    a.download = `polar_${name}_${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.png`;
+    a.href = out.toDataURL('image/png');
+    a.click();
   }
 
   _resize() {
@@ -47,8 +76,8 @@ export class PolarView {
     if (R <= 0) { ctx.restore(); return; } // not yet sized (detached/hidden)
 
     // Elevation rings (0/30/60° + horizon).
-    ctx.strokeStyle = 'rgba(120,160,200,0.22)';
-    ctx.fillStyle = 'rgba(120,160,200,0.45)';
+    ctx.strokeStyle = palette().polar.grid;
+    ctx.fillStyle = palette().polar.ticks;
     ctx.lineWidth = 1;
     ctx.font = '10px ui-sans-serif, system-ui';
     for (const el of [0, 30, 60]) {
@@ -60,7 +89,7 @@ export class PolarView {
     }
 
     // Azimuth spokes + N/E/S/W.
-    ctx.strokeStyle = 'rgba(120,160,200,0.15)';
+    ctx.strokeStyle = palette().polar.gridDim;
     for (let az = 0; az < 360; az += 30) {
       const [x, y] = this._pos(az, 0, cx, cy, R);
       ctx.beginPath();
@@ -68,7 +97,7 @@ export class PolarView {
       ctx.lineTo(x, y);
       ctx.stroke();
     }
-    ctx.fillStyle = 'rgba(180,210,235,0.8)';
+    ctx.fillStyle = palette().polar.labels;
     ctx.font = '600 12px ui-sans-serif, system-ui';
     const cards = [['N', 0], ['E', 90], ['S', 180], ['W', 270]];
     for (const [lbl, az] of cards) {
@@ -94,6 +123,28 @@ export class PolarView {
         started = true;
       }
       ctx.stroke();
+    }
+
+    // Flip-over preview: the selected pass's mount path when it goes "over the top"
+    // (elevation past 90° → the point crosses the zenith to the far side). Drawn as a
+    // dashed amber trail with a corner badge so a high pass's flip is obvious ahead of time.
+    if (frame.flip && frame.flip.arc && frame.flip.arc.length) {
+      ctx.save();
+      ctx.strokeStyle = '#ffb454';
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([4, 3]);
+      ctx.beginPath();
+      let started = false;
+      for (const p of frame.flip.arc) {
+        const [x, y] = this._pos(p.az, Math.min(180, p.el), cx, cy, R);
+        started ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+        started = true;
+      }
+      ctx.stroke();
+      ctx.restore();
+      ctx.fillStyle = '#ffb454';
+      ctx.font = '600 10px ui-sans-serif, system-ui';
+      ctx.fillText('⟳ FLIP-OVER', 6, 12);
     }
 
     // Markers for sats above the horizon.
@@ -132,6 +183,42 @@ export class PolarView {
         ctx.fillStyle = b.selected ? '#fff' : 'rgba(220,230,245,0.8)';
         ctx.font = `${b.selected ? '600 ' : ''}11px ui-sans-serif, system-ui`;
         ctx.fillText(b.name, x + 8, y + 3);
+      }
+    }
+
+    // Live rotor pointing: a fading trail of where the mount has actually been, a
+    // crosshair at its current actual position, and a hollow ring at the commanded
+    // position — so you can see the mount chase (and lag) the target in real time.
+    const rotor = frame.rotor;
+    if (rotor) {
+      if (rotor.trail && rotor.trail.length > 1) {
+        for (let i = 1; i < rotor.trail.length; i++) {
+          const [x0, y0] = this._pos(rotor.trail[i - 1].az, rotor.trail[i - 1].el, cx, cy, R);
+          const [x1, y1] = this._pos(rotor.trail[i].az, rotor.trail[i].el, cx, cy, R);
+          ctx.strokeStyle = `rgba(120,200,255,${(i / rotor.trail.length) * 0.5})`;
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          ctx.moveTo(x0, y0);
+          ctx.lineTo(x1, y1);
+          ctx.stroke();
+        }
+      }
+      if (rotor.commanded) {
+        const [x, y] = this._pos(rotor.commanded.az, Math.min(180, rotor.commanded.el), cx, cy, R);
+        ctx.strokeStyle = 'rgba(120,200,255,0.9)';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.arc(x, y, 7, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      if (rotor.actual) {
+        const [x, y] = this._pos(rotor.actual.az, Math.min(180, rotor.actual.el), cx, cy, R);
+        ctx.strokeStyle = '#78c8ff';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(x - 7, y); ctx.lineTo(x + 7, y);
+        ctx.moveTo(x, y - 7); ctx.lineTo(x, y + 7);
+        ctx.stroke();
       }
     }
 

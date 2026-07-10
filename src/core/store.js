@@ -9,13 +9,24 @@ const DEFAULTS = {
   tracked: ['25544'], // ISS by default
   selected: '25544', // a NORAD id, or 'MOON'
   favorites: [], // [{ id, name, line1, line2 }] — TLE stored so they work offline
+  satColors: {}, // { id: '#hex' } — user color overrides (else auto-assigned palette)
   tleStore: {}, // { id: { name, line1, line2 } } — cached TLEs for tracked sats (offline)
   tleSched: { auto: true, maxAgeDays: 2 }, // auto-refresh cached TLEs so they stay < maxAgeDays old
   view: '2d', // '2d' | '3d'
+  theme: 'midnight', // UI theme id — see core/themes.js (midnight/ember/nightops/phosphor)
+  uiScale: 'md', // UI size: 'sm' | 'md' | 'lg'
+  fieldMode: false, // one-tap field mode (large + Night Ops)
+  sideCollapsed: false, // left satellite-browser panel collapsed
+  rightCollapsed: false, // right info/settings panel collapsed
+  followSat: false, // keep the active view centred on the selected satellite
+  passSort: 'time', // Passes tab order: 'time' (soonest) | 'el' (highest first)
+  notifyPasses: false, // desktop notification before a tracked pass rises
+  notifyLead: 5, // minutes before AOS to notify
   mapStyle: 'vector', // 'vector' = dark blue lines | 'relief' = shaded topographic
   showMoon: true, // draw the Moon on the 2D map
   showPlanets: true, // draw the Sun + planets on the 2D map
   showDso: false, // master show/hide for all deep-sky objects on the sky views
+  emeFreqMHz: 144, // frequency for EME (Moon-bounce) path-loss / Doppler readouts
   minEl: 5,
   hw: {
     rotator: {
@@ -33,16 +44,38 @@ const DEFAULTS = {
       // Smooth-controller motion limits (only used by the 'superrot' path).
       maxVelAz: 12, // °/s
       maxVelEl: 8,
-      // SuperRot absolute azimuth range. The host streams CONTINUOUS (unwrapped) az
-      // into this range so a north crossing keeps turning the same way instead of
-      // unwinding; azMax > 360 gives cable-overlap before a manual unwind is needed.
-      azMin: 0,
-      azMax: 450,
+      // Motion smoothness profile (accel/jerk ramp) — see MOTION_PROFILES in main.js.
+      // 'gentle' for EME/heavy dishes, 'normal', 'fast' for light LEO rigs.
+      motionProfile: 'normal',
       // Elevation ceiling — 90 for standard mounts, up to 180 for flip-over passes.
       elMax: 90,
-      // After a pass (auto-track modes only) return to home/stow (az 0, low el),
-      // which drives absolute az 0 and so unwinds any accumulated cable wrap.
-      autoUnwind: true,
+      // Azimuth is FREE / continuous (shortest-path, may go negative or past 360 —
+      // there is no travel limit). These are informational cable-wrap thresholds:
+      // the wrap gauge turns amber past wrapWarnDeg and red past wrapMaxDeg of
+      // accumulated azimuth away from north, prompting a manual unwind.
+      wrapWarnDeg: 540,
+      wrapMaxDeg: 720,
+      // Auto-track: pre-position to the next pass's AOS azimuth this many seconds
+      // before the satellite rises, so the mount is already pointing when it appears.
+      preslewLead: 45,
+      // Named park positions. 'home' presets trigger the firmware homing sequence;
+      // others slew to a saved az/el. parkDefault names the one the Park button uses.
+      parkPresets: [{ name: 'Home', home: true }],
+      parkDefault: 'Home',
+      // Mount-alignment calibration: offsets added to the true-sky command to get the
+      // mount command (mount = sky + offset); telemetry is mapped back the other way.
+      // 0/0 = no correction (default). Backlash figures are for firmware config sync.
+      azOffset: 0,
+      elOffset: 0,
+      backlashAz: 0,
+      backlashEl: 0,
+      // Sun-avoidance guard: warn (and skip pre-slew) when pointing within sunAvoidDeg
+      // of the Sun, to protect optics/sensors on the boresight.
+      sunAvoid: false,
+      sunAvoidDeg: 5,
+      // Multi-pass queue: a specific pass the scheduler is committed to, overriding the
+      // automatic highest-pass pick. { id, aos } (aos = epoch ms) or null.
+      armedPass: null,
     },
     radio: { host: '127.0.0.1', port: 4532, downlinkHz: 145800000, doppler: false },
   },
@@ -61,6 +94,37 @@ export const store = {
   setCatalog(sats) {
     catalog = sats;
     emit();
+  },
+
+  /** Set / clear a satellite's custom color override. */
+  setSatColor(id, hex) {
+    state = { ...state, satColors: { ...state.satColors, [id]: hex } };
+    emit();
+    persist();
+  },
+  clearSatColor(id) {
+    const next = { ...state.satColors };
+    delete next[id];
+    state = { ...state, satColors: next };
+    emit();
+    persist();
+  },
+
+  /** Add (or replace by name) a rotator park preset. */
+  addParkPreset(preset) {
+    const rot = state.hw.rotator;
+    const presets = [...(rot.parkPresets || [])].filter((p) => p.name !== preset.name);
+    presets.push(preset);
+    this.patchIn('hw.rotator', { parkPresets: presets });
+  },
+  /** Remove a park preset by name (the 'Home' preset can't be removed). */
+  removeParkPreset(name) {
+    if (name === 'Home') return;
+    const rot = state.hw.rotator;
+    const presets = (rot.parkPresets || []).filter((p) => p.name !== name);
+    const patch = { parkPresets: presets };
+    if (rot.parkDefault === name) patch.parkDefault = 'Home';
+    this.patchIn('hw.rotator', patch);
   },
 
   /** Shallow-merge a patch into state and notify subscribers. */
@@ -168,6 +232,15 @@ export const store = {
   subscribe(fn) {
     listeners.add(fn);
     return () => listeners.delete(fn);
+  },
+
+  /** Replace all settings from an imported object (backup restore), over defaults. */
+  importSettings(obj) {
+    if (!obj || typeof obj !== 'object') return false;
+    state = deepMerge(structuredClone(DEFAULTS), obj);
+    emit();
+    persist();
+    return true;
   },
 
   /** Load persisted settings from disk, merging over defaults. */

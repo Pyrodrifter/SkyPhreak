@@ -2,12 +2,13 @@ import './style.css';
 import { store } from './core/store.js';
 import { parseCatalog } from './core/tle.js';
 import { parseOem } from './core/oem.js';
-import { subPoint, lookAngles, makeSatrec, tleAgeDays } from './core/propagate.js';
+import { subPoint, lookAngles, makeSatrec, tleAgeDays, subSolarPoint } from './core/propagate.js';
 import { moonState, moonLook } from './core/moon.js';
 import { planetState, raDecToAzEl, subPointOf } from './core/bodies.js';
 import { precessToDate, dsoById, DSOS } from './core/dso.js';
 import { predictPasses } from './core/passes.js';
 import { MotionController } from './core/motion.js';
+import { THEMES, applyTheme } from './core/themes.js';
 import { createUI, colorFor } from './views/ui.js';
 import { Map2D } from './views/map2d.js';
 import { Globe3D } from './views/globe3d.js';
@@ -67,10 +68,13 @@ let lastRadSend = 0;
 // (the 1 Hz tick only decides *which* target and handles the views).
 let motion = null;
 let motionRunning = false;
+// Time-warp preview: a viewing-time offset (ms) for scrubbing the map/globe/polar into
+// the future or past. Renderer-local (resets to live on launch). Hardware tracking
+// stays on real time — the offset only shifts what the visualisation shows.
+let timeWarpOffset = 0;
 let rotTelemetry = null; // last { az, el, azRate, elRate } reported by SuperRot firmware
 let activeTrackId = null; // id the rotator is actively tracking (null when parked/idle)
 let lastDrivenId = null; // last object the smooth controller was driven toward
-let azCmdContinuous = null; // last continuous (unwrapped) az streamed to SuperRot
 
 window.addEventListener('error', (e) => console.error(e.error || e.message));
 window.addEventListener('unhandledrejection', (e) => console.error('unhandledrejection:', e.reason));
@@ -86,10 +90,48 @@ async function boot() {
     updateTlesNow: () => ensureFreshTles(true),
     resetView: () => (store.get().view === '2d' ? map2d.resetView() : globe3d.focus(store.get().station.lat, store.get().station.lon)),
     connectRotator,
-    parkRotator: () => { if (motionRunning) { motion.stop(); motionRunning = false; } window.pyro.rotator.park(); },
-    stopRotator: () => { if (motionRunning) { motion.stop(); motionRunning = false; } else window.pyro.rotator.stop(); },
-    unwindRotator,
+    // Park button parks to the configured default preset; parkTo lets the HW pane
+    // park to any named preset; saveParkPreset captures the current position.
+    parkRotator: () => parkToPreset(defaultParkPreset()),
+    parkTo: (preset) => parkToPreset(preset),
+    saveParkPreset: (name) => {
+      const az = rotTelemetry && Number.isFinite(rotTelemetry.az) ? rotTelemetry.az : motion.currentAz();
+      const el = rotTelemetry && Number.isFinite(rotTelemetry.el) ? rotTelemetry.el : 0;
+      store.addParkPreset({ name, az: Math.round(az * 10) / 10, el: Math.round(Math.max(0, el) * 10) / 10 });
+    },
+    stopRotator: () => { if (motionRunning) { motion.stop(); motionRunning = false; } else if (rotConnected) window.pyro.rotator.stop(); },
+    // Calibration: capture the current telemetry as the true-north / level reference.
+    captureCalibNorth: () => { if (rotTelemetry && Number.isFinite(rotTelemetry.az)) store.patchIn('hw.rotator', { azOffset: Math.round(rotTelemetry.az * 10) / 10 }); },
+    captureCalibLevel: () => { if (rotTelemetry && Number.isFinite(rotTelemetry.el)) store.patchIn('hw.rotator', { elOffset: Math.round(rotTelemetry.el * 10) / 10 }); },
+    // Multi-pass queue: commit the scheduler to one specific pass (and switch to
+    // schedule mode so it takes effect); disarm to return to the automatic pick.
+    armPass: (id, aosMs, losMs) => store.patchIn('hw.rotator', { armedPass: { id, aos: aosMs, los: losMs }, autoMode: 'schedule' }),
+    disarmPass: () => store.patchIn('hw.rotator', { armedPass: null }),
+    // Config sync: push the current speed limits, offsets and backlash to the firmware.
+    pushRotatorConfig: async () => {
+      const r = store.get().hw.rotator;
+      const res = await window.pyro.rotator.config({
+        maxVelAz: r.maxVelAz, maxVelEl: r.maxVelEl, elMax: r.elMax,
+        azOffset: r.azOffset, elOffset: r.elOffset, backlashAz: r.backlashAz, backlashEl: r.backlashEl,
+      });
+      ui.hw.rotPill._set(rotConnected, res && res.ok ? 'Config sent to rotator' : 'Config: ' + ((res && res.error) || 'failed'));
+    },
+    // Manual jog: take control (auto-track off) and nudge az/el by a step.
+    jogRotator: (daz, del) => {
+      if (!rotConnected) return;
+      store.patchIn('hw.rotator', { autoMode: 'off' });
+      if (motionRunning) { motion.stop(); motionRunning = false; }
+      const az = rotTelemetry && Number.isFinite(rotTelemetry.az) ? rotTelemetry.az : 0;
+      const el = rotTelemetry && Number.isFinite(rotTelemetry.el) ? rotTelemetry.el : 0;
+      window.pyro.rotator.setAzEl(az + daz, Math.max(0, el + del));
+    },
     connectRadio,
+    // Time-warp scrubber: shift the visualisation time by N minutes (0 = live).
+    setTimeWarp: (minutes) => { timeWarpOffset = (minutes || 0) * 60000; },
+    // EME readout frequency (MHz).
+    setEmeFreq: (mhz) => store.patch({ emeFreqMHz: Math.max(1, mhz || 144) }),
+    // Manually paste in a TLE (2/3-line set) for a sat not in any Celestrak group.
+    addManualTle: (text) => addManualTle(text),
   });
 
   map2d = new Map2D(ui.view2d);
@@ -106,11 +148,10 @@ async function boot() {
     send: (cmd) => {
       if (!rotConnected) return;
       if (cmd.stop) { window.pyro.rotator.stop(); return; }
-      // cmd.az is CONTINUOUS (unwrapped, may exceed 360) — send it as-is so the
-      // rotator keeps turning the same way across north. Remember it for the
-      // cable-wrap warning / manual unwind.
-      azCmdContinuous = cmd.az;
-      window.pyro.rotator.track(cmd.az, cmd.el, cmd.azRate, cmd.elRate);
+      // cmd.az is free/continuous (shortest path, may be negative or >360) — send as-is,
+      // plus the mount-alignment offset (sky → mount). The model stays in sky space.
+      const off = store.get().hw.rotator;
+      window.pyro.rotator.track(cmd.az + (off.azOffset || 0), cmd.el + (off.elOffset || 0), cmd.azRate, cmd.elRate);
     },
   });
 
@@ -129,7 +170,21 @@ async function boot() {
   ui.setActiveView(store.get().view);
   setInterval(tick, 1000);
   setInterval(streamRotatorFast, 100); // 10 Hz SuperRot setpoint refresh
+
+  // Space weather (planetary K-index): fetch now + hourly when online.
+  fetchSpaceWeather();
+  setInterval(fetchSpaceWeather, 60 * 60 * 1000);
+
   tick();
+}
+
+async function fetchSpaceWeather() {
+  if (!navigator.onLine) { ui.setSpaceWeather({ ok: false }); return; }
+  try {
+    ui.setSpaceWeather(await window.pyro.space.weather());
+  } catch {
+    ui.setSpaceWeather({ ok: false });
+  }
 }
 
 /* --------------------------- TLE freshness scheduler -------------------- */
@@ -256,6 +311,23 @@ async function doRefreshPersistedTles() {
   }
 }
 
+// Add pasted TLE text to the catalog: parse, cache (tracked so it persists offline),
+// track and select. Returns the number of objects added.
+function addManualTle(text) {
+  const sats = parseCatalog(text || '');
+  if (!sats.length) { ui.setTleStamp('No valid TLE/OMM found in the pasted text'); return 0; }
+  for (const s of sats) {
+    catalogById.set(s.noradId, s);
+    if (!store.get().tracked.includes(s.noradId)) store.toggleTracked(s.noradId, s); // caches its TLE
+  }
+  store.patch({ selected: sats[0].noradId });
+  selCache.key = '';
+  trackedPassesCache.key = '';
+  ui.setTleStamp(`Added ${sats.length} pasted object${sats.length > 1 ? 's' : ''}`);
+  ui.renderList();
+  return sats.length;
+}
+
 function applyTle(text, fetchedAt) {
   const sats = parseCatalog(text);
   catalogById = new Map(sats.map((s) => [s.noradId, s]));
@@ -334,9 +406,11 @@ function mergeOemIntoCatalog() {
 /* ----------------------------- State changes --------------------------- */
 let lastView = null;
 let lastMapStyle = null;
+let lastTheme = null;
 function onState(state) {
   ui.renderList();
   ui.syncAutoMode(); // keep the on-map track buttons + HW dropdown in sync
+  ui.applyLayout(state); // collapsible side panels
   if (state.view !== lastView) {
     ui.setActiveView(state.view);
     lastView = state.view;
@@ -346,8 +420,16 @@ function onState(state) {
     map2d.setStyle(state.mapStyle);
     globe3d.setStyle(state.mapStyle);
   }
+  // Theme: set the CSS vars; the 2D/polar canvases pick the palette up on their
+  // next repaint, the globe re-applies its materials explicitly.
+  if (state.theme !== lastTheme) {
+    lastTheme = state.theme;
+    applyTheme(state.theme);
+    globe3d.refreshTheme();
+    map2d.draw(map2d.frame);
+  }
   // Recompute passes when the selection, station, or min elevation changes.
-  const key = `${state.selected}|${state.station.lat}|${state.station.lon}|${state.station.altKm}|${state.minEl}`;
+  const key = `${state.selected}|${state.station.lat}|${state.station.lon}|${state.station.altKm}|${state.minEl}|${state.hw.rotator.elMax}`;
   if (key !== selCache.key) {
     selCache.key = key;
     recomputeSelected();
@@ -366,6 +448,8 @@ function recomputeSelected() {
   if (!sat) {
     selCache.passes = [];
     selCache.arc = [];
+    selCache.mountArc = [];
+    selCache.willFlip = false;
     return;
   }
   const observer = state.station;
@@ -384,6 +468,23 @@ function recomputeSelected() {
       if (look && look.el >= 0) selCache.arc.push({ az: look.az, el: look.el });
     }
   }
+
+  // Flip-over preview: if the mount can flip (elMax >= 135), walk the pass arc
+  // through resolveMount from its AOS azimuth. Where the shortest-motion solution
+  // goes "over the top" (mount el > 90) the pass will flip — flag it and keep the
+  // mount arc so the polar view can draw the over-the-top path.
+  const elMax = state.hw.rotator.elMax || 90;
+  selCache.mountArc = [];
+  selCache.willFlip = false;
+  if (elMax >= 135 && selCache.arc.length) {
+    let ref = selCache.arc[0].az;
+    for (const p of selCache.arc) {
+      const m = resolveMount(p.az, p.el, ref, elMax);
+      ref = m.az;
+      selCache.mountArc.push(m);
+      if (m.el > 90.5) selCache.willFlip = true;
+    }
+  }
 }
 
 // Build the merged, time-sorted pass list across all tracked satellites. Each entry
@@ -397,16 +498,54 @@ function recomputeTrackedPasses() {
     if (!sat) continue;
     const passes = predictPasses(sat.satrec, observer, { minEl: state.minEl, hours: 48, count: 8 });
     const color = colorFor(id, state.tracked);
-    for (const p of passes) out.push({ id, name: sat.name, color, pass: p });
+    for (const p of passes) {
+      // Sample the sky-track (az/el) AOS→LOS for the row's mini polar plot.
+      const a = p.aos.getTime();
+      const b = p.los.getTime();
+      const steps = 24;
+      const arc = [];
+      for (let i = 0; i <= steps; i++) {
+        const look = lookAngles(sat.satrec, new Date(a + ((b - a) * i) / steps), observer);
+        if (look) arc.push({ az: look.az, el: Math.max(0, look.el) });
+      }
+      // Optical visibility: at the pass peak, is the satellite sunlit while the
+      // observer is in darkness (civil twilight or later)? Those are the passes you
+      // can actually see (ISS, Starlink trains, flares).
+      const tPeak = new Date((p.aos.getTime() + p.los.getTime()) / 2);
+      const sunLook = computeBody('SUN', tPeak, observer);
+      const satSub = subPoint(sat.satrec, tPeak);
+      const sunSub = subSolarPoint(tPeak);
+      const visible = !!(sunLook && sunLook.look.el < -6 && satSub && satSunlit(satSub, sunSub) && p.maxEl >= 10);
+
+      out.push({ id, name: sat.name, color, pass: p, arc, visible });
+    }
   }
   out.sort((a, b) => a.pass.aos - b.pass.aos);
   trackedPassesCache.list = out;
 }
 
+// Is a satellite (given its sub-point + altitude) in sunlight rather than Earth's
+// shadow? Tests the shadow cylinder along the Earth→Sun axis in an Earth-fixed frame.
+function satSunlit(satSub, sunSub) {
+  const RAD = Math.PI / 180;
+  const R = 6371;
+  const rs = R + (satSub.altKm || 0);
+  const la = satSub.lat * RAD, lo = satSub.lon * RAD;
+  const p = [rs * Math.cos(la) * Math.cos(lo), rs * Math.cos(la) * Math.sin(lo), rs * Math.sin(la)];
+  const sla = sunSub.lat * RAD, slo = sunSub.lon * RAD;
+  const s = [Math.cos(sla) * Math.cos(slo), Math.cos(sla) * Math.sin(slo), Math.sin(sla)];
+  const dot = p[0] * s[0] + p[1] * s[1] + p[2] * s[2];
+  if (dot >= 0) return true; // on the sunlit side of the planet
+  const perp = Math.sqrt(Math.max(0, p[0] ** 2 + p[1] ** 2 + p[2] ** 2 - dot * dot));
+  return perp > R; // clears the shadow cylinder
+}
+
 /* -------------------------------- Tick --------------------------------- */
 function tick() {
   const state = store.get();
-  const date = new Date();
+  const live = timeWarpOffset === 0;
+  // Visualisation time (may be warped for preview); hardware always uses real time.
+  const date = new Date(Date.now() + timeWarpOffset);
   const observer = state.station;
 
   const sats = [];
@@ -453,19 +592,65 @@ function tick() {
     if (b) { b.selected = state.selected === id; bodies.push(b); }
   }
 
-  const frame = { date, station: observer, sats, moon, bodies, mapShow: { moon: state.showMoon, planets: state.showPlanets } };
+  const frame = {
+    date, station: observer, sats, moon, bodies,
+    mapShow: { moon: state.showMoon, planets: state.showPlanets },
+    // Flip-over preview for the polar view (selected sat only).
+    flip: selCache.willFlip ? { arc: selCache.mountArc } : null,
+    // Live rotor pointing (actual vs commanded + trail) for the polar view.
+    rotor: buildRotorFrame(state.hw.rotator.azOffset || 0, state.hw.rotator.elOffset || 0),
+  };
+
+  // Follow-satellite: keep the active view centred on the selected satellite.
+  if (state.followSat) {
+    const sel = sats.find((s) => s.selected);
+    if (sel && sel.sub) {
+      if (state.view === '2d') map2d.centerOn(sel.sub.lon, sel.sub.lat);
+      else globe3d.followPoint(sel.sub.lat, sel.sub.lon);
+    }
+  }
 
   if (state.view === '2d') map2d.draw(frame);
   else globe3d.draw(frame);
   polar.draw(frame);
   ensurePolarMounted();
 
-  ui.updateClock(date);
+  ui.updateClock(date, timeWarpOffset);
   updateSelectedInfo(frame, date);
-  ui.updatePasses(trackedPassesCache.list, date.getTime());
-  updateTleStatus();
+  ui.updatePasses(trackedPassesCache.list, Date.now());
 
-  driveHardware(frame, date);
+  // Live elevations for the Sky-list chips — only computed while that tab is open.
+  if (ui.isSkyActive()) {
+    const skyStatus = { MOON: moon.look ? moon.look.el : null };
+    for (const id of Object.keys(PLANET_META)) { const b = computeBody(id, date, observer); if (b) skyStatus[id] = b.look.el; }
+    for (const d of DSOS) { const b = computeBody('DSO:' + d.id, date, observer); if (b) skyStatus['DSO:' + d.id] = b.look.el; }
+    ui.updateSky(skyStatus);
+  }
+  updateTleStatus();
+  checkPassNotifications();
+
+  driveHardware(frame, date, live);
+}
+
+// Fire a desktop notification a configurable lead time before a tracked pass rises.
+const notifiedPasses = new Set();
+function checkPassNotifications() {
+  const st = store.get();
+  if (!st.notifyPasses || typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+  const now = Date.now();
+  const lead = (st.notifyLead || 5) * 60000;
+  for (const p of trackedPassesCache.list) {
+    const aos = p.pass.aos.getTime();
+    const key = p.id + '@' + aos;
+    if (aos > now && aos - now <= lead && !notifiedPasses.has(key)) {
+      notifiedPasses.add(key);
+      const mins = Math.max(1, Math.round((aos - now) / 60000));
+      new Notification(`${p.name} rising`, {
+        body: `AOS in ~${mins} min · max ${p.pass.maxEl}°${p.visible ? ' · visible pass' : ''}`,
+      });
+    }
+  }
+  if (notifiedPasses.size > 300) notifiedPasses.clear();
 }
 
 // Insert the polar canvas host into the Info tab once it exists in the DOM.
@@ -479,14 +664,43 @@ function ensurePolarMounted() {
   }
 }
 
+// EME (Moon-bounce) metrics for a given frequency: two-way free-space path loss,
+// self-echo Doppler (from the topocentric range rate) and a distance-degradation
+// figure relative to perigee. Libration/sky-noise degradation are not modelled.
+function computeEme(date, observer, moonLk, ms, freqMHz) {
+  const C = 299792.458; // km/s
+  const rng = moonLk.rangeKm;
+  const dt = 30; // s — finite-difference the topocentric range for range rate
+  const later = new Date(date.getTime() + dt * 1000);
+  const ms2 = moonState(later);
+  const rng2 = moonLook(ms2.eciKm, later, observer).rangeKm;
+  const rangeRate = (rng2 - rng) / dt; // km/s (+ = receding)
+  const fMHz = freqMHz || 144;
+  const dopplerHz = -2 * (rangeRate / C) * (fMHz * 1e6); // two-way echo Doppler
+  const fspl = 20 * Math.log10(rng) + 20 * Math.log10(fMHz) + 32.44; // one-way, dB
+  const perigee = 356500; // km
+  return {
+    freqMHz: fMHz,
+    rangeKm: rng,
+    dopplerHz,
+    fsplOneWay: fspl,
+    echoPathLoss: 2 * fspl, // two-way free space (excludes Moon reflection loss)
+    declination: ms.dec,
+    degradationDb: 40 * Math.log10(rng / perigee), // excess two-way loss vs perigee
+  };
+}
+
 // Describe the selected sky target (Moon/Sun/planet/DSO) for the Info panel.
 function buildSelBody(frame) {
   const sel = store.get().selected;
   if (sel === 'MOON') {
     const m = frame.moon;
+    const ms = moonState(frame.date);
+    const eme = computeEme(frame.date, frame.station, m.look, ms, store.get().emeFreqMHz);
     return {
       name: 'Moon', kind: 'moon', az: m.look.az, el: m.look.el,
       extra: [['Distance', Math.round(m.distanceKm).toLocaleString() + ' km'], ['Illumination', Math.round(m.illum * 100) + '%'], ['Phase', m.phaseName]],
+      eme,
     };
   }
   const b = frame.bodies.find((x) => x.id === sel);
@@ -553,8 +767,9 @@ function wireHardwareStatus() {
     rotConnected = s.connected;
     if (s.telemetry) rotTelemetry = s.telemetry;
     if (!s.connected) rotTelemetry = null;
-    // Closed-loop: keep the smooth controller anchored to the rotator's real azimuth.
-    if (motion) motion.setActual(s.connected && s.telemetry ? s.telemetry.az : NaN);
+    // Closed-loop: keep the smooth controller anchored to the rotator's real azimuth,
+    // mapped from mount space back to sky space via the alignment offset.
+    if (motion) motion.setActual(s.connected && s.telemetry ? s.telemetry.az - (store.get().hw.rotator.azOffset || 0) : NaN);
     const where = s.path ? s.path : `${s.host || ''}:${s.port || ''}`;
     ui.hw.rotPill._set(s.connected, s.connected ? `Rotator connected ${where}` : (s.error ? 'Rotator: ' + s.error : 'Rotator disconnected'));
     ui.hw.rotConnect.textContent = s.connected ? 'Disconnect' : 'Connect';
@@ -616,10 +831,38 @@ function sampleTargetLook(id, date) {
 
 const wrap180 = (d) => ((d + 180) % 360 + 360) % 360 - 180;
 
+// Great-circle angular separation (degrees) between two az/el look directions.
+function angSep(az1, el1, az2, el2) {
+  const r = Math.PI / 180;
+  const c = Math.sin(el1 * r) * Math.sin(el2 * r) + Math.cos(el1 * r) * Math.cos(el2 * r) * Math.cos((az1 - az2) * r);
+  return Math.acos(Math.min(1, Math.max(-1, c))) / r;
+}
+
+// Rolling buffer of recent actual rotor positions (sky space) for the polar trail.
+let rotorTrail = [];
+
+// Snapshot for the polar view: where the mount is actually pointing (telemetry,
+// mapped to sky space) vs where the controller is commanding it, plus a fading
+// trail of recent actual positions. Null when there's nothing meaningful to show.
+function buildRotorFrame(azOff, elOff) {
+  if (!rotConnected) { rotorTrail.length = 0; return null; }
+  let actual = null;
+  let commanded = null;
+  if (rotTelemetry && Number.isFinite(rotTelemetry.az)) actual = { az: rotTelemetry.az - azOff, el: rotTelemetry.el - elOff };
+  if (motionRunning && motion.cmd) commanded = { az: motion.cmd.az, el: motion.cmd.el };
+  if (actual) {
+    rotorTrail.push({ az: actual.az, el: actual.el });
+    if (rotorTrail.length > 50) rotorTrail.shift();
+  }
+  if (!actual && !commanded) return null;
+  return { actual, commanded, trail: rotorTrail.slice() };
+}
+
 // Pass-scheduler state: the satellite the scheduler is locked onto, and whether
 // we've already issued the park command while idle (so we don't spam it).
 let schedLockId = null;
 let parkedByAuto = false;
+let preslewId = null; // id we're pre-positioning for (AOS az), before the pass starts
 
 // Choose which tracked satellite to follow in 'schedule' mode, from the predicted
 // pass windows (so geostationary sats, which never "pass", don't hog the rotator).
@@ -634,6 +877,12 @@ function pickScheduledTarget(frame, nowMs) {
     const s = frame.sats.find((x) => x.id === id);
     return s && s.look ? { id, name: s.name, look: s.look } : null;
   };
+  // An armed pass wins outright while it's in progress (the operator committed to it).
+  const armed = store.get().hw.rotator.armedPass;
+  if (armed && active.some((p) => p.id === armed.id && Math.abs(p.pass.aos.getTime() - armed.aos) < 60000)) {
+    const t = liveLook(armed.id);
+    if (t) { schedLockId = armed.id; return t; }
+  }
   if (schedLockId && active.some((p) => p.id === schedLockId)) {
     const t = liveLook(schedLockId);
     if (t) return t;
@@ -649,98 +898,193 @@ function parkNow() {
   window.pyro.rotator.park();
 }
 
-// Auto-unwind: after an auto-tracked pass, return to home/stow (az 0, low el). The
-// absolute az-0 move unwinds any cable wrap accumulated crossing north during the
-// pass, so it never builds up toward the travel limit. SuperRot only (the Hamlib
-// path never winds, since it sends standard 0–360).
-function stowAfterPass() {
-  if (motionRunning) { motion.stop(); motionRunning = false; }
-  window.pyro.rotator.setAzEl(0, 0);
+/* --------------------------- Motion profiles --------------------------- */
+// Smoothness presets: the accel/jerk ramp that shapes how the smooth controller
+// gets up to (and off) the user's max slew speed. Gentle spares heavy EME dishes
+// and gearboxes; fast suits light LEO rigs that must whip through the zenith.
+const MOTION_PROFILES = {
+  gentle: { maxAccel: { az: 8, el: 6 }, maxJerk: { az: 40, el: 30 } },
+  normal: { maxAccel: { az: 20, el: 15 }, maxJerk: { az: 120, el: 90 } },
+  fast: { maxAccel: { az: 40, el: 30 }, maxJerk: { az: 300, el: 240 } },
+};
+
+// Push the user's speed limits + selected smoothness profile into the live
+// controller (cheap; called each drive so changes take effect immediately).
+function applyMotionProfile(rot) {
+  motion.cfg.maxVel.az = rot.maxVelAz ?? motion.cfg.maxVel.az;
+  motion.cfg.maxVel.el = rot.maxVelEl ?? motion.cfg.maxVel.el;
+  const prof = MOTION_PROFILES[rot.motionProfile] || MOTION_PROFILES.normal;
+  motion.cfg.maxAccel = { ...prof.maxAccel };
+  motion.cfg.maxJerk = { ...prof.maxJerk };
 }
 
-// Operator action (idle): unwind the cable one full turn. Drives an absolute goto
-// 360° back toward the centre of travel; the next track reseeds from telemetry.
-function unwindRotator() {
+/* ----------------------------- Park presets ---------------------------- */
+// The park preset the Park button uses (by name), falling back to Home.
+function defaultParkPreset() {
   const rot = store.get().hw.rotator;
-  if (!rotConnected || rot.protocol !== 'superrot') return;
-  const az = rotTelemetry && Number.isFinite(rotTelemetry.az) ? rotTelemetry.az : azCmdContinuous;
-  if (az == null) return;
-  const el = rotTelemetry && Number.isFinite(rotTelemetry.el) ? rotTelemetry.el : 0;
-  const mid = ((rot.azMin ?? 0) + (rot.azMax ?? 450)) / 2;
-  const target = az + (az > mid ? -360 : 360);
+  const presets = rot.parkPresets || [];
+  return presets.find((p) => p.name === rot.parkDefault) || presets[0] || { name: 'Home', home: true };
+}
+
+// Park to a named preset: 'home' presets run the firmware homing sequence; others
+// slew to a saved az/el. Either way we take manual control (auto-track off) so the
+// scheduler doesn't immediately re-drive the mount off the park position.
+function parkToPreset(preset) {
   if (motionRunning) { motion.stop(); motionRunning = false; }
+  if (store.get().hw.rotator.autoMode !== 'off') store.patchIn('hw.rotator', { autoMode: 'off' });
+  parkedByAuto = false;
+  preslewId = null;
   activeTrackId = null;
-  window.pyro.rotator.setAzEl(target, Math.max(0, el));
+  if (!rotConnected) return;
+  if (!preset || preset.home) window.pyro.rotator.park();
+  else window.pyro.rotator.setAzEl(preset.az, Math.max(0, preset.el || 0));
+}
+
+// Resolve a true sky (az, el) into mount coordinates, choosing normal vs FLIP-OVER
+// ("over the top": az+180, el→180−el) — whichever needs LESS azimuth motion from the
+// reference. This is what stops the azimuth whip through the zenith on a high pass:
+// as the target transits overhead, the flipped representation keeps az continuous and
+// lets elevation carry on past 90°. Flip is only offered when the mount allows it
+// (elMax ≥ 135). Returns a continuous (free) azimuth — shortest path from `refAz`.
+function resolveMount(az, el, refAz, elMax) {
+  const nAz = refAz + wrap180(az - refAz);
+  if ((elMax || 90) < 135) return { az: nAz, el }; // standard mount, no flip
+  const fAz = refAz + wrap180(az + 180 - refAz);
+  const fEl = 180 - el;
+  return Math.abs(fAz - refAz) < Math.abs(nAz - refAz) ? { az: fAz, el: fEl } : { az: nAz, el };
+}
+
+// Build the smooth setpoint for a target: flip-resolved mount az/el + a feed-forward
+// rate derived from the SAME representation a short step ahead (so the rate is smooth
+// across a flip). Azimuth is free/continuous — shortest path from where we are.
+function computeSetpoint(id, date, elMax) {
+  const look = sampleTargetLook(id, date);
+  if (!look) return null;
+  const ref = motion.currentAz();
+  const r0 = resolveMount(look.az, Math.max(0, look.el), ref, elMax);
+  const dt = 0.2;
+  const ahead = sampleTargetLook(id, new Date(date.getTime() + dt * 1000));
+  let azRate = 0;
+  let elRate = 0;
+  if (ahead) {
+    const r1 = resolveMount(ahead.az, Math.max(0, ahead.el), r0.az, elMax);
+    azRate = (r1.az - r0.az) / dt;
+    elRate = (r1.el - r0.el) / dt;
+  }
+  return { az: r0.az, el: r0.el, azRate, elRate };
 }
 
 // Stream/goto the rotator to a target (smooth controller for SuperRot, 1 Hz goto for Hamlib).
 function driveToTarget(track, date, rot) {
   const look = track.look;
   if (rot.protocol === 'superrot') {
-    const dt = 0.2; // s — finite-difference horizon for the velocity feedforward
-    const ahead = sampleTargetLook(track.id, new Date(date.getTime() + dt * 1000));
-    let azRate = 0;
-    let elRate = 0;
-    if (ahead) {
-      azRate = wrap180(ahead.az - look.az) / dt;
-      elRate = (ahead.el - look.el) / dt;
-    }
-    // Re-seed when (re)starting or switching to a DIFFERENT object — not while
-    // continuously tracking the same one (that must stay smooth/unwrapped).
     const newObject = !motionRunning || track.id !== lastDrivenId;
+    applyMotionProfile(rot); // live: speed limits + smoothness profile
     if (!motionRunning) {
-      motion.cfg.maxVel.az = rot.maxVelAz ?? motion.cfg.maxVel.az;
-      motion.cfg.maxVel.el = rot.maxVelEl ?? motion.cfg.maxVel.el;
-      motion.cfg.azMin = rot.azMin ?? motion.cfg.azMin;
-      motion.cfg.azMax = rot.azMax ?? motion.cfg.azMax;
       motion.cfg.elMax = rot.elMax ?? motion.cfg.elMax;
       motion.start();
       motionRunning = true;
     }
-    // Semi-closed-loop: seed the controller from the rotator's ACTUAL reported
-    // position (telemetry) so a slew to a new object goes the short way from where
-    // the mount really is — no wind-up carried over from a previous pass/target.
+    // Semi-closed-loop: seed from the rotator's ACTUAL reported position on a new
+    // object so the slew goes the short way from where the mount really is.
     if (newObject && rotTelemetry && Number.isFinite(rotTelemetry.az)) {
       motion.seed(rotTelemetry.az, rotTelemetry.el);
     }
     lastDrivenId = track.id;
-    motion.setTarget(look.az, Math.max(0, look.el), azRate, elRate);
+    const sp = computeSetpoint(track.id, date, rot.elMax);
+    if (sp) motion.setTarget(sp.az, sp.el, sp.azRate, sp.elRate);
   } else {
     if (motionRunning) { motion.stop(); motionRunning = false; }
     if (date.getTime() - lastRotSend > 1000) {
-      window.pyro.rotator.setAzEl(look.az, Math.max(0, look.el));
+      window.pyro.rotator.setAzEl(look.az + (rot.azOffset || 0), Math.max(0, look.el) + (rot.elOffset || 0));
       lastRotSend = date.getTime();
     }
   }
 }
 
+// Find an imminent pass to pre-position for: the soonest upcoming pass whose AOS is
+// within the pre-slew lead time. Returns { id, name, az, el, t } or null. In
+// 'selected' mode only the selected target counts; in 'schedule' mode any tracked one.
+function pickPreslew(nowMs, mode, rot) {
+  const lead = (rot.preslewLead || 45) * 1000;
+  if (lead <= 0) return null;
+  let best = null;
+  if (mode === 'schedule') {
+    // If a pass is armed, pre-slew only for it; otherwise the soonest imminent one.
+    const armed = rot.armedPass;
+    for (const p of trackedPassesCache.list) {
+      const t = p.pass.aos.getTime();
+      if (armed && !(p.id === armed.id && Math.abs(t - armed.aos) < 60000)) continue;
+      if (t > nowMs && t - nowMs <= lead && (!best || t < best.t)) {
+        best = { id: p.id, name: p.name, az: p.pass.aosAz, el: rot.minEl || 0, t };
+      }
+    }
+  } else if (mode === 'selected') {
+    const selId = store.get().selected;
+    const next = selCache.passes.find((p) => p.aos.getTime() > nowMs);
+    if (next && next.aos.getTime() - nowMs <= lead) {
+      best = { id: selId, name: catalogById.get(selId)?.name || 'target', az: next.aosAz, el: rot.minEl || 0, t: next.aos.getTime() };
+    }
+  }
+  return best && Number.isFinite(best.az) ? best : null;
+}
+
+// Smoothly pre-position to a fixed (AOS az, min el) point ahead of a pass. Uses the
+// smooth controller for SuperRot (so it eases into place) or a throttled goto for
+// Hamlib. Does NOT publish activeTrackId, so the 10 Hz loop won't chase the target's
+// current (below-horizon) position — we hold the AOS point until the pass opens.
+function preSlewTo(pre, date, rot) {
+  const el = Math.max(0, pre.el || 0);
+  if (rot.protocol === 'superrot') {
+    applyMotionProfile(rot);
+    if (!motionRunning) {
+      motion.cfg.elMax = rot.elMax ?? motion.cfg.elMax;
+      motion.start();
+      motionRunning = true;
+      if (rotTelemetry && Number.isFinite(rotTelemetry.az)) motion.seed(rotTelemetry.az, rotTelemetry.el);
+    }
+    const r = resolveMount(pre.az, el, motion.currentAz(), rot.elMax);
+    motion.setTarget(r.az, r.el, 0, 0);
+  } else if (date.getTime() - lastRotSend > 1000) {
+    window.pyro.rotator.setAzEl(pre.az + (rot.azOffset || 0), el + (rot.elOffset || 0));
+    lastRotSend = date.getTime();
+  }
+  preslewId = pre.id;
+}
+
+// Cable-wrap gauge: azimuth is free/continuous, so the accumulated angle away from
+// north IS the wrap. Report it (with amber/red thresholds) so the operator knows
+// when to manually unwind. Uses live telemetry (SuperRot) or the motion model.
+function updateCableWrap(rot) {
+  let az = null;
+  if (rotTelemetry && Number.isFinite(rotTelemetry.az)) az = rotTelemetry.az;
+  else if (motionRunning) az = motion.currentAz();
+  if (!rotConnected || az == null) { ui.setCableWrap(null); return; }
+  const warn = rot.wrapWarnDeg || 540;
+  const max = rot.wrapMaxDeg || 720;
+  const mag = Math.abs(az);
+  const level = mag >= max ? 'red' : mag >= warn ? 'amber' : 'ok';
+  ui.setCableWrap({ az, turns: az / 360, level, warn, max });
+}
+
 // 10 Hz refresh of the smooth controller's target (SuperRot only). The 1 Hz tick
-// chooses the target; this re-samples its true az/el + feedforward 10× as often so
-// the controller corrects far more frequently — much tighter through the zenith
-// keyhole — without re-rendering the views at 10 Hz. Cheap: one/two SGP4 calls per
-// iteration, and only while actively tracking.
+// chooses the target; this re-resolves its mount az/el + feed-forward 10× as often so
+// the controller corrects far more frequently — much tighter through the zenith.
 function streamRotatorFast() {
   if (!motionRunning || activeTrackId == null) return;
   if ((store.get().hw.rotator.protocol || 'hamlib') !== 'superrot') return;
-  const now = Date.now();
-  const look = sampleTargetLook(activeTrackId, new Date(now));
-  if (!look) return;
-  const dt = 0.2; // s — finite-difference horizon for the velocity feedforward
-  const ahead = sampleTargetLook(activeTrackId, new Date(now + dt * 1000));
-  let azRate = 0;
-  let elRate = 0;
-  if (ahead) {
-    azRate = wrap180(ahead.az - look.az) / dt;
-    elRate = (ahead.el - look.el) / dt;
-  }
-  motion.setTarget(look.az, Math.max(0, look.el), azRate, elRate);
+  const sp = computeSetpoint(activeTrackId, new Date(), store.get().hw.rotator.elMax);
+  if (sp) motion.setTarget(sp.az, sp.el, sp.azRate, sp.elRate);
 }
 
-function driveHardware(frame, date) {
+function driveHardware(frame, date, live = true) {
   const state = store.get();
   const rot = state.hw.rotator;
   const mode = rot.autoMode || 'off';
   const selected = activeTarget(frame);
+
+  // Auto-disarm a queued pass once it's over (small grace after LOS).
+  if (rot.armedPass && Date.now() > (rot.armedPass.los || 0) + 5000) store.patchIn('hw.rotator', { armedPass: null });
 
   // Resolve the auto-track target for this mode.
   let track = null;
@@ -750,6 +1094,27 @@ function driveHardware(frame, date) {
     track = pickScheduledTarget(frame, date.getTime());
   } else {
     schedLockId = null;
+  }
+
+  // No live target but a pass is imminent? Pre-position to its AOS azimuth. Uses real
+  // time (not the possibly-warped view time) so the countdown and driving stay honest.
+  const nowMs = Date.now();
+  let pre = rotConnected && mode !== 'off' && !track ? pickPreslew(nowMs, mode, rot) : null;
+
+  // Sun-avoidance guard: how close the intended boresight is to the Sun. During a live
+  // track we can only warn (skipping would lose the satellite); for a pre-slew we hold
+  // off (park) rather than park/point the dish straight at the Sun.
+  let sunWarn = null;
+  if (rot.sunAvoid) {
+    const sun = (frame.bodies || []).find((b) => b.id === 'SUN');
+    const pointing = track ? track.look : pre ? { az: pre.az, el: pre.el } : null;
+    if (sun && sun.look && pointing) {
+      const sep = angSep(pointing.az, pointing.el, sun.look.az, sun.look.el);
+      if (sep < (rot.sunAvoidDeg || 5)) {
+        sunWarn = sep;
+        if (!track && pre) pre = null; // don't pre-slew into the Sun; park instead
+      }
+    }
   }
 
   // Rotator readout.
@@ -762,6 +1127,12 @@ function driveHardware(frame, date) {
         ...k('Az', track.look.az.toFixed(1) + '°'),
         ...k('El', track.look.el.toFixed(1) + '°')
       );
+    } else if (pre) {
+      ui.hw.rotTarget.append(
+        ...k('Pre-slew', pre.name),
+        ...k('AOS az', pre.az.toFixed(1) + '°'),
+        ...k('AOS in', countdown(pre.t - nowMs))
+      );
     } else if (mode === 'schedule') {
       ui.hw.rotTarget.append(...k('Scheduler', rotConnected ? 'Parked — waiting for a pass' : 'Idle'));
     } else if (selected && selected.look) {
@@ -769,48 +1140,64 @@ function driveHardware(frame, date) {
       if (mode === 'selected' && selected.look.el < rot.minEl) ui.hw.rotTarget.append(...k('Status', rotConnected ? 'Below min — parked' : 'Below min'));
     }
     if (rot.protocol === 'superrot' && rotTelemetry) {
+      const tel = rotTelemetry;
       ui.hw.rotTarget.append(
-        ...k('Actual', `${rotTelemetry.az.toFixed(1)}° / ${rotTelemetry.el.toFixed(1)}°`),
-        ...k('Slew', `${rotTelemetry.azRate.toFixed(2)} / ${rotTelemetry.elRate.toFixed(2)} °/s`)
+        ...k('Actual', `${tel.az.toFixed(1)}° / ${tel.el.toFixed(1)}°`),
+        ...k('Slew', `${tel.azRate.toFixed(2)} / ${tel.elRate.toFixed(2)} °/s`)
       );
-    }
-  }
-
-  // Cable-wrap warning: the continuous azimuth is nearing the rotator's travel limit.
-  if (ui.hw.setRotWarn) {
-    const warnDeg = 15;
-    const azNow = rotTelemetry && Number.isFinite(rotTelemetry.az) ? rotTelemetry.az : azCmdContinuous;
-    let warn = null;
-    if (rot.protocol === 'superrot' && rotConnected && azNow != null) {
-      if (azNow >= (rot.azMax ?? 450) - warnDeg) warn = `Az ${azNow.toFixed(0)}° near upper limit ${rot.azMax}° — unwind`;
-      else if (azNow <= (rot.azMin ?? 0) + warnDeg) warn = `Az ${azNow.toFixed(0)}° near lower limit ${rot.azMin}° — unwind`;
-    }
-    ui.hw.setRotWarn(warn);
-  }
-
-  // Drive the rotator: track when there's a target, park once when there isn't.
-  // The SuperRot setpoint is refreshed at 10 Hz by streamRotatorFast(); here we
-  // just decide the target and publish its id for that loop.
-  if (rotConnected && mode !== 'off') {
-    if (track) {
-      driveToTarget(track, date, rot);
-      parkedByAuto = false;
-      activeTrackId = rot.protocol === 'superrot' ? track.id : null;
-    } else {
-      activeTrackId = null;
-      // Pass over (or none up): stow once. With auto-unwind on, SuperRot returns to
-      // home (az 0, low el) which also unwinds the cable; otherwise just park.
-      if (!parkedByAuto) {
-        if (rot.protocol === 'superrot' && rot.autoUnwind !== false) stowAfterPass();
-        else parkNow();
-        parkedByAuto = true;
+      // Extended firmware diagnostics (only shown when the firmware reports them).
+      if (Number.isFinite(tel.tempC)) ui.hw.rotTarget.append(...k('Temp', tel.tempC.toFixed(1) + ' °C'));
+      if (Number.isFinite(tel.curA)) ui.hw.rotTarget.append(...k('Current', tel.curA.toFixed(2) + ' A'));
+      if (tel.esAz != null || tel.esEl != null) {
+        ui.hw.rotTarget.append(...k('Endstops', `Az ${tel.esAz ? '● HIT' : '—'} · El ${tel.esEl ? '● HIT' : '—'}`));
       }
+      if (tel.homed != null) ui.hw.rotTarget.append(...k('Homed', tel.homed ? 'yes' : 'no'));
+      if (tel.lossAz || tel.lossEl) ui.hw.rotTarget.append(...k('⚠ Step loss', `${tel.lossAz ? 'Az ' : ''}${tel.lossEl ? 'El' : ''}`.trim()));
     }
-  } else {
-    if (motionRunning) { motion.stop(); motionRunning = false; }
-    parkedByAuto = false;
-    activeTrackId = null;
+    if (sunWarn != null) ui.hw.rotTarget.append(...k('⚠ Sun', sunWarn.toFixed(1) + '° from boresight'));
   }
+
+  // Bottom status bar: connection state + what the rotator is tracking.
+  ui.setStatus({
+    rotConnected,
+    radConnected,
+    tracking: !live ? '⏱ Time-warp preview'
+      : track ? track.name + (sunWarn != null ? ' · ⚠ Sun' : '')
+      : pre ? `Pre-slew ${pre.name} · AOS ${countdown(pre.t - nowMs)}`
+      : (rotConnected && mode !== 'off' ? 'Parked' : null),
+  });
+
+  // Drive the rotator: track when there's a target, pre-position when a pass is
+  // imminent, else park once. The SuperRot setpoint is refreshed at 10 Hz by
+  // streamRotatorFast(); here we decide the target and publish its id for that loop.
+  // Skipped during a time-warp preview — the live 10 Hz loop keeps real-time tracking
+  // untouched while the display scrubs ahead, so we never slew to a previewed future.
+  if (live) {
+    if (rotConnected && mode !== 'off') {
+      if (track) {
+        driveToTarget(track, date, rot);
+        parkedByAuto = false;
+        preslewId = null;
+        activeTrackId = rot.protocol === 'superrot' ? track.id : null;
+      } else if (pre) {
+        preSlewTo(pre, date, rot);
+        parkedByAuto = false;
+        activeTrackId = null; // holding the AOS point; not chasing the live target yet
+      } else {
+        activeTrackId = null;
+        preslewId = null;
+        // Pass over (or none up): park once.
+        if (!parkedByAuto) { parkNow(); parkedByAuto = true; }
+      }
+    } else {
+      if (motionRunning) { motion.stop(); motionRunning = false; }
+      parkedByAuto = false;
+      preslewId = null;
+      activeTrackId = null;
+    }
+  }
+
+  updateCableWrap(rot);
 
   // Radio Doppler — follows the tracked satellite (or the selected one). Only
   // satellites carry a dopplerFactor; the Moon/planets/DSOs don't.

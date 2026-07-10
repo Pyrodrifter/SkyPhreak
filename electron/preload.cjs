@@ -15,6 +15,10 @@ contextBridge.exposeInMainWorld('pyro', {
     // Returns [{ name, text }] for the chosen OEM files ([] if cancelled).
     load: () => ipcRenderer.invoke('oem:load'),
   },
+  space: {
+    // Latest planetary K-index: { ok, kp, time } or { ok:false, error }.
+    weather: () => ipcRenderer.invoke('space:weather'),
+  },
   rotator: {
     // conf: { protocol:'hamlib'|'superrot', transport:'tcp'|'serial', host, port, path, baud }
     connect: (conf) => ipcRenderer.invoke('rotator:connect', conf),
@@ -24,6 +28,7 @@ contextBridge.exposeInMainWorld('pyro', {
     track: (az, el, azRate, elRate) => ipcRenderer.invoke('rotator:track', { az, el, azRate, elRate }),
     stop: () => ipcRenderer.invoke('rotator:stop'),
     park: () => ipcRenderer.invoke('rotator:park'),
+    config: (cfg) => ipcRenderer.invoke('rotator:config', cfg),
     onStatus: (cb) => ipcRenderer.on('hw:rotator-status', (_e, s) => cb(s)),
   },
   radio: {
