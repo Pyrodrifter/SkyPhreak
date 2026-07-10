@@ -180,6 +180,19 @@ ipcMain.handle('tle:fetchOne', async (_e, id) => {
 
 ipcMain.handle('tle:cache', () => readJson(tleCachePath(), {}));
 
+// Latest planetary K-index (geomagnetic activity) from NOAA SWPC — a quick
+// space-weather / HF-propagation / aurora gauge. Best-effort; offline returns an error.
+ipcMain.handle('space:weather', async () => {
+  try {
+    const txt = await httpGet('https://services.swpc.noaa.gov/products/noaa-planetary-k-index.json');
+    const rows = JSON.parse(txt);
+    const last = rows[rows.length - 1]; // [time_tag, Kp, a_running, station_count]
+    return { ok: true, kp: parseFloat(last[1]), time: last[0] };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+});
+
 /* ------------------------------ OEM load -------------------------------- */
 
 // OEM ephemerides aren't served by Celestrak's gp.php — they're operator/agency

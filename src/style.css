@@ -430,6 +430,14 @@ button.btn:disabled { opacity: 0.5; cursor: default; }
   font-size: 13px; line-height: 1;
 }
 .polar-save:hover { color: var(--text); border-color: var(--accent); }
+
+/* Optical-visibility marker on pass rows + space-weather readout. */
+.pass-vis { font-size: 11px; filter: saturate(0.9); }
+.space-wx { font-size: 13px; color: var(--text-dim); }
+.space-wx b { color: var(--text); font-weight: 700; }
+.space-wx.quiet b { color: var(--accent-2); }
+.space-wx.active b { color: var(--warn); }
+.space-wx.storm b { color: var(--danger); }
 .tle-status { font-size: 11px; color: var(--accent-2); }
 .tle-status.warn { color: var(--warn); }
 .stale-badge {

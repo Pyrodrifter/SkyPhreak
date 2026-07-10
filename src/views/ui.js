@@ -406,23 +406,28 @@ export function createUI(handlers) {
   function renderSky(target) {
     const st = store.get();
     const sel = st.selected;
-    target.append(groupHead(solarOpen, 'Solar System', () => { solarOpen = !solarOpen; renderList(); },
+    const q = searchTerm; // a search reveals matches regardless of collapse state
+    const solar = SKY_BODIES.filter(([, name]) => !q || name.toLowerCase().includes(q));
+    const dsos = DSOS.filter((d) => !q || d.name.toLowerCase().includes(q) || (d.id + '').toLowerCase().includes(q));
+
+    target.append(groupHead(solarOpen, `Solar System${q ? ` (${solar.length})` : ''}`, () => { solarOpen = !solarOpen; renderList(); },
       h('div', { class: 'chk-group' }, [
         h('label', { class: 'on-map', title: 'Show the Moon on the 2D map' }, [checkbox(st.showMoon, (v) => store.patch({ showMoon: v })), h('span', {}, 'Moon')]),
         h('label', { class: 'on-map', title: 'Show the Sun & planets on the 2D map' }, [checkbox(st.showPlanets, (v) => store.patch({ showPlanets: v })), h('span', {}, 'Planets')]),
       ])));
-    if (solarOpen) for (const [id, name, color] of SKY_BODIES) {
+    if (solarOpen || q) for (const [id, name, color] of solar) {
       target.append(bodyRow(id, name, color, sel === id, { glyph: SKY_GLYPH[id], el: skyStatus[id] }));
     }
 
-    target.append(groupHead(dsoOpen, 'Deep sky', () => { dsoOpen = !dsoOpen; renderList(); },
+    target.append(groupHead(dsoOpen, `Deep sky${q ? ` (${dsos.length})` : ''}`, () => { dsoOpen = !dsoOpen; renderList(); },
       onMapChk('showDso', 'Overlay all deep-sky objects on the 2D map')));
-    if (dsoOpen) for (const d of DSOS) {
+    if (dsoOpen || q) for (const d of dsos) {
       const did = 'DSO:' + d.id;
       const type = d.type.replace(/ nebula/i, ' Neb.').replace(/ cluster/i, ' Cl.').replace(/ galaxy/i, ' Gal.');
       const sub = (d.mag != null ? 'm' + d.mag + ' · ' : '') + type;
       target.append(bodyRow(did, d.name, '#c792ea', sel === did, { glyph: '✦', sub, el: skyStatus[did] }));
     }
+    if (q && !solar.length && !dsos.length) target.append(h('div', { class: 'empty' }, 'No sky objects match'));
   }
 
   // Live elevation for the Sky-list chips (main.js feeds it each tick when active).
@@ -485,6 +490,28 @@ export function createUI(handlers) {
 
   const kv = (label, value, cls = '') => [h('div', { class: 'k' }, label), h('div', { class: 'v ' + cls }, value)];
 
+  // EME (Moon-bounce) working figures for the selected Moon, with an editable frequency.
+  function appendEmeSection(eme) {
+    const freq = h('input', {
+      type: 'number', step: '1', value: eme.freqMHz, style: 'width:80px',
+      oninput: (e) => { const v = parseFloat(e.target.value); if (!Number.isNaN(v)) handlers.setEmeFreq(v); },
+    });
+    const dop = eme.dopplerHz;
+    infoText.append(
+      h('div', { class: 'section-title' }, '☾ EME · Moon-bounce'),
+      h('label', { class: 'fld' }, [h('span', {}, 'Frequency (MHz)'), freq]),
+      h('div', { class: 'stat-grid' }, [
+        statCard('Path loss (echo)', eme.echoPathLoss.toFixed(1) + ' dB'),
+        statCard('Path loss (1-way)', eme.fsplOneWay.toFixed(1) + ' dB'),
+        statCard('Echo Doppler', (dop >= 0 ? '+' : '') + (dop / 1000).toFixed(2) + ' kHz'),
+        statCard('Declination', eme.declination.toFixed(1) + '°'),
+        statCard('Degradation', '+' + eme.degradationDb.toFixed(1) + ' dB'),
+        statCard('Range', Math.round(eme.rangeKm).toLocaleString() + ' km'),
+      ]),
+      h('div', { class: 'muted', style: 'font-size:11px' }, 'Free-space path loss + self-echo Doppler for the current Moon geometry. Degradation is extra two-way loss vs. perigee (sky-noise and libration not modelled).')
+    );
+  }
+
   function appendMoonSection(moon) {
     const up = moon.look.el >= 0;
     infoText.append(
@@ -517,6 +544,7 @@ export function createUI(handlers) {
           ...selBody.extra.map(([a, b]) => statCard(a, b)),
         ])
       );
+      if (selBody.eme) appendEmeSection(selBody.eme);
       if (moon && selBody.kind !== 'moon') appendMoonSection(moon);
       return;
     }
@@ -593,6 +621,7 @@ export function createUI(handlers) {
               h('span', { class: 'dot', style: `background:${it.color}` }),
               h('span', { class: 'pass-sat' }, it.name),
               h('span', { class: 'pass-norad' }, '#' + it.id),
+              it.visible ? h('span', { class: 'pass-vis', title: 'Optically visible — satellite sunlit while you are in darkness' }, '👁') : h('span', {}),
               h('span', { class: 'pass-count ' + countCls }, count),
               h('button', {
                 class: 'pass-arm' + (armed ? ' on' : ''),
@@ -654,6 +683,18 @@ export function createUI(handlers) {
     renderList();
   }
 
+  // Space-weather readout: { ok, kp, time } or { ok:false }.
+  function setSpaceWeather(info) {
+    const el = stationRefs && stationRefs.spaceWxEl;
+    if (!el) return;
+    if (!info || !info.ok || !Number.isFinite(info.kp)) { el.textContent = 'Kp — (unavailable offline)'; el.className = 'space-wx'; return; }
+    const kp = info.kp;
+    const level = kp >= 5 ? 'storm' : kp >= 4 ? 'active' : 'quiet';
+    const label = kp >= 5 ? 'Storm' : kp >= 4 ? 'Active' : 'Quiet';
+    el.className = 'space-wx ' + level;
+    el.innerHTML = `<b>Kp ${kp.toFixed(1)}</b> · ${label}` + (info.time ? ` <span class="muted">· ${new Date(info.time + 'Z').toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>` : '');
+  }
+
   function setTleStatus({ maxDays, stale, auto, online }) {
     const el = stationRefs && stationRefs.tleStatusEl;
     if (!el) return;
@@ -669,7 +710,7 @@ export function createUI(handlers) {
     view2d, view3d,
     renderList, updateClock, updateInfo, updatePasses, setActiveView, setTleStamp, setStatus,
     setStaleIds, setTleStatus, syncAutoMode, setRotorConnected, applyLayout, updateSky, isSkyActive,
-    setCableWrap,
+    setCableWrap, setSpaceWeather,
     hw: hwRefs,
   };
 }
@@ -723,7 +764,16 @@ function buildStationPane(pane, handlers) {
     h('div', { class: 'muted', style: 'margin-top:6px' }, 'Celestrak is fetched as OMM (JSON), falling back to TLE; both carry the same epoch, so this age check covers either. Loaded OEM ephemerides take priority and are used as-is (no auto-refresh).')
   );
 
-  return { tleStatusEl };
+  // Space weather: latest planetary K-index (geomagnetic activity / HF & aurora).
+  const spaceWxEl = h('div', { class: 'space-wx' }, 'Kp —');
+  pane.append(
+    h('hr', { class: 'hr' }),
+    h('div', { class: 'section-title' }, 'Space weather'),
+    spaceWxEl,
+    h('div', { class: 'muted', style: 'margin-top:6px' }, 'Planetary K-index (NOAA SWPC): geomagnetic activity. High Kp = auroral absorption / disturbed HF, better aurora. Updates when online.')
+  );
+
+  return { tleStatusEl, spaceWxEl };
 }
 
 /* ----------------------------- Hardware pane ---------------------------- */

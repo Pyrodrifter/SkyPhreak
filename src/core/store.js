@@ -23,6 +23,7 @@ const DEFAULTS = {
   showMoon: true, // draw the Moon on the 2D map
   showPlanets: true, // draw the Sun + planets on the 2D map
   showDso: false, // master show/hide for all deep-sky objects on the sky views
+  emeFreqMHz: 144, // frequency for EME (Moon-bounce) path-loss / Doppler readouts
   minEl: 5,
   hw: {
     rotator: {

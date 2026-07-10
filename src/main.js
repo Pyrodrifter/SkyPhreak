@@ -2,7 +2,7 @@ import './style.css';
 import { store } from './core/store.js';
 import { parseCatalog } from './core/tle.js';
 import { parseOem } from './core/oem.js';
-import { subPoint, lookAngles, makeSatrec, tleAgeDays } from './core/propagate.js';
+import { subPoint, lookAngles, makeSatrec, tleAgeDays, subSolarPoint } from './core/propagate.js';
 import { moonState, moonLook } from './core/moon.js';
 import { planetState, raDecToAzEl, subPointOf } from './core/bodies.js';
 import { precessToDate, dsoById, DSOS } from './core/dso.js';
@@ -128,6 +128,8 @@ async function boot() {
     connectRadio,
     // Time-warp scrubber: shift the visualisation time by N minutes (0 = live).
     setTimeWarp: (minutes) => { timeWarpOffset = (minutes || 0) * 60000; },
+    // EME readout frequency (MHz).
+    setEmeFreq: (mhz) => store.patch({ emeFreqMHz: Math.max(1, mhz || 144) }),
   });
 
   map2d = new Map2D(ui.view2d);
@@ -166,7 +168,21 @@ async function boot() {
   ui.setActiveView(store.get().view);
   setInterval(tick, 1000);
   setInterval(streamRotatorFast, 100); // 10 Hz SuperRot setpoint refresh
+
+  // Space weather (planetary K-index): fetch now + hourly when online.
+  fetchSpaceWeather();
+  setInterval(fetchSpaceWeather, 60 * 60 * 1000);
+
   tick();
+}
+
+async function fetchSpaceWeather() {
+  if (!navigator.onLine) { ui.setSpaceWeather({ ok: false }); return; }
+  try {
+    ui.setSpaceWeather(await window.pyro.space.weather());
+  } catch {
+    ui.setSpaceWeather({ ok: false });
+  }
 }
 
 /* --------------------------- TLE freshness scheduler -------------------- */
@@ -473,11 +489,36 @@ function recomputeTrackedPasses() {
         const look = lookAngles(sat.satrec, new Date(a + ((b - a) * i) / steps), observer);
         if (look) arc.push({ az: look.az, el: Math.max(0, look.el) });
       }
-      out.push({ id, name: sat.name, color, pass: p, arc });
+      // Optical visibility: at the pass peak, is the satellite sunlit while the
+      // observer is in darkness (civil twilight or later)? Those are the passes you
+      // can actually see (ISS, Starlink trains, flares).
+      const tPeak = new Date((p.aos.getTime() + p.los.getTime()) / 2);
+      const sunLook = computeBody('SUN', tPeak, observer);
+      const satSub = subPoint(sat.satrec, tPeak);
+      const sunSub = subSolarPoint(tPeak);
+      const visible = !!(sunLook && sunLook.look.el < -6 && satSub && satSunlit(satSub, sunSub) && p.maxEl >= 10);
+
+      out.push({ id, name: sat.name, color, pass: p, arc, visible });
     }
   }
   out.sort((a, b) => a.pass.aos - b.pass.aos);
   trackedPassesCache.list = out;
+}
+
+// Is a satellite (given its sub-point + altitude) in sunlight rather than Earth's
+// shadow? Tests the shadow cylinder along the Earth→Sun axis in an Earth-fixed frame.
+function satSunlit(satSub, sunSub) {
+  const RAD = Math.PI / 180;
+  const R = 6371;
+  const rs = R + (satSub.altKm || 0);
+  const la = satSub.lat * RAD, lo = satSub.lon * RAD;
+  const p = [rs * Math.cos(la) * Math.cos(lo), rs * Math.cos(la) * Math.sin(lo), rs * Math.sin(la)];
+  const sla = sunSub.lat * RAD, slo = sunSub.lon * RAD;
+  const s = [Math.cos(sla) * Math.cos(slo), Math.cos(sla) * Math.sin(slo), Math.sin(sla)];
+  const dot = p[0] * s[0] + p[1] * s[1] + p[2] * s[2];
+  if (dot >= 0) return true; // on the sunlit side of the planet
+  const perp = Math.sqrt(Math.max(0, p[0] ** 2 + p[1] ** 2 + p[2] ** 2 - dot * dot));
+  return perp > R; // clears the shadow cylinder
 }
 
 /* -------------------------------- Tick --------------------------------- */
@@ -582,14 +623,43 @@ function ensurePolarMounted() {
   }
 }
 
+// EME (Moon-bounce) metrics for a given frequency: two-way free-space path loss,
+// self-echo Doppler (from the topocentric range rate) and a distance-degradation
+// figure relative to perigee. Libration/sky-noise degradation are not modelled.
+function computeEme(date, observer, moonLk, ms, freqMHz) {
+  const C = 299792.458; // km/s
+  const rng = moonLk.rangeKm;
+  const dt = 30; // s — finite-difference the topocentric range for range rate
+  const later = new Date(date.getTime() + dt * 1000);
+  const ms2 = moonState(later);
+  const rng2 = moonLook(ms2.eciKm, later, observer).rangeKm;
+  const rangeRate = (rng2 - rng) / dt; // km/s (+ = receding)
+  const fMHz = freqMHz || 144;
+  const dopplerHz = -2 * (rangeRate / C) * (fMHz * 1e6); // two-way echo Doppler
+  const fspl = 20 * Math.log10(rng) + 20 * Math.log10(fMHz) + 32.44; // one-way, dB
+  const perigee = 356500; // km
+  return {
+    freqMHz: fMHz,
+    rangeKm: rng,
+    dopplerHz,
+    fsplOneWay: fspl,
+    echoPathLoss: 2 * fspl, // two-way free space (excludes Moon reflection loss)
+    declination: ms.dec,
+    degradationDb: 40 * Math.log10(rng / perigee), // excess two-way loss vs perigee
+  };
+}
+
 // Describe the selected sky target (Moon/Sun/planet/DSO) for the Info panel.
 function buildSelBody(frame) {
   const sel = store.get().selected;
   if (sel === 'MOON') {
     const m = frame.moon;
+    const ms = moonState(frame.date);
+    const eme = computeEme(frame.date, frame.station, m.look, ms, store.get().emeFreqMHz);
     return {
       name: 'Moon', kind: 'moon', az: m.look.az, el: m.look.el,
       extra: [['Distance', Math.round(m.distanceKm).toLocaleString() + ' km'], ['Illumination', Math.round(m.illum * 100) + '%'], ['Phase', m.phaseName]],
+      eme,
     };
   }
   const b = frame.bodies.find((x) => x.id === sel);
