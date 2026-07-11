@@ -492,6 +492,29 @@ button.btn:disabled { opacity: 0.5; cursor: default; }
   font-family: ui-monospace, monospace; font-size: 12px; color: var(--text);
 }
 
+/* Command palette (Ctrl+K). */
+.cmd-overlay {
+  position: fixed; inset: 0; z-index: 120; display: none;
+  align-items: flex-start; justify-content: center; padding-top: 12vh;
+  background: rgba(3, 8, 16, 0.55); backdrop-filter: blur(2px);
+}
+.cmd-panel {
+  width: min(560px, 92vw); max-height: 66vh; display: flex; flex-direction: column;
+  background: var(--panel); border: 1px solid color-mix(in srgb, var(--accent) 32%, var(--line));
+  border-radius: 12px; overflow: hidden; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.55);
+}
+.cmd-search { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-bottom: 1px solid var(--line); }
+.cmd-search-ic { color: var(--text-dim); display: inline-flex; }
+.cmd-input { flex: 1; background: transparent; border: 0; outline: 0; min-height: 0; padding: 0; color: var(--text); font-size: 15px; }
+.cmd-kbd { flex: none; font-size: 10px; color: var(--text-dim); border: 1px solid var(--line); border-radius: 5px; padding: 2px 6px; }
+.cmd-list { overflow-y: auto; padding: 6px; }
+.cmd-empty { padding: 22px; text-align: center; color: var(--text-dim); }
+.cmd-item { display: flex; align-items: center; gap: 10px; padding: 9px 11px; border-radius: 8px; cursor: pointer; }
+.cmd-item.sel { background: color-mix(in srgb, var(--accent) 18%, transparent); }
+.cmd-item-section { flex: none; width: 62px; font-size: 9px; font-weight: 800; letter-spacing: .6px; text-transform: uppercase; color: var(--accent); }
+.cmd-item-label { flex: 1; min-width: 0; font-size: 13px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cmd-item-hint { flex: none; font-size: 10px; color: var(--text-dim); font-variant-numeric: tabular-nums; }
+
 /* Collapsible sub-sections in the Hardware pane. */
 .hw-sec { border-top: 1px solid var(--line); margin-top: 4px; }
 .hw-sec-head {
@@ -1016,6 +1039,10 @@ html.ui-lg .mission-console {
 .quick-connect-state { margin: 5px 0 10px 20px; color: var(--text-dim); font-size: 10px; text-transform: uppercase; letter-spacing: .8px; }
 .quick-connect-detail { overflow: hidden; margin-bottom: 12px; padding: 9px; border: 1px solid var(--line); border-radius: 6px; background: rgba(2,10,17,.5); color: var(--text-dim); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .quick-connect-action { width: 100%; }
+.quick-connect-secondary { width: 100%; margin-top: 7px; }
+.quick-connect-field { display: block; margin: 0 0 9px; }
+.quick-connect-field > span { display: block; margin-bottom: 4px; color: var(--text-dim); font-size: 9px; font-weight: 700; letter-spacing: .6px; text-transform: uppercase; }
+.quick-connect-select { width: 100%; min-height: 32px; padding: 5px 8px; font-size: 11px; }
 .quick-connect-hint { margin-top: 9px; color: var(--text-dim); font-size: 9px; text-align: center; }
 .mission-console .statusbar .sb-collapse:hover { color: var(--text); }
 

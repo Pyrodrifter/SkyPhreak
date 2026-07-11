@@ -383,6 +383,23 @@ export function createUI(handlers) {
         : `Hamlib · ${cfg.host}:${cfg.port}`)
       : `Hamlib rigctld · ${cfg.host}:${cfg.port}`;
     const popDot = h('span', { class: 'sb-dot' + (state.connected ? ' on' : '') });
+    const extras = [];
+    let usbPortSelect = null;
+    if (isRot && !state.connected) {
+      const transport = h('select', { class: 'quick-connect-select', onchange: (e) => {
+        store.patchIn('hw.rotator', { protocol: 'superrot', transport: e.target.value });
+        if (usbPortSelect) usbPortSelect.closest('.quick-connect-field').style.display = e.target.value === 'serial' ? '' : 'none';
+      } }, [
+        h('option', { value: 'tcp' }, 'Wi-Fi / TCP'),
+        h('option', { value: 'serial' }, 'USB serial (no network)'),
+      ]);
+      transport.value = cfg.protocol === 'superrot' ? (cfg.transport || 'tcp') : 'tcp';
+      usbPortSelect = h('select', { class: 'quick-connect-select', onchange: (e) => store.patchIn('hw.rotator', { path: e.target.value, baud: 115200 }) }, [
+        h('option', { value: '' }, 'Scanning USB ports…'),
+      ]);
+      const portField = h('label', { class: 'quick-connect-field', style: transport.value === 'serial' ? '' : 'display:none' }, [h('span', {}, 'Serial port'), usbPortSelect]);
+      extras.push(h('label', { class: 'quick-connect-field' }, [h('span', {}, 'Connection'), transport]), portField);
+    }
     const action = h('button', { class: 'btn primary quick-connect-action', onclick: async (e) => {
       e.stopPropagation();
       action.disabled = true;
@@ -393,11 +410,18 @@ export function createUI(handlers) {
       await (isRot ? handlers.connectRotator() : handlers.connectRadio());
       closeQuickConnect();
     } }, state.connected ? 'Disconnect' : 'Connect');
+    const homeAction = isRot && state.connected ? h('button', { class: 'btn quick-connect-secondary', onclick: (e) => {
+      e.stopPropagation();
+      handlers.homeRotator();
+      closeQuickConnect();
+    } }, 'Home rotator') : null;
     quickConnectPop = h('div', { class: 'quick-connect-pop' }, [
       h('div', { class: 'quick-connect-head' }, [popDot, h('strong', {}, isRot ? 'Rotator' : 'Radio')]),
       h('div', { class: 'quick-connect-state' }, state.connected ? 'Connected' : 'Offline'),
       h('div', { class: 'quick-connect-detail' }, detail),
+      ...extras,
       action,
+      homeAction || '',
       h('div', { class: 'quick-connect-hint' }, 'Uses your saved Hardware settings'),
     ]);
     quickConnectPop.dataset.kind = kind;
@@ -405,6 +429,20 @@ export function createUI(handlers) {
     const r = anchor.getBoundingClientRect();
     quickConnectPop.style.left = Math.max(8, Math.min(r.left + r.width / 2 - 120, window.innerWidth - 248)) + 'px';
     quickConnectPop.style.bottom = Math.max(8, window.innerHeight - r.top + 8) + 'px';
+    if (usbPortSelect) {
+      window.pyro.rotator.listPorts().then((result) => {
+        if (!quickConnectPop || !usbPortSelect.isConnected) return;
+        usbPortSelect.replaceChildren();
+        if (!result.ok || !result.ports.length) {
+          usbPortSelect.append(h('option', { value: '' }, result.error || 'No USB serial ports found'));
+          return;
+        }
+        for (const port of result.ports) usbPortSelect.append(h('option', { value: port.path }, port.label));
+        const saved = store.get().hw.rotator.path;
+        usbPortSelect.value = result.ports.some((p) => p.path === saved) ? saved : result.ports[0].path;
+        store.patchIn('hw.rotator', { path: usbPortSelect.value, baud: 115200 });
+      });
+    }
     setTimeout(() => document.addEventListener('mousedown', quickConnectOutside, true), 0);
   }
   sbRot.el.onclick = (e) => { e.stopPropagation(); openQuickConnect('rotator', sbRot.el); };
@@ -492,6 +530,7 @@ export function createUI(handlers) {
     h('div', { class: 'help-card' }, [
       h('div', { class: 'help-title' }, 'Keyboard shortcuts'),
       ...[
+        ['Ctrl K', 'Command palette — jump to anything'],
         ['Esc', 'Emergency-stop the rotator (or close this)'],
         ['2 / 3', '2D map / 3D globe'],
         ['F', 'Toggle Field mode'],
@@ -508,7 +547,89 @@ export function createUI(handlers) {
     helpOverlay.style.display = show ? 'flex' : 'none';
   }
 
-  app.append(topbar, h('div', { class: 'body' }, [sidebar, stage, rightpanel]), statusbar, helpOverlay);
+  /* ------------------------- Command palette (Ctrl+K) -------------------- */
+  let cmdActions = [];
+  let cmdSel = 0;
+  const cmdInput = h('input', {
+    class: 'cmd-input', type: 'text', placeholder: 'Search commands and targets…',
+    oninput: () => { cmdSel = 0; renderCmd(); },
+    onkeydown: (e) => {
+      const items = cmdFiltered();
+      if (e.key === 'ArrowDown') { e.preventDefault(); cmdSel = Math.min(items.length - 1, cmdSel + 1); renderCmd(); }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); cmdSel = Math.max(0, cmdSel - 1); renderCmd(); }
+      else if (e.key === 'Enter') { e.preventDefault(); if (items[cmdSel]) runCmd(items[cmdSel]); }
+      else if (e.key === 'Escape') { e.preventDefault(); closeCmd(); }
+    },
+  });
+  const cmdList = h('div', { class: 'cmd-list' });
+  const cmdOverlay = h('div', { class: 'cmd-overlay', style: 'display:none', onclick: (e) => { if (e.target === cmdOverlay) closeCmd(); } }, [
+    h('div', { class: 'cmd-panel' }, [
+      h('div', { class: 'cmd-search' }, [h('span', { class: 'cmd-search-ic', html: icon('search', 15) }), cmdInput, h('span', { class: 'cmd-kbd' }, 'Esc')]),
+      cmdList,
+    ]),
+  ]);
+  const cmdOpen = () => cmdOverlay.style.display !== 'none';
+  function closeCmd() { cmdOverlay.style.display = 'none'; }
+  function openCmd() {
+    cmdActions = buildCmdActions();
+    cmdInput.value = ''; cmdSel = 0;
+    cmdOverlay.style.display = 'flex';
+    renderCmd();
+    setTimeout(() => cmdInput.focus(), 0);
+  }
+  function runCmd(a) { closeCmd(); try { a.run(); } catch (err) { console.error('command failed', err); } }
+  function cmdFiltered() {
+    const q = cmdInput.value.trim().toLowerCase();
+    if (!q) return cmdActions;
+    return cmdActions.filter((a) => (a.label + ' ' + a.section + ' ' + (a.hint || '')).toLowerCase().includes(q));
+  }
+  function renderCmd() {
+    const items = cmdFiltered();
+    if (cmdSel >= items.length) cmdSel = Math.max(0, items.length - 1);
+    cmdList.innerHTML = '';
+    if (!items.length) { cmdList.append(h('div', { class: 'cmd-empty' }, 'No matching commands')); return; }
+    items.forEach((a, i) => {
+      const row = h('div', {
+        class: 'cmd-item' + (i === cmdSel ? ' sel' : ''),
+        onmousemove: () => { if (cmdSel !== i) { cmdSel = i; renderCmd(); } },
+        onclick: () => runCmd(a),
+      }, [
+        h('span', { class: 'cmd-item-section' }, a.section),
+        h('span', { class: 'cmd-item-label' }, a.label),
+        a.hint ? h('span', { class: 'cmd-item-hint' }, a.hint) : '',
+      ]);
+      cmdList.append(row);
+      if (i === cmdSel) setTimeout(() => row.scrollIntoView({ block: 'nearest' }), 0);
+    });
+  }
+  // Build the action list fresh each open (tracked targets change).
+  function buildCmdActions() {
+    const st = store.get();
+    const acts = [];
+    const add = (section, label, hint, run) => acts.push({ section, label, hint, run });
+    add('View', '2D Map', '', () => store.patch({ view: '2d' }));
+    add('View', '3D Globe', '', () => store.patch({ view: '3d' }));
+    add('View', 'Toggle Field mode', '', () => fieldBtn.click());
+    add('View', 'Follow selected satellite', '', () => store.patch({ followSat: !store.get().followSat }));
+    for (const [k, name] of Object.entries(tabNames)) add('Panel', 'Open ' + name, 'tab', () => setTab(k));
+    add('Rotator', 'Auto-track: Off', '', () => store.patchIn('hw.rotator', { autoMode: 'off' }));
+    add('Rotator', 'Auto-track: Selected target', '', () => store.patchIn('hw.rotator', { autoMode: 'selected' }));
+    add('Rotator', 'Auto-track: Scheduled passes', '', () => store.patchIn('hw.rotator', { autoMode: 'schedule' }));
+    add('Rotator', 'Park rotator', '', () => handlers.parkRotator());
+    add('Rotator', 'Stop rotator', 'emergency stop', () => handlers.stopRotator());
+    add('Rotator', 'Home rotator', '', () => handlers.homeRotator && handlers.homeRotator());
+    add('Rotator', 'Unwind cable', '', () => handlers.unwindRotator && handlers.unwindRotator());
+    add('Rotator', 'Connect / disconnect rotator', '', () => handlers.connectRotator());
+    add('Radio', 'Connect / disconnect radio', '', () => handlers.connectRadio());
+    for (const id of st.tracked) {
+      const s = satLike(id);
+      add('Target', 'Select ' + (s ? s.name : 'NORAD ' + id), '#' + id, () => store.patch({ selected: id }));
+    }
+    add('Target', 'Select the Moon', '', () => store.patch({ selected: 'MOON' }));
+    return acts;
+  }
+
+  app.append(topbar, h('div', { class: 'body' }, [sidebar, stage, rightpanel]), statusbar, helpOverlay, cmdOverlay);
 
   /* ------------------------------ Rendering ------------------------------ */
   // A sat-like {noradId,name,line1,line2} for an id, from catalog or favorites.
@@ -1077,6 +1198,10 @@ export function createUI(handlers) {
   document.addEventListener('keydown', (e) => {
     const t = e.target;
     const typing = t && (t.tagName === 'INPUT' || t.tagName === 'SELECT' || t.tagName === 'TEXTAREA');
+    // Ctrl/Cmd+K opens the command palette from anywhere; while it's open the input
+    // owns the keyboard, so let its own handler manage arrows / Enter / Esc.
+    if ((e.ctrlKey || e.metaKey) && (e.key === 'k' || e.key === 'K')) { e.preventDefault(); cmdOpen() ? closeCmd() : openCmd(); return; }
+    if (cmdOpen()) return;
     if (e.key === 'Escape') {
       if (helpOverlay.style.display !== 'none') { toggleHelp(false); return; }
       if (!typing) handlers.stopRotator();
@@ -1278,6 +1403,11 @@ function buildStationPane(pane, handlers) {
     store.patch({ notifyVoice: v });
     if (v) window.testPassVoice?.();
   });
+  // Robotic "ship computer" delivery (Subnautica-style): flat deep pitch + chime.
+  const roboticChk = checkbox(!!store.get().notifyVoiceRobotic, (v) => {
+    store.patch({ notifyVoiceRobotic: v });
+    if (store.get().notifyVoice) window.testPassVoice?.();
+  });
   const voiceSelect = h('select', { onchange: (e) => store.patch({ notifyVoiceURI: e.target.value }) });
   const fillVoices = () => {
     const voices = window.speechSynthesis?.getVoices?.() || [];
@@ -1304,18 +1434,22 @@ function buildStationPane(pane, handlers) {
     friendly: 'Heads up! {satellite} will rise in {minutes} {minuteWord}. The pass lasts about {duration} {durationWord} and reaches {maxElevation} degrees. {visibility}',
     concise: '{satellite}, arriving in {minutes} {minuteWord}. Duration {duration} {durationWord}. Maximum elevation {maxElevation} degrees.',
     mission: 'Pass alert. Target {satellite}. A O S in {minutes} {minuteWord}. Pass duration {duration} {durationWord}. Peak elevation {maxElevation} degrees. {visibility}',
+    ship: 'Attention. {satellite} acquisition of signal in {minutes} {minuteWord}. Projected peak elevation, {maxElevation} degrees. {visibility}',
   };
   const templatePreset = h('select', { onchange: (e) => {
     const template = speechPresets[e.target.value];
     if (!template) return;
     voiceTemplate.value = template;
     store.patch({ notifyVoiceTemplate: template });
+    // The "Ship computer" style pairs with the robotic voice — enable it for the preview.
+    if (e.target.value === 'ship') { store.patch({ notifyVoiceRobotic: true }); roboticChk.checked = true; }
     window.testPassVoice?.();
   } }, [
     h('option', { value: '' }, 'Choose an announcement style…'),
     h('option', { value: 'friendly' }, 'Friendly'),
     h('option', { value: 'concise' }, 'Short and concise'),
     h('option', { value: 'mission' }, 'Mission control'),
+    h('option', { value: 'ship' }, 'Ship computer (robotic)'),
   ]);
 
   // Backup / restore all settings.
@@ -1358,6 +1492,7 @@ function buildStationPane(pane, handlers) {
     eventControl('Tracking started', null, 'rotatorTrackSound', 'beacon'),
     eventControl('Rotator parked', null, 'rotatorParkSound', 'soft'),
     h('div', { class: 'toggle-line switch' }, [h('span', {}, 'Speak pass details'), voiceChk]),
+    h('div', { class: 'toggle-line switch' }, [h('span', {}, 'Robotic ship-computer voice'), roboticChk]),
     h('label', { class: 'fld' }, [h('span', {}, 'Voice'), voiceSelect]),
     h('div', { class: 'row', style: 'display:grid;grid-template-columns:repeat(3,1fr);gap:8px' }, [
       h('label', { class: 'fld' }, [h('span', {}, 'Rate'), voiceRate]),
