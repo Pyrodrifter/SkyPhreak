@@ -2,6 +2,8 @@ import { store } from '../core/store.js';
 import { THEMES } from '../core/themes.js';
 import { DSOS } from '../core/dso.js';
 import { icon } from './icons.js';
+import { buildTimeline } from '../core/timeline.js';
+import { scoreBreakdown } from '../core/passScore.js';
 
 // Sun, Moon and planets shown in the Sky box (id, label, marker colour).
 const SKY_BODIES = [
@@ -826,20 +828,94 @@ export function createUI(handlers) {
 
   // Renders the merged pass list for *all* tracked satellites. `items` is
   // [{ id, name, color, pass }] sorted by AOS; rows are clickable to select.
+  // Wave-1 operational state (kept in closures so the per-tick pane rebuild preserves
+  // the readiness expand + the Passes/Timeline view toggle).
+  let lastReadiness = null;
+  let readinessOpen = false;
+  let passesView = 'list';
+  let lastPassItems = [];
+  function setReadiness(r) { lastReadiness = r; }
+
+  const scoreChip = (score, parts) => {
+    const tier = score >= 70 ? 'good' : score >= 40 ? 'ok' : 'low';
+    return h('span', { class: 'score-chip ' + tier, title: 'Pass quality — ' + scoreBreakdown({ score, parts: parts || [] }) }, String(score));
+  };
+
+  // The Ready / Attention bar shown under the NOW/NEXT hero, expandable to the checklist.
+  function renderReadiness() {
+    const r = lastReadiness;
+    if (!r) return document.createComment('');
+    const attention = r.items.filter((i) => i.state === 'warn' || i.state === 'fail').length;
+    const label = r.state === 'ready' ? 'READY' : r.state === 'fail' ? 'ATTENTION REQUIRED' : 'ATTENTION';
+    const sub = r.state === 'ready' ? 'all pre-pass checks passed' : `${attention} item${attention === 1 ? '' : 's'} to review`;
+    const bar = h('button', {
+      class: 'readiness-bar ' + r.state, title: 'Pre-pass readiness',
+      onclick: () => { readinessOpen = !readinessOpen; updatePasses(lastPassItems, Date.now()); },
+    }, [
+      h('span', { class: 'rdy-dot' }),
+      h('span', { class: 'rdy-label' }, label),
+      h('span', { class: 'rdy-sub' }, sub),
+      h('span', { class: 'rdy-chev' }, readinessOpen ? '▾' : '▸'),
+    ]);
+    if (!readinessOpen) return bar;
+    const glyph = { ok: '✓', warn: '!', fail: '✕', off: '·' };
+    return h('div', { class: 'readiness-wrap' }, [bar, h('div', { class: 'readiness-list' },
+      r.items.map((it) => h('div', { class: 'rdy-item ' + it.state }, [
+        h('span', { class: 'rdy-item-ic' }, glyph[it.state] || '·'),
+        h('span', { class: 'rdy-item-label' }, it.label),
+        h('span', { class: 'rdy-item-detail' }, it.detail || ''),
+      ])))]);
+  }
+
+  // Chronological event feed (WAKE → AOS → MAX → LOS → PARK across all passes).
+  function renderTimeline(pane, items, now) {
+    const events = buildTimeline(items, { now, preslewLead: store.get().hw.rotator.preslewLead });
+    if (!events.length) { pane.append(h('div', { class: 'empty' }, 'No scheduled events in the next 12 hours')); return; }
+    const tl = h('div', { class: 'mc-timeline' });
+    let markedNow = false;
+    const nowMarker = () => h('div', { class: 'tl-now' }, [h('span', { class: 'tl-now-tag' }, 'NOW'), h('span', { class: 'tl-now-line' })]);
+    for (const e of events) {
+      if (!markedNow && e.t >= now) { tl.append(nowMarker()); markedNow = true; }
+      const rel = e.t - now;
+      tl.append(h('div', {
+        class: 'tl-row tl-' + e.type + (rel < 0 ? ' past' : ''),
+        onclick: () => store.patch({ selected: e.id }),
+      }, [
+        h('div', { class: 'tl-time' }, new Date(e.t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })),
+        h('span', { class: 'tl-icon', style: `color:${e.color}` }, e.icon),
+        h('div', { class: 'tl-body' }, [
+          h('div', { class: 'tl-label' }, [h('span', { class: 'tl-evt' }, e.label), h('span', { class: 'tl-sat' }, e.name)]),
+          h('div', { class: 'tl-detail' }, e.detail),
+        ]),
+        h('div', { class: 'tl-rel' }, rel < 0 ? 'now' : fmtCountShort(rel)),
+      ]));
+    }
+    if (!markedNow) tl.append(nowMarker());
+    pane.append(tl);
+  }
+
   function updatePasses(items, now) {
+    lastPassItems = items || [];
     const pane = tabPanes.passes;
     pane.innerHTML = '';
     const sort = store.get().passSort || 'time';
+    const sortBtn = (key, label, title) => h('button', { class: sort === key ? 'active' : '', title, onclick: () => store.patch({ passSort: key }) }, label);
     pane.append(h('div', { class: 'passes-head' }, [
-      h('div', { class: 'section-title', style: 'margin:0' }, 'Upcoming passes'),
-      h('div', { class: 'passes-tools' }, [
+      h('div', { class: 'seg mini' }, [
+        h('button', { class: passesView === 'list' ? 'active' : '', onclick: () => { passesView = 'list'; updatePasses(lastPassItems, Date.now()); } }, 'Passes'),
+        h('button', { class: passesView === 'timeline' ? 'active' : '', onclick: () => { passesView = 'timeline'; updatePasses(lastPassItems, Date.now()); } }, 'Timeline'),
+      ]),
+      h('div', { class: 'passes-tools' }, passesView === 'timeline' ? [] : [
         h('div', { class: 'seg mini' }, [
-          h('button', { class: sort === 'time' ? 'active' : '', title: 'Soonest first', onclick: () => store.patch({ passSort: 'time' }) }, 'Soonest'),
-          h('button', { class: sort === 'el' ? 'active' : '', title: 'Highest elevation first', onclick: () => store.patch({ passSort: 'el' }) }, 'Highest'),
+          sortBtn('time', 'Soonest', 'Soonest first'),
+          sortBtn('el', 'Highest', 'Highest elevation first'),
+          sortBtn('best', 'Best', 'Best overall quality first'),
         ]),
         h('button', { class: 'btn sm', title: 'Export upcoming passes as an .ics calendar', onclick: () => exportICS(items) }, '.ics'),
       ]),
     ]));
+
+    if (passesView === 'timeline') { renderTimeline(pane, items, now); return; }
 
     if (!items || !items.length) {
       const anyTracked = store.get().tracked.length;
@@ -851,9 +927,13 @@ export function createUI(handlers) {
 
     const selId = store.get().selected;
     const ap = store.get().hw.rotator.armedPass;
-    const ordered = sort === 'el' ? [...items].sort((a, b) => b.pass.maxEl - a.pass.maxEl) : items;
-    const missionPass = ordered.find((it) => it.id === selId && it.pass.los.getTime() >= now)
-      || ordered.find((it) => it.pass.los.getTime() >= now);
+    const ordered = sort === 'el' ? [...items].sort((a, b) => b.pass.maxEl - a.pass.maxEl)
+      : sort === 'best' ? [...items].sort((a, b) => (b.score || 0) - (a.score || 0))
+      : items;
+    // The NOW/NEXT hero is always the soonest current/upcoming pass (independent of the
+    // row sort), so it stays in step with main's readiness focus. `items` is aos-sorted.
+    const missionPass = items.find((it) => it.id === selId && it.pass.los.getTime() >= now)
+      || items.find((it) => it.pass.los.getTime() >= now);
     if (missionPass) {
       const p = missionPass.pass;
       const live = now >= p.aos && now <= p.los;
@@ -872,6 +952,7 @@ export function createUI(handlers) {
             h('div', { class: 'mission-pass-title' }, [
               h('span', { class: 'dot', style: `background:${missionPass.color};color:${missionPass.color}` }),
               h('span', { class: 'mission-hero-name' }, missionPass.name),
+              missionPass.score != null ? scoreChip(missionPass.score, missionPass.scoreParts) : '',
             ]),
             h('div', { class: 'mission-hero-aos' }, [
               h('small', {}, live ? 'LOS IN' : 'AOS IN'),
@@ -889,6 +970,7 @@ export function createUI(handlers) {
         ]),
       ]));
       drawPassMini(heroMini, missionPass.arc, missionPass.color, 112);
+      if (lastReadiness && lastReadiness.passId === missionPass.id) pane.append(renderReadiness());
     } else {
       missionAos.textContent = '—'; missionMax.textContent = '—'; missionDur.textContent = '—';
     }
@@ -916,6 +998,7 @@ export function createUI(handlers) {
               h('span', { class: 'dot', style: `background:${it.color};color:${it.color}` }),
               h('span', { class: 'pass-sat' }, it.name),
               it.visible ? h('span', { class: 'pass-vis', title: 'Optically visible — satellite sunlit while you are in darkness' }, '👁') : '',
+              it.score != null ? scoreChip(it.score, it.scoreParts) : '',
             ]),
             h('div', { class: 'pass-l2' }, [
               h('span', { class: 'pass-l2-k' }, 'MAX'),
@@ -1066,7 +1149,7 @@ export function createUI(handlers) {
     view2d, view3d,
     renderList, updateClock, updateInfo, updatePasses, setActiveView, setTleStamp, setStatus,
     setStaleIds, setTleStatus, syncAutoMode, setRotorConnected, applyLayout, updateSky, isSkyActive,
-    setCableWrap, setSpaceWeather,
+    setCableWrap, setSpaceWeather, setReadiness,
     hw: hwRefs,
   };
 }

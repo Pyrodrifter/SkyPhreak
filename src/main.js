@@ -7,6 +7,8 @@ import { moonState, moonLook } from './core/moon.js';
 import { planetState, raDecToAzEl, subPointOf } from './core/bodies.js';
 import { precessToDate, dsoById, DSOS } from './core/dso.js';
 import { predictPasses } from './core/passes.js';
+import { scorePass } from './core/passScore.js';
+import { computeReadiness } from './core/readiness.js';
 import { MotionController } from './core/motion.js';
 import { THEMES, applyTheme } from './core/themes.js';
 import { createUI, colorFor } from './views/ui.js';
@@ -527,13 +529,24 @@ function recomputeTrackedPasses() {
       // Optical visibility: at the pass peak, is the satellite sunlit while the
       // observer is in darkness (civil twilight or later)? Those are the passes you
       // can actually see (ISS, Starlink trains, flares).
-      const tPeak = new Date((p.aos.getTime() + p.los.getTime()) / 2);
+      const tPeak = p.peakTime || new Date((p.aos.getTime() + p.los.getTime()) / 2);
       const sunLook = computeBody('SUN', tPeak, observer);
       const satSub = subPoint(sat.satrec, tPeak);
       const sunSub = subSolarPoint(tPeak);
       const visible = !!(sunLook && sunLook.look.el < -6 && satSub && satSunlit(satSub, sunSub) && p.maxEl >= 10);
 
-      out.push({ id, name: sat.name, color, pass: p, arc, visible });
+      // Sun separation at the peak (for the quality score + readiness Sun-clearance).
+      let sunSepDeg = null;
+      const peakLook = lookAngles(sat.satrec, tPeak, observer);
+      if (sunLook && sunLook.look && peakLook) sunSepDeg = angSep(peakLook.az, peakLook.el, sunLook.look.az, sunLook.look.el);
+
+      const rot = state.hw.rotator;
+      const sc = scorePass(p, {
+        visible, tleAgeDays: tleAgeDays(sat.satrec), elMax: rot.elMax,
+        sunAvoid: rot.sunAvoid, sunAvoidDeg: rot.sunAvoidDeg, sunSepDeg,
+      });
+
+      out.push({ id, name: sat.name, color, pass: p, arc, visible, sunSepDeg, score: sc.score, scoreParts: sc.parts });
     }
   }
   out.sort((a, b) => a.pass.aos - b.pass.aos);
@@ -633,6 +646,7 @@ function tick() {
 
   ui.updateClock(date, timeWarpOffset);
   updateSelectedInfo(frame, date);
+  updateReadiness();
   ui.updatePasses(trackedPassesCache.list, Date.now());
 
   // Live elevations for the Sky-list chips — only computed while that tab is open.
@@ -811,6 +825,42 @@ function checkPassNotifications() {
     }
   }
   if (notifiedPasses.size > 300) notifiedPasses.clear();
+}
+
+// Pre-pass readiness — evaluate the focus pass (the next upcoming pass for the
+// selected sat, else the soonest upcoming one) against the live station/hardware
+// signals and push the Ready/Attention result to the hero. Mirrors ui's focus-pass
+// choice so the pill matches the NOW/NEXT card.
+function updateReadiness() {
+  const state = store.get();
+  const now = Date.now();
+  const list = trackedPassesCache.list;
+  const focus = list.find((it) => it.id === state.selected && it.pass.los.getTime() >= now)
+    || list.find((it) => it.pass.los.getTime() >= now);
+  if (!focus) { ui.setReadiness(null); return; }
+
+  const rot = state.hw.rotator;
+  const sat = catalogById.get(focus.id);
+  const wrapAz = rotTelemetry && Number.isFinite(rotTelemetry.az) ? rotTelemetry.az
+    : (motionRunning ? motion.currentAz() : null);
+  const result = computeReadiness({
+    station: state.station,
+    tleAgeDays: sat && sat.satrec ? tleAgeDays(sat.satrec) : null,
+    maxAgeDays: (state.tleSched && state.tleSched.maxAgeDays) || 2,
+    rotRequired: (rot.autoMode || 'off') !== 'off',
+    rotConnected,
+    homed: rotTelemetry && Number.isFinite(rotTelemetry.homed) ? rotTelemetry.homed : null,
+    maxEl: focus.pass.maxEl,
+    elMax: rot.elMax,
+    radConnected,
+    dopplerOn: !!state.hw.radio.doppler,
+    wrapAz,
+    wrapMaxDeg: rot.wrapMaxDeg,
+    sunAvoid: !!rot.sunAvoid,
+    sunAvoidDeg: rot.sunAvoidDeg,
+    sunSepDeg: focus.sunSepDeg,
+  });
+  ui.setReadiness({ ...result, passId: focus.id, passName: focus.name });
 }
 
 // Insert the polar canvas host into the Info tab once it exists in the DOM.
