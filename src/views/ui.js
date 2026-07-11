@@ -101,17 +101,18 @@ export function createUI(handlers) {
   const appearanceWrap = h('div', { class: 'appearance-wrap' }, [appearanceBtn, appearancePop]);
   syncThemeCustom();
 
+  const missionTargetDot = h('div', { class: 'mission-target-dot' });
   const missionName = h('div', { class: 'mission-target-name' }, 'Select a target');
   const missionKind = h('div', { class: 'mission-target-kind' }, 'SkyPhreak tracking station');
-  const missionState = h('div', { class: 'mission-target-state' }, 'STANDBY');
+  const missionState = h('div', { class: 'mission-target-state standby' }, 'STANDBY');
   const missionAos = h('b', {}, '—');
   const missionAz = h('b', {}, '—');
   const missionEl = h('b', {}, '—');
   const missionMax = h('b', {}, '—');
   const missionDur = h('b', {}, '—');
   const missionTle = h('b', {}, '—');
-  const missionMetric = (label, value, note = '') => h('div', { class: 'mission-metric' }, [
-    h('span', { class: 'mission-metric-label' }, label), value, note ? h('small', {}, note) : h('small', {}, ''),
+  const missionMetric = (label, value, tone = '') => h('div', { class: 'mission-metric' + (tone ? ' ' + tone : '') }, [
+    h('span', { class: 'mission-metric-label' }, label), value, h('small', {}, ''),
   ]);
   const missionDot = (label) => {
     const dot = h('span', { class: 'mission-dot' });
@@ -130,12 +131,12 @@ export function createUI(handlers) {
       h('div', { class: 'brand-text', html: 'Sky<span>Phreak</span><small>Satellite sky tracking</small>' }),
     ]),
     h('div', { class: 'mission-target' }, [
-      h('div', { class: 'mission-target-dot' }),
-      h('div', {}, [missionKind, missionName, missionState]),
+      missionTargetDot,
+      h('div', { class: 'mission-target-id' }, [missionKind, missionName, missionState]),
     ]),
     h('div', { class: 'mission-metrics' }, [
-      missionMetric('AOS IN', missionAos), missionMetric('AZ', missionAz), missionMetric('EL', missionEl),
-      missionMetric('MAX EL', missionMax), missionMetric('DURATION', missionDur),
+      missionMetric('AOS IN', missionAos, 'hot'), missionMetric('AZ', missionAz), missionMetric('EL', missionEl),
+      missionMetric('MAX EL', missionMax, 'good'), missionMetric('DURATION', missionDur),
     ]),
     h('div', { class: 'mission-links' }, [missionGps.el, missionRot.el, missionRad.el, missionMetric('TLE AGE', missionTle)]),
     appearanceWrap,
@@ -667,6 +668,8 @@ export function createUI(handlers) {
       missionKind.textContent = selBody.kind === 'dso' ? 'Deep-sky object' : selBody.kind === 'moon' ? 'Lunar target' : 'Solar-system target';
       missionState.textContent = up ? 'ABOVE HORIZON' : 'BELOW HORIZON';
       missionState.className = 'mission-target-state ' + (up ? 'up' : 'down');
+      missionTargetDot.style.color = selBody.kind === 'moon' ? '#e6eaf2' : '#cbd8ea';
+      missionTargetDot.classList.toggle('live', up);
       missionAz.textContent = selBody.az.toFixed(1) + '°';
       missionEl.textContent = selBody.el.toFixed(1) + '°';
       missionTle.textContent = 'LOCAL';
@@ -685,7 +688,9 @@ export function createUI(handlers) {
       missionName.textContent = 'Select a target';
       missionKind.textContent = 'SkyPhreak tracking station';
       missionState.textContent = 'STANDBY';
-      missionState.className = 'mission-target-state';
+      missionState.className = 'mission-target-state standby';
+      missionTargetDot.style.color = '';
+      missionTargetDot.classList.remove('live');
       missionAz.textContent = '—'; missionEl.textContent = '—'; missionTle.textContent = '—';
       infoText.append(h('div', { class: 'empty' }, 'Select a satellite, planet, the Moon, or a deep-sky object'));
     } else {
@@ -696,6 +701,8 @@ export function createUI(handlers) {
       missionKind.textContent = 'NORAD ' + info.noradId + ' · satellite target';
       missionState.textContent = info.statusText.toUpperCase();
       missionState.className = 'mission-target-state ' + (info.aboveHorizon ? 'up' : 'down');
+      missionTargetDot.style.color = colorFor(info.noradId, store.get().tracked);
+      missionTargetDot.classList.toggle('live', info.aboveHorizon);
       missionAz.textContent = info.az.toFixed(1) + '°';
       missionEl.textContent = info.el.toFixed(1) + '°';
       missionTle.textContent = fmtAge(info.tleAgeDays);
