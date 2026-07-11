@@ -92,7 +92,7 @@ async function boot() {
     connectRotator,
     // Park button parks to the configured default preset; parkTo lets the HW pane
     // park to any named preset; saveParkPreset captures the current position.
-    parkRotator: () => parkToPreset(defaultParkPreset()),
+    parkRotator: () => parkToDefault(),
     parkTo: (preset) => parkToPreset(preset),
     saveParkPreset: (name) => {
       const az = rotTelemetry && Number.isFinite(rotTelemetry.az) ? rotTelemetry.az : motion.currentAz();
@@ -650,6 +650,131 @@ function tick() {
 
 // Fire a desktop notification a configurable lead time before a tracked pass rises.
 const notifiedPasses = new Set();
+let alertAudioContext = null;
+
+// Generate a short offline two-tone cue instead of loading an audio asset.
+function playPassAlert(style = store.get().notifySoundStyle || 'chime') {
+  try {
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    if (!AudioCtx) return;
+    alertAudioContext ||= new AudioCtx();
+    if (alertAudioContext.state === 'suspended') alertAudioContext.resume();
+    const start = alertAudioContext.currentTime + 0.02;
+    const patterns = {
+      chime: [[660, 0, 0.16], [880, 0.2, 0.28]],
+      radar: [[520, 0, 0.1], [520, 0.18, 0.1], [780, 0.36, 0.18]],
+      urgent: [[880, 0, 0.14], [660, 0.18, 0.14], [880, 0.36, 0.14], [1040, 0.54, 0.25]],
+      sonar: [[360, 0, 0.5], [540, 0.55, 0.5]],
+      soft: [[440, 0, 0.22], [554, 0.24, 0.22], [659, 0.48, 0.35]],
+      beacon: [[740, 0, 0.08], [740, 0.12, 0.08], [740, 0.24, 0.08], [980, 0.42, 0.2]],
+      sparkle: [[784, 0, 0.1], [988, 0.12, 0.1], [1175, 0.24, 0.22]],
+      descending: [[880, 0, 0.18], [660, 0.2, 0.18], [440, 0.4, 0.3]],
+      digital: [[600, 0, 0.06], [900, 0.1, 0.06], [600, 0.2, 0.06], [1100, 0.3, 0.18]],
+      double: [[700, 0, 0.2], [700, 0.3, 0.28]],
+      low: [[260, 0, 0.25], [330, 0.28, 0.35]],
+      motor: [[320, 0, 0.08], [380, 0.09, 0.08], [450, 0.18, 0.08], [540, 0.27, 0.2]],
+      lock: [[880, 0, 0.07], [1100, 0.1, 0.16]],
+    };
+    (patterns[style] || patterns.chime).forEach(([frequency, offset, duration]) => {
+      const at = start + offset;
+      const oscillator = alertAudioContext.createOscillator();
+      const gain = alertAudioContext.createGain();
+      oscillator.type = 'sine';
+      oscillator.frequency.value = frequency;
+      gain.gain.setValueAtTime(0.0001, at);
+      gain.gain.exponentialRampToValueAtTime(0.22, at + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, at + duration);
+      oscillator.connect(gain).connect(alertAudioContext.destination);
+      oscillator.start(at);
+      oscillator.stop(at + duration + 0.02);
+    });
+  } catch (err) {
+    console.warn('Unable to play pass alert', err);
+  }
+}
+
+function speakPassAlert(pass, mins) {
+  if (!('speechSynthesis' in window)) return;
+  const st = store.get();
+  const duration = Math.max(1, Math.round(pass.pass.durationS / 60));
+  const values = {
+    satellite: pass.name,
+    minutes: mins,
+    minuteWord: mins === 1 ? 'minute' : 'minutes',
+    duration,
+    durationWord: duration === 1 ? 'minute' : 'minutes',
+    maxElevation: Math.round(pass.pass.maxEl),
+    visibility: pass.visible ? 'This should be a visible pass.' : 'This pass is not expected to be optically visible.',
+  };
+  const fallback = '{satellite} will rise in {minutes} {minuteWord}. Maximum elevation {maxElevation} degrees.';
+  const message = (st.notifyVoiceTemplate || fallback).replace(/\{(satellite|minutes|minuteWord|duration|durationWord|maxElevation|visibility)\}/g, (_, key) => values[key]);
+  window.speechSynthesis.cancel();
+  const utterance = new SpeechSynthesisUtterance(message);
+  const voices = window.speechSynthesis.getVoices();
+  // Web Speech does not expose gender metadata, so automatic female selection
+  // matches commonly female-named system voices and falls back gracefully.
+  const femaleNames = /aria|ava|emma|jenny|joanna|karen|kendra|kimberly|linda|michelle|moira|salli|samantha|susan|tessa|victoria|zira|female/i;
+  const voice = st.notifyVoiceURI === '__female__'
+    ? (voices.find((v) => femaleNames.test(v.name)) || voices.find((v) => /^en[-_]/i.test(v.lang)) || voices[0])
+    : voices.find((v) => v.voiceURI === st.notifyVoiceURI);
+  if (voice) utterance.voice = voice;
+  utterance.rate = Math.min(2, Math.max(0.5, st.notifyVoiceRate || 0.95));
+  utterance.pitch = Math.min(2, Math.max(0, st.notifyVoicePitch ?? 1));
+  utterance.volume = Math.min(1, Math.max(0, st.notifyVoiceVolume ?? 1));
+  window.speechSynthesis.speak(utterance);
+}
+
+window.playPassAlert = playPassAlert;
+window.testPassVoice = () => speakPassAlert({
+  name: 'International Space Station', visible: true,
+  pass: { durationS: 540, maxEl: 67 },
+}, store.get().notifyLead || 5);
+
+let lastRotatorAudioConnected = null;
+let lastRotatorAudioState = 'idle';
+function playRotatorCue(event) {
+  const st = store.get();
+  if (!st.rotatorSounds || st.notifySound === false) return;
+  const styles = {
+    connect: st.rotatorConnectSound || 'digital',
+    disconnect: st.rotatorDisconnectSound || 'low',
+    track: st.rotatorTrackSound || 'beacon',
+    park: st.rotatorParkSound || 'soft',
+  };
+  playPassAlert(styles[event]);
+}
+
+function updateRotatorAudioState(next) {
+  if (next === lastRotatorAudioState) return;
+  const previous = lastRotatorAudioState;
+  lastRotatorAudioState = next;
+  if (next === 'tracking' || next === 'preslew') playRotatorCue('track');
+  else if (next === 'parked' && previous !== 'idle') playRotatorCue('park');
+}
+
+function speakLifecycleAlert(pass, event) {
+  if (!('speechSynthesis' in window)) return;
+  const messages = {
+    aos: `${pass.name} is now above the horizon. Acquisition of signal.`,
+    peak: `${pass.name} is near maximum elevation, ${Math.round(pass.pass.maxEl)} degrees.`,
+    los: `${pass.name} pass complete. Loss of signal.`,
+  };
+  const message = messages[event];
+  if (!message) return;
+  const st = store.get();
+  const utterance = new SpeechSynthesisUtterance(message);
+  const voices = window.speechSynthesis.getVoices();
+  const femaleNames = /aria|ava|emma|jenny|joanna|karen|kendra|kimberly|linda|michelle|moira|salli|samantha|susan|tessa|victoria|zira|female/i;
+  utterance.voice = st.notifyVoiceURI === '__female__'
+    ? (voices.find((v) => femaleNames.test(v.name)) || voices[0])
+    : voices.find((v) => v.voiceURI === st.notifyVoiceURI) || null;
+  utterance.rate = Math.min(2, Math.max(0.5, st.notifyVoiceRate || 0.95));
+  utterance.pitch = Math.min(2, Math.max(0, st.notifyVoicePitch ?? 1));
+  utterance.volume = Math.min(1, Math.max(0, st.notifyVoiceVolume ?? 1));
+  window.speechSynthesis.cancel();
+  window.speechSynthesis.speak(utterance);
+}
+
 function checkPassNotifications() {
   const st = store.get();
   if (!st.notifyPasses || typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
@@ -657,6 +782,8 @@ function checkPassNotifications() {
   const lead = (st.notifyLead || 5) * 60000;
   for (const p of trackedPassesCache.list) {
     const aos = p.pass.aos.getTime();
+    const los = p.pass.los.getTime();
+    const peak = aos + (los - aos) / 2;
     const key = p.id + '@' + aos;
     if (aos > now && aos - now <= lead && !notifiedPasses.has(key)) {
       notifiedPasses.add(key);
@@ -664,6 +791,23 @@ function checkPassNotifications() {
       new Notification(`${p.name} rising`, {
         body: `AOS in ~${mins} min · max ${p.pass.maxEl}°${p.visible ? ' · visible pass' : ''}`,
       });
+      if (st.notifySound !== false) playPassAlert();
+      if (st.notifyVoice) speakPassAlert(p, mins);
+    }
+    const lifecycle = [
+      ['aos', aos, st.notifyAos, st.notifyAosSound, `${p.name} is rising`, 'Acquisition of signal'],
+      ['peak', peak, st.notifyPeak, st.notifyPeakSound, `${p.name} at peak elevation`, `Maximum elevation ${Math.round(p.pass.maxEl)}°`],
+      ['los', los, st.notifyLos, st.notifyLosSound, `${p.name} pass complete`, 'Loss of signal'],
+    ];
+    for (const [event, time, enabled, sound, title, body] of lifecycle) {
+      const eventKey = `${key}:${event}`;
+      // The tick runs every second; the wider window also tolerates brief sleep/resume.
+      if (enabled && now >= time && now - time < 15000 && !notifiedPasses.has(eventKey)) {
+        notifiedPasses.add(eventKey);
+        new Notification(title, { body });
+        if (st.notifySound !== false) playPassAlert(sound);
+        if (st.notifyVoice) speakLifecycleAlert(p, event);
+      }
     }
   }
   if (notifiedPasses.size > 300) notifiedPasses.clear();
@@ -780,6 +924,10 @@ function fmtLightTime(au) {
 /* ------------------------------ Hardware ------------------------------- */
 function wireHardwareStatus() {
   window.pyro.rotator.onStatus((s) => {
+    if (lastRotatorAudioConnected !== null && s.connected !== lastRotatorAudioConnected) {
+      playRotatorCue(s.connected ? 'connect' : 'disconnect');
+    }
+    lastRotatorAudioConnected = s.connected;
     rotConnected = s.connected;
     if (s.telemetry) rotTelemetry = s.telemetry;
     if (!s.connected) rotTelemetry = null;
@@ -940,6 +1088,23 @@ function defaultParkPreset() {
   const rot = store.get().hw.rotator;
   const presets = rot.parkPresets || [];
   return presets.find((p) => p.name === rot.parkDefault) || presets[0] || { name: 'Home', home: true };
+}
+
+// The main Park action must use SuperRot's actual K command when the built-in
+// Home entry is the default.  Home remains available as an explicit H command
+// from the Hardware pane; custom defaults still slew to their saved position.
+function parkToDefault() {
+  const preset = defaultParkPreset();
+  if (preset && !preset.home) {
+    parkToPreset(preset);
+    return;
+  }
+  if (motionRunning) { motion.stop(); motionRunning = false; }
+  if (store.get().hw.rotator.autoMode !== 'off') store.patchIn('hw.rotator', { autoMode: 'off' });
+  parkedByAuto = false;
+  preslewId = null;
+  activeTrackId = null;
+  if (rotConnected) window.pyro.rotator.park();
 }
 
 // Park to a named preset: the built-in Home preset runs the firmware homing sequence;
@@ -1180,11 +1345,13 @@ function driveHardware(frame, date, live = true) {
   ui.setStatus({
     rotConnected,
     radConnected,
+    slewing: !!(rotTelemetry && (Math.abs(rotTelemetry.azRate || 0) > 0.12 || Math.abs(rotTelemetry.elRate || 0) > 0.12)),
     tracking: !live ? '⏱ Time-warp preview'
       : track ? track.name + (sunWarn != null ? ' · ⚠ Sun' : '')
       : pre ? `Pre-slew ${pre.name} · AOS ${countdown(pre.t - nowMs)}`
       : (rotConnected && mode !== 'off' ? 'Parked' : null),
   });
+  updateRotatorAudioState(track ? 'tracking' : pre ? 'preslew' : (rotConnected && mode !== 'off' ? 'parked' : 'idle'));
 
   // Drive the rotator: track when there's a target, pre-position when a pass is
   // imminent, else park once. The SuperRot setpoint is refreshed at 10 Hz by

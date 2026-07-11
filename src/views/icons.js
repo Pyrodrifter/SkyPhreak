@@ -10,12 +10,13 @@
 
 // Inner markup per icon (paths in a 0..24 viewBox). Filled shapes set their own fill.
 const PATHS = {
-  map: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M9 6v12M15 6v12"/>',
+  map: '<path d="M3.5 6.5l5-2.5 7 2.5 5-2.5v13.5l-5 2.5-7-2.5-5 2.5z"/><path d="M8.5 4v13.5M15.5 6.5V20"/>',
+  terrain: '<path d="M3 18l5.2-7 3.2 4 2.5-3 7.1 6z"/><path d="M3 21h18M5.2 15.1l3-4.1 1.7 2.1"/><circle cx="17.5" cy="7" r="2"/>',
   globe: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3c3.2 3 3.2 15 0 18M12 3c-3.2 3-3.2 15 0 18"/>',
   satellite: '<rect x="9.5" y="9.5" width="5" height="5" rx="1" transform="rotate(45 12 12)"/><path d="M8 8L5 5M16 16l3 3"/><path d="M15 6a5 5 0 0 1 3 3M15 3a8 8 0 0 1 6 6"/>',
   passes: '<g transform="rotate(-25 12 12)"><ellipse cx="12" cy="12" rx="9" ry="4"/></g><circle cx="17" cy="7.6" r="1.7" fill="currentColor" stroke="none"/>',
   info: '<circle cx="12" cy="12" r="9"/><path d="M12 11.5v4.5"/><circle cx="12" cy="8" r="0.9" fill="currentColor" stroke="none"/>',
-  setup: '<path d="M19.4 13a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/><circle cx="12" cy="12" r="3"/>',
+  setup: '<circle cx="12" cy="12" r="3.2"/><path d="M12 2.8v3M12 18.2v3M2.8 12h3M18.2 12h3M5.5 5.5l2.1 2.1M16.4 16.4l2.1 2.1M18.5 5.5l-2.1 2.1M7.6 16.4l-2.1 2.1"/><circle cx="12" cy="12" r="7.2"/>',
   hardware: '<rect x="7" y="7" width="10" height="10" rx="1.5"/><rect x="10" y="10" width="4" height="4" rx="0.5"/><path d="M9 3v2M12 3v2M15 3v2M9 19v2M12 19v2M15 19v2M3 9h2M3 12h2M3 15h2M19 9h2M19 12h2M19 15h2"/>',
   follow: '<circle cx="12" cy="12" r="3.4"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/>',
   target: '<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3.4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/>',

@@ -50,6 +50,7 @@ export function predictPasses(satrec, observer, opts = {}) {
         los: new Date(los),
         durationS: Math.round((los - aos) / 1000),
         maxEl: Math.round((peakLook?.el ?? peak.el) * 10) / 10,
+        peakTime: new Date(peak.t), // TCA — time of closest approach / max elevation
         aosAz: round1(lookAngles(satrec, new Date(aos), observer)?.az),
         losAz: round1(lookAngles(satrec, new Date(los), observer)?.az),
         peakAz: round1(peak.az),
