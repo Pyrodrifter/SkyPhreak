@@ -19,9 +19,29 @@ const DEFAULTS = {
   fieldMode: false, // one-tap field mode (large + Night Ops)
   sideCollapsed: false, // left satellite-browser panel collapsed
   rightCollapsed: false, // right info/settings panel collapsed
+  sbCollapsed: false, // bottom status bar collapsed to a slim strip
   followSat: false, // keep the active view centred on the selected satellite
   passSort: 'time', // Passes tab order: 'time' (soonest) | 'el' (highest first)
   notifyPasses: false, // desktop notification before a tracked pass rises
+  notifySound: true, // play an audible cue with pass notifications
+  notifySoundStyle: 'chime', // 'chime' | 'radar' | 'urgent'
+  notifyAos: true,
+  notifyAosSound: 'beacon',
+  notifyPeak: true,
+  notifyPeakSound: 'sparkle',
+  notifyLos: true,
+  notifyLosSound: 'descending',
+  rotatorSounds: true,
+  rotatorConnectSound: 'digital',
+  rotatorDisconnectSound: 'low',
+  rotatorTrackSound: 'beacon',
+  rotatorParkSound: 'soft',
+  notifyVoice: false, // speak pass details after the alert cue
+  notifyVoiceURI: '__female__', // automatic female match; empty uses system default
+  notifyVoiceRate: 0.95,
+  notifyVoicePitch: 1,
+  notifyVoiceVolume: 1,
+  notifyVoiceTemplate: '{satellite} will rise in {minutes} {minuteWord}. Pass duration is about {duration} {durationWord}, with a maximum elevation of {maxElevation} degrees. {visibility}',
   notifyLead: 5, // minutes before AOS to notify
   mapStyle: 'vector', // 'vector' = dark blue lines | 'relief' = shaded topographic
   showMoon: true, // draw the Moon on the 2D map

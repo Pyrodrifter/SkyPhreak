@@ -2,6 +2,8 @@ import { store } from '../core/store.js';
 import { THEMES } from '../core/themes.js';
 import { DSOS } from '../core/dso.js';
 import { icon } from './icons.js';
+import { buildTimeline } from '../core/timeline.js';
+import { scoreBreakdown } from '../core/passScore.js';
 
 // Sun, Moon and planets shown in the Sky box (id, label, marker colour).
 const SKY_BODIES = [
@@ -43,8 +45,8 @@ export function createUI(handlers) {
   /* ------------------------------- Topbar -------------------------------- */
   const clockEl = h('div', { class: 'clock' });
   const selReadout = h('div', { class: 'sel-readout' });
-  const btn2d = h('button', { class: 'active', onclick: () => store.patch({ view: '2d' }) }, '2D Map');
-  const btn3d = h('button', { onclick: () => store.patch({ view: '3d' }) }, '3D Globe');
+  const btn2d = h('button', { class: 'active', onclick: () => store.patch({ view: '2d' }) }, [h('span', { html: icon('map', 15) }), h('span', {}, 'Map')]);
+  const btn3d = h('button', { onclick: () => store.patch({ view: '3d' }) }, [h('span', { html: icon('globe', 15) }), h('span', {}, 'Globe')]);
 
   // Theme picker — restyles the whole app (panels + map/globe/polar) live. The last
   // option is a user 'Custom' theme (a base palette + an accent colour you choose).
@@ -97,8 +99,13 @@ export function createUI(handlers) {
   const onApDocDown = (e) => { if (!appearanceWrap.contains(e.target)) closeAppearance(); };
   function closeAppearance() { appearancePop.style.display = 'none'; apOpen = false; document.removeEventListener('mousedown', onApDocDown, true); }
   function openAppearance() { appearancePop.style.display = ''; apOpen = true; setTimeout(() => document.addEventListener('mousedown', onApDocDown, true), 0); }
-  const appearanceBtn = h('button', { class: 'btn sm', title: 'Appearance — size, theme, field mode', onclick: () => (apOpen ? closeAppearance() : openAppearance()) }, '⚙');
+  const appearanceBtn = h('button', { class: 'topbar-settings', title: 'Display settings — size, theme, field mode', 'aria-label': 'Display settings', onclick: () => (apOpen ? closeAppearance() : openAppearance()) }, [h('span', { html: icon('setup', 15) }), h('span', {}, 'Settings')]);
   const appearanceWrap = h('div', { class: 'appearance-wrap' }, [appearanceBtn, appearancePop]);
+  const displayControls = h('div', { class: 'topbar-controls stage-display-controls' }, [
+    h('span', { class: 'topbar-controls-label' }, 'Display'),
+    h('div', { class: 'toggle view-switch' }, [btn2d, btn3d]),
+    appearanceWrap,
+  ]);
   syncThemeCustom();
 
   const missionTargetDot = h('div', { class: 'mission-target-dot' });
@@ -139,8 +146,6 @@ export function createUI(handlers) {
       missionMetric('MAX EL', missionMax, 'good'), missionMetric('DURATION', missionDur),
     ]),
     h('div', { class: 'mission-links' }, [missionGps.el, missionRot.el, missionRad.el, missionMetric('TLE AGE', missionTle)]),
-    appearanceWrap,
-    h('div', { class: 'toggle' }, [btn2d, btn3d]),
   ]);
 
   /* ------------------------------- Sidebar ------------------------------- */
@@ -239,7 +244,7 @@ export function createUI(handlers) {
       store.patch({ mapStyle: next });
       mapStyleLbl.textContent = next === 'vector' ? 'Vector' : 'Shaded';
     },
-  }, [h('span', { class: 'btn-ico', html: icon('map', 14) }), mapStyleLbl]);
+  }, [h('span', { class: 'btn-ico', html: icon('terrain', 14) }), mapStyleLbl]);
   const resetBtn = h('button', { class: 'btn sm', title: 'Reset the map/globe view', onclick: () => handlers.resetView() }, [h('span', { class: 'btn-ico', html: icon('reset', 14) }), 'Reset']);
 
   // Follow-satellite toggle (keeps the active view centred on the selection).
@@ -271,7 +276,10 @@ export function createUI(handlers) {
   }, [h('span', { class: 'btn-ico', html: icon('time', 14) }), 'Time']);
 
   const helpBtn = h('button', { class: 'btn sm', title: 'Keyboard shortcuts (press ?)', onclick: () => toggleHelp(true) }, [h('span', { class: 'btn-ico', html: icon('help', 14) }), 'Help']);
-  const tools = h('div', { class: 'stage-tools' }, [followBtn, warpToggle, mapStyleBtn, resetBtn, helpBtn]);
+  const tools = h('div', { class: 'stage-tools' }, [
+    displayControls,
+    h('div', { class: 'stage-tool-group map-action-tools', 'aria-label': 'Map tools' }, [followBtn, warpToggle, mapStyleBtn, resetBtn, helpBtn]),
+  ]);
 
   // Auto-track mode buttons — now live in the status bar (built below).
   const trackBtns = {};
@@ -336,35 +344,116 @@ export function createUI(handlers) {
   // is currently tracking — the sort of at-a-glance status a finished app carries.
   const sbDot = (label, cls) => {
     const dot = h('span', { class: 'sb-dot' });
-    const el = h('div', { class: 'sb-item sb-connection ' + (cls || ''), title: label }, [dot, h('span', { class: 'sb-txt' }, label)]);
-    return { el, set: (on) => dot.classList.toggle('on', on) };
+    const el = h('button', { type: 'button', class: 'sb-item sb-connection ' + (cls || ''), title: `Quick connect ${label.toLowerCase()}` }, [dot, h('span', { class: 'sb-txt' }, label)]);
+    return {
+      el, dot, connected: false,
+      set(on) {
+        this.connected = !!on;
+        dot.classList.remove('connecting', 'disconnecting');
+        dot.classList.toggle('on', on);
+      },
+      setPending(mode) {
+        dot.classList.remove('on', 'connecting', 'disconnecting');
+        dot.classList.add(mode);
+      },
+    };
   };
   const sbRot = sbDot('Rotator', 'sb-rotator');
   const sbRad = sbDot('Radio', 'sb-radio');
+  let quickConnectPop = null;
+  function closeQuickConnect() {
+    if (!quickConnectPop) return;
+    quickConnectPop.remove();
+    quickConnectPop = null;
+    document.removeEventListener('mousedown', quickConnectOutside, true);
+  }
+  function quickConnectOutside(e) {
+    if (quickConnectPop && !quickConnectPop.contains(e.target) && !sbRot.el.contains(e.target) && !sbRad.el.contains(e.target)) closeQuickConnect();
+  }
+  function openQuickConnect(kind, anchor) {
+    const wasKind = quickConnectPop && quickConnectPop.dataset.kind === kind;
+    closeQuickConnect();
+    if (wasKind) return;
+    const isRot = kind === 'rotator';
+    const cfg = store.get().hw[kind];
+    const state = isRot ? sbRot : sbRad;
+    const detail = isRot
+      ? (cfg.protocol === 'superrot'
+        ? `SuperRot · ${cfg.transport === 'serial' ? (cfg.path || 'USB port not selected') : `${cfg.host}:${cfg.port}`}`
+        : `Hamlib · ${cfg.host}:${cfg.port}`)
+      : `Hamlib rigctld · ${cfg.host}:${cfg.port}`;
+    const popDot = h('span', { class: 'sb-dot' + (state.connected ? ' on' : '') });
+    const action = h('button', { class: 'btn primary quick-connect-action', onclick: async (e) => {
+      e.stopPropagation();
+      action.disabled = true;
+      const pending = state.connected ? 'disconnecting' : 'connecting';
+      state.setPending(pending);
+      popDot.className = `sb-dot ${pending}`;
+      action.textContent = state.connected ? 'Disconnecting…' : 'Connecting…';
+      await (isRot ? handlers.connectRotator() : handlers.connectRadio());
+      closeQuickConnect();
+    } }, state.connected ? 'Disconnect' : 'Connect');
+    quickConnectPop = h('div', { class: 'quick-connect-pop' }, [
+      h('div', { class: 'quick-connect-head' }, [popDot, h('strong', {}, isRot ? 'Rotator' : 'Radio')]),
+      h('div', { class: 'quick-connect-state' }, state.connected ? 'Connected' : 'Offline'),
+      h('div', { class: 'quick-connect-detail' }, detail),
+      action,
+      h('div', { class: 'quick-connect-hint' }, 'Uses your saved Hardware settings'),
+    ]);
+    quickConnectPop.dataset.kind = kind;
+    document.body.appendChild(quickConnectPop);
+    const r = anchor.getBoundingClientRect();
+    quickConnectPop.style.left = Math.max(8, Math.min(r.left + r.width / 2 - 120, window.innerWidth - 248)) + 'px';
+    quickConnectPop.style.bottom = Math.max(8, window.innerHeight - r.top + 8) + 'px';
+    setTimeout(() => document.addEventListener('mousedown', quickConnectOutside, true), 0);
+  }
+  sbRot.el.onclick = (e) => { e.stopPropagation(); openQuickConnect('rotator', sbRot.el); };
+  sbRad.el.onclick = (e) => { e.stopPropagation(); openQuickConnect('radio', sbRad.el); };
   const sbTrack = h('span', { class: 'sb-val' }, 'Idle');
+  const sbTle = h('span', { class: 'sb-val' }, '—');
   // Cable-wrap gauge — azimuth turns accumulated away from north (hidden when idle).
   const sbWrapVal = h('span', { class: 'sb-val sb-wrap-val' }, '—');
   const sbWrap = h('div', { class: 'sb-item sb-wrap', style: 'display:none', title: 'Cable wrap' }, [
     h('span', { class: 'sb-k' }, 'Wrap'), sbWrapVal,
   ]);
+  const sbOrbitIcon = h('span', { class: 'sb-orbit-icon', 'aria-hidden': 'true' });
+  const sbStateIcon = h('span', { class: 'sb-state-icon', 'aria-hidden': 'true' });
+  // Chevron collapses the footer to a slim strip (clock + STOP stay); persisted.
+  const sbCollapseBtn = h('button', {
+    class: 'btn sm sb-collapse', title: 'Collapse / expand the status bar',
+    onclick: () => store.patch({ sbCollapsed: !store.get().sbCollapsed }),
+  }, '⌄');
   const statusbar = h('footer', { class: 'statusbar' }, [
     clockEl,
     h('div', { class: 'sb-sep' }),
-    h('div', { class: 'sb-item sb-track-mode' }, [h('span', { class: 'sb-k' }, 'Track'), trackBar]),
-    h('div', { class: 'sb-item sb-target' }, [h('span', { class: 'sb-k' }, 'Target'), sbTrack]),
+    h('div', { class: 'sb-item sb-track-mode' }, [sbOrbitIcon, h('div', {}, [h('span', { class: 'sb-k' }, 'Tracking mode'), trackBar])]),
+    h('div', { class: 'sb-item sb-target' }, [sbStateIcon, h('div', {}, [h('span', { class: 'sb-k' }, 'Target state'), sbTrack])]),
+    h('div', { class: 'sb-item sb-tle' }, [h('span', { class: 'sb-k' }, 'TLE age'), sbTle]),
     h('div', { class: 'spacer' }),
     sbWrap,
     // Field controls always within reach — no digging into the Hardware tab.
-    h('button', { class: 'btn sm', title: 'Park the rotator (to the default preset)', onclick: () => handlers.parkRotator() }, 'Park'),
-    h('button', { class: 'btn sm danger', title: 'Stop the rotator (Esc)', onclick: () => handlers.stopRotator() }, 'Stop'),
+    h('button', { class: 'btn sm park-btn', title: 'Park the rotator (to the default preset)', onclick: () => handlers.parkRotator() }, [h('span', { class: 'sb-btn-icon' }, 'P'), h('span', {}, 'Park')]),
+    h('button', { class: 'btn sm danger', title: 'Stop the rotator (Esc)', onclick: () => handlers.stopRotator() }, [h('span', { class: 'sb-stop-icon' }), h('span', {}, 'Stop Tracking')]),
     h('div', { class: 'sb-sep' }),
     sbRot.el,
     sbRad.el,
+    sbCollapseBtn,
   ]);
-  function setStatus({ rotConnected, radConnected, tracking }) {
+  function setStatus({ rotConnected, radConnected, tracking, slewing }) {
     sbRot.set(rotConnected);
     sbRad.set(radConnected);
     sbTrack.textContent = tracking || 'Idle';
+    const mode = store.get().hw.rotator.autoMode || 'off';
+    sbOrbitIcon.classList.toggle('active', mode !== 'off');
+    sbOrbitIcon.classList.toggle('connected', !!rotConnected);
+    sbOrbitIcon.classList.toggle('slewing', mode !== 'off' && !!rotConnected && !!slewing);
+    const targetText = tracking || '';
+    const seeking = /^Pre-slew/.test(targetText);
+    const parked = targetText === 'Parked';
+    const trackingTarget = !!targetText && !seeking && !parked && !targetText.includes('Time-warp');
+    sbStateIcon.classList.toggle('seeking', seeking);
+    sbStateIcon.classList.toggle('tracking', trackingTarget);
+    sbStateIcon.classList.toggle('parked', parked);
     missionGps.set(true, 'Station ready');
     missionRot.set(rotConnected, rotConnected ? 'Connected' : 'Offline');
     missionRad.set(radConnected, radConnected ? 'Connected' : 'Offline');
@@ -392,6 +481,8 @@ export function createUI(handlers) {
     if (sizeBtns) for (const [k] of sizeDefs) sizeBtns[k].classList.toggle('active', k === (state.uiScale || 'md'));
     if (fieldBtn) fieldBtn.classList.toggle('active', !!state.fieldMode);
     followBtn.classList.toggle('active', !!state.followSat);
+    statusbar.classList.toggle('collapsed', !!state.sbCollapsed);
+    sbCollapseBtn.textContent = state.sbCollapsed ? '⌃' : '⌄';
     applyWakeLock(!!state.fieldMode);
   }
   applyLayout(store.get());
@@ -611,12 +702,14 @@ export function createUI(handlers) {
   function updateClock(date, warpMs = 0) {
     const utc = date.toISOString().slice(11, 19);
     const loc = date.toLocaleTimeString();
+    const utcDate = date.toLocaleDateString([], { timeZone: 'UTC', month: 'short', day: 'numeric', year: 'numeric' });
+    const localDate = date.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' });
     let extra = '';
     if (warpMs) {
       const m = Math.round(warpMs / 60000);
       extra = ` &nbsp;·&nbsp; <span class="clock-warp">${m >= 0 ? '+' : ''}${m}m preview</span>`;
     }
-    clockEl.innerHTML = `<span class="clock-time">${utc}</span><span class="clock-meta">UTC · ${loc}${extra}</span>`;
+    clockEl.innerHTML = `<span class="clock-zone"><small>UTC</small><b>${utc}</b><em>${utcDate}</em></span><span class="clock-zone"><small>LOCAL</small><b>${loc}</b><em>${localDate}${extra}</em></span>`;
   }
 
   const kv = (label, value, cls = '') => [h('div', { class: 'k' }, label), h('div', { class: 'v ' + cls }, value)];
@@ -673,6 +766,7 @@ export function createUI(handlers) {
       missionAz.textContent = selBody.az.toFixed(1) + '°';
       missionEl.textContent = selBody.el.toFixed(1) + '°';
       missionTle.textContent = 'LOCAL';
+      sbTle.textContent = 'Local';
       const kindLabel = selBody.kind === 'dso' ? 'Deep-sky object' : selBody.kind === 'moon' ? 'Lunar target' : 'Solar-system target';
       infoText.append(
         infoHero(selBody.name, kindLabel, up, selBody.az.toFixed(1) + '°', selBody.el.toFixed(1) + '°'),
@@ -692,6 +786,7 @@ export function createUI(handlers) {
       missionTargetDot.style.color = '';
       missionTargetDot.classList.remove('live');
       missionAz.textContent = '—'; missionEl.textContent = '—'; missionTle.textContent = '—';
+      sbTle.textContent = '—';
       infoText.append(h('div', { class: 'empty' }, 'Select a satellite, planet, the Moon, or a deep-sky object'));
     } else {
       selReadout.innerHTML = info.aboveHorizon
@@ -706,6 +801,7 @@ export function createUI(handlers) {
       missionAz.textContent = info.az.toFixed(1) + '°';
       missionEl.textContent = info.el.toFixed(1) + '°';
       missionTle.textContent = fmtAge(info.tleAgeDays);
+      sbTle.textContent = fmtAge(info.tleAgeDays);
       const rf = store.get().hw.radio;
       const up = info.aboveHorizon;
       infoText.append(
@@ -732,20 +828,94 @@ export function createUI(handlers) {
 
   // Renders the merged pass list for *all* tracked satellites. `items` is
   // [{ id, name, color, pass }] sorted by AOS; rows are clickable to select.
+  // Wave-1 operational state (kept in closures so the per-tick pane rebuild preserves
+  // the readiness expand + the Passes/Timeline view toggle).
+  let lastReadiness = null;
+  let readinessOpen = false;
+  let passesView = 'list';
+  let lastPassItems = [];
+  function setReadiness(r) { lastReadiness = r; }
+
+  const scoreChip = (score, parts) => {
+    const tier = score >= 70 ? 'good' : score >= 40 ? 'ok' : 'low';
+    return h('span', { class: 'score-chip ' + tier, title: 'Pass quality — ' + scoreBreakdown({ score, parts: parts || [] }) }, String(score));
+  };
+
+  // The Ready / Attention bar shown under the NOW/NEXT hero, expandable to the checklist.
+  function renderReadiness() {
+    const r = lastReadiness;
+    if (!r) return document.createComment('');
+    const attention = r.items.filter((i) => i.state === 'warn' || i.state === 'fail').length;
+    const label = r.state === 'ready' ? 'READY' : r.state === 'fail' ? 'ATTENTION REQUIRED' : 'ATTENTION';
+    const sub = r.state === 'ready' ? 'all pre-pass checks passed' : `${attention} item${attention === 1 ? '' : 's'} to review`;
+    const bar = h('button', {
+      class: 'readiness-bar ' + r.state, title: 'Pre-pass readiness',
+      onclick: () => { readinessOpen = !readinessOpen; updatePasses(lastPassItems, Date.now()); },
+    }, [
+      h('span', { class: 'rdy-dot' }),
+      h('span', { class: 'rdy-label' }, label),
+      h('span', { class: 'rdy-sub' }, sub),
+      h('span', { class: 'rdy-chev' }, readinessOpen ? '▾' : '▸'),
+    ]);
+    if (!readinessOpen) return bar;
+    const glyph = { ok: '✓', warn: '!', fail: '✕', off: '·' };
+    return h('div', { class: 'readiness-wrap' }, [bar, h('div', { class: 'readiness-list' },
+      r.items.map((it) => h('div', { class: 'rdy-item ' + it.state }, [
+        h('span', { class: 'rdy-item-ic' }, glyph[it.state] || '·'),
+        h('span', { class: 'rdy-item-label' }, it.label),
+        h('span', { class: 'rdy-item-detail' }, it.detail || ''),
+      ])))]);
+  }
+
+  // Chronological event feed (WAKE → AOS → MAX → LOS → PARK across all passes).
+  function renderTimeline(pane, items, now) {
+    const events = buildTimeline(items, { now, preslewLead: store.get().hw.rotator.preslewLead });
+    if (!events.length) { pane.append(h('div', { class: 'empty' }, 'No scheduled events in the next 12 hours')); return; }
+    const tl = h('div', { class: 'mc-timeline' });
+    let markedNow = false;
+    const nowMarker = () => h('div', { class: 'tl-now' }, [h('span', { class: 'tl-now-tag' }, 'NOW'), h('span', { class: 'tl-now-line' })]);
+    for (const e of events) {
+      if (!markedNow && e.t >= now) { tl.append(nowMarker()); markedNow = true; }
+      const rel = e.t - now;
+      tl.append(h('div', {
+        class: 'tl-row tl-' + e.type + (rel < 0 ? ' past' : ''),
+        onclick: () => store.patch({ selected: e.id }),
+      }, [
+        h('div', { class: 'tl-time' }, new Date(e.t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })),
+        h('span', { class: 'tl-icon', style: `color:${e.color}` }, e.icon),
+        h('div', { class: 'tl-body' }, [
+          h('div', { class: 'tl-label' }, [h('span', { class: 'tl-evt' }, e.label), h('span', { class: 'tl-sat' }, e.name)]),
+          h('div', { class: 'tl-detail' }, e.detail),
+        ]),
+        h('div', { class: 'tl-rel' }, rel < 0 ? 'now' : fmtCountShort(rel)),
+      ]));
+    }
+    if (!markedNow) tl.append(nowMarker());
+    pane.append(tl);
+  }
+
   function updatePasses(items, now) {
+    lastPassItems = items || [];
     const pane = tabPanes.passes;
     pane.innerHTML = '';
     const sort = store.get().passSort || 'time';
+    const sortBtn = (key, label, title) => h('button', { class: sort === key ? 'active' : '', title, onclick: () => store.patch({ passSort: key }) }, label);
     pane.append(h('div', { class: 'passes-head' }, [
-      h('div', { class: 'section-title', style: 'margin:0' }, 'Upcoming passes'),
-      h('div', { class: 'passes-tools' }, [
+      h('div', { class: 'seg mini' }, [
+        h('button', { class: passesView === 'list' ? 'active' : '', onclick: () => { passesView = 'list'; updatePasses(lastPassItems, Date.now()); } }, 'Passes'),
+        h('button', { class: passesView === 'timeline' ? 'active' : '', onclick: () => { passesView = 'timeline'; updatePasses(lastPassItems, Date.now()); } }, 'Timeline'),
+      ]),
+      h('div', { class: 'passes-tools' }, passesView === 'timeline' ? [] : [
         h('div', { class: 'seg mini' }, [
-          h('button', { class: sort === 'time' ? 'active' : '', title: 'Soonest first', onclick: () => store.patch({ passSort: 'time' }) }, 'Soonest'),
-          h('button', { class: sort === 'el' ? 'active' : '', title: 'Highest elevation first', onclick: () => store.patch({ passSort: 'el' }) }, 'Highest'),
+          sortBtn('time', 'Soonest', 'Soonest first'),
+          sortBtn('el', 'Highest', 'Highest elevation first'),
+          sortBtn('best', 'Best', 'Best overall quality first'),
         ]),
         h('button', { class: 'btn sm', title: 'Export upcoming passes as an .ics calendar', onclick: () => exportICS(items) }, '.ics'),
       ]),
     ]));
+
+    if (passesView === 'timeline') { renderTimeline(pane, items, now); return; }
 
     if (!items || !items.length) {
       const anyTracked = store.get().tracked.length;
@@ -757,9 +927,13 @@ export function createUI(handlers) {
 
     const selId = store.get().selected;
     const ap = store.get().hw.rotator.armedPass;
-    const ordered = sort === 'el' ? [...items].sort((a, b) => b.pass.maxEl - a.pass.maxEl) : items;
-    const missionPass = ordered.find((it) => it.id === selId && it.pass.los.getTime() >= now)
-      || ordered.find((it) => it.pass.los.getTime() >= now);
+    const ordered = sort === 'el' ? [...items].sort((a, b) => b.pass.maxEl - a.pass.maxEl)
+      : sort === 'best' ? [...items].sort((a, b) => (b.score || 0) - (a.score || 0))
+      : items;
+    // The NOW/NEXT hero is always the soonest current/upcoming pass (independent of the
+    // row sort), so it stays in step with main's readiness focus. `items` is aos-sorted.
+    const missionPass = items.find((it) => it.id === selId && it.pass.los.getTime() >= now)
+      || items.find((it) => it.pass.los.getTime() >= now);
     if (missionPass) {
       const p = missionPass.pass;
       const live = now >= p.aos && now <= p.los;
@@ -778,6 +952,7 @@ export function createUI(handlers) {
             h('div', { class: 'mission-pass-title' }, [
               h('span', { class: 'dot', style: `background:${missionPass.color};color:${missionPass.color}` }),
               h('span', { class: 'mission-hero-name' }, missionPass.name),
+              missionPass.score != null ? scoreChip(missionPass.score, missionPass.scoreParts) : '',
             ]),
             h('div', { class: 'mission-hero-aos' }, [
               h('small', {}, live ? 'LOS IN' : 'AOS IN'),
@@ -795,6 +970,7 @@ export function createUI(handlers) {
         ]),
       ]));
       drawPassMini(heroMini, missionPass.arc, missionPass.color, 112);
+      if (lastReadiness && lastReadiness.passId === missionPass.id) pane.append(renderReadiness());
     } else {
       missionAos.textContent = '—'; missionMax.textContent = '—'; missionDur.textContent = '—';
     }
@@ -822,6 +998,7 @@ export function createUI(handlers) {
               h('span', { class: 'dot', style: `background:${it.color};color:${it.color}` }),
               h('span', { class: 'pass-sat' }, it.name),
               it.visible ? h('span', { class: 'pass-vis', title: 'Optically visible — satellite sunlit while you are in darkness' }, '👁') : '',
+              it.score != null ? scoreChip(it.score, it.scoreParts) : '',
             ]),
             h('div', { class: 'pass-l2' }, [
               h('span', { class: 'pass-l2-k' }, 'MAX'),
@@ -972,7 +1149,7 @@ export function createUI(handlers) {
     view2d, view3d,
     renderList, updateClock, updateInfo, updatePasses, setActiveView, setTleStamp, setStatus,
     setStaleIds, setTleStatus, syncAutoMode, setRotorConnected, applyLayout, updateSky, isSkyActive,
-    setCableWrap, setSpaceWeather,
+    setCableWrap, setSpaceWeather, setReadiness,
     hw: hwRefs,
   };
 }
@@ -1057,6 +1234,89 @@ function buildStationPane(pane, handlers) {
     store.patch({ notifyPasses: v });
   });
   const notifyLead = inputNum(store.get().notifyLead, '1', (v) => store.patch({ notifyLead: Math.max(1, Math.round(v)) }));
+  const soundChk = checkbox(store.get().notifySound !== false, (v) => {
+    store.patch({ notifySound: v });
+    if (v) window.playPassAlert?.();
+  });
+  const soundStyle = h('select', {
+    onchange: (e) => { store.patch({ notifySoundStyle: e.target.value }); window.playPassAlert?.(e.target.value); },
+  }, [
+    h('option', { value: 'chime' }, 'Chime'),
+    h('option', { value: 'radar' }, 'Radar'),
+    h('option', { value: 'urgent' }, 'Urgent'),
+    h('option', { value: 'sonar' }, 'Sonar'),
+    h('option', { value: 'soft' }, 'Soft arpeggio'),
+    h('option', { value: 'beacon' }, 'Beacon'),
+    h('option', { value: 'sparkle' }, 'Sparkle'),
+    h('option', { value: 'descending' }, 'Descending'),
+    h('option', { value: 'digital' }, 'Digital'),
+    h('option', { value: 'double' }, 'Double tone'),
+    h('option', { value: 'low' }, 'Low tone'),
+    h('option', { value: 'motor' }, 'Motor sweep'),
+    h('option', { value: 'lock' }, 'Target lock'),
+  ]);
+  soundStyle.value = store.get().notifySoundStyle || 'chime';
+  const alertSoundOptions = [
+    ['chime', 'Chime'], ['radar', 'Radar'], ['urgent', 'Urgent'], ['sonar', 'Sonar'],
+    ['soft', 'Soft arpeggio'], ['beacon', 'Beacon'], ['sparkle', 'Sparkle'],
+    ['descending', 'Descending'], ['digital', 'Digital'], ['double', 'Double tone'], ['low', 'Low tone'],
+    ['motor', 'Motor sweep'], ['lock', 'Target lock'],
+  ];
+  const eventControl = (label, enabledKey, soundKey, fallback) => {
+    const enabled = enabledKey ? checkbox(store.get()[enabledKey] !== false, (v) => store.patch({ [enabledKey]: v })) : null;
+    const select = h('select', { onchange: (e) => {
+      store.patch({ [soundKey]: e.target.value });
+      window.playPassAlert?.(e.target.value);
+    } }, alertSoundOptions.map(([value, name]) => h('option', { value }, name)));
+    select.value = store.get()[soundKey] || fallback;
+    return h('div', { style: `display:grid;grid-template-columns:${enabled ? '1fr auto' : '1fr'};gap:8px;align-items:end` }, [
+      h('label', { class: 'fld' }, [h('span', {}, label), select]),
+      enabled ? h('label', { class: 'toggle-line switch', style: 'margin-bottom:1px' }, [h('span', {}, 'On'), enabled]) : '',
+    ]);
+  };
+  const voiceChk = checkbox(!!store.get().notifyVoice, (v) => {
+    store.patch({ notifyVoice: v });
+    if (v) window.testPassVoice?.();
+  });
+  const voiceSelect = h('select', { onchange: (e) => store.patch({ notifyVoiceURI: e.target.value }) });
+  const fillVoices = () => {
+    const voices = window.speechSynthesis?.getVoices?.() || [];
+    voiceSelect.replaceChildren(
+      h('option', { value: '__female__' }, 'Automatic female voice'),
+      h('option', { value: '' }, 'System default'),
+    );
+    voices.forEach((voice) => voiceSelect.append(h('option', { value: voice.voiceURI }, `${voice.name} (${voice.lang})`)));
+    voiceSelect.value = store.get().notifyVoiceURI || '';
+  };
+  fillVoices();
+  if ('speechSynthesis' in window) window.speechSynthesis.addEventListener('voiceschanged', fillVoices, { once: true });
+  const voiceRate = inputNum(store.get().notifyVoiceRate ?? 0.95, '0.05', (v) => store.patch({ notifyVoiceRate: Math.min(2, Math.max(0.5, v)) }));
+  voiceRate.min = '0.5'; voiceRate.max = '2';
+  const voicePitch = inputNum(store.get().notifyVoicePitch ?? 1, '0.1', (v) => store.patch({ notifyVoicePitch: Math.min(2, Math.max(0, v)) }));
+  voicePitch.min = '0'; voicePitch.max = '2';
+  const voiceVolume = inputNum(store.get().notifyVoiceVolume ?? 1, '0.1', (v) => store.patch({ notifyVoiceVolume: Math.min(1, Math.max(0, v)) }));
+  voiceVolume.min = '0'; voiceVolume.max = '1';
+  const voiceTemplate = h('textarea', {
+    rows: 5,
+    oninput: (e) => store.patch({ notifyVoiceTemplate: e.target.value }),
+  }, store.get().notifyVoiceTemplate || '');
+  const speechPresets = {
+    friendly: 'Heads up! {satellite} will rise in {minutes} {minuteWord}. The pass lasts about {duration} {durationWord} and reaches {maxElevation} degrees. {visibility}',
+    concise: '{satellite}, arriving in {minutes} {minuteWord}. Duration {duration} {durationWord}. Maximum elevation {maxElevation} degrees.',
+    mission: 'Pass alert. Target {satellite}. A O S in {minutes} {minuteWord}. Pass duration {duration} {durationWord}. Peak elevation {maxElevation} degrees. {visibility}',
+  };
+  const templatePreset = h('select', { onchange: (e) => {
+    const template = speechPresets[e.target.value];
+    if (!template) return;
+    voiceTemplate.value = template;
+    store.patch({ notifyVoiceTemplate: template });
+    window.testPassVoice?.();
+  } }, [
+    h('option', { value: '' }, 'Choose an announcement style…'),
+    h('option', { value: 'friendly' }, 'Friendly'),
+    h('option', { value: 'concise' }, 'Short and concise'),
+    h('option', { value: 'mission' }, 'Mission control'),
+  ]);
 
   // Backup / restore all settings.
   const dataMsg = h('div', { class: 'muted', style: 'font-size:11px;margin-top:6px' }, '');
@@ -1085,7 +1345,39 @@ function buildStationPane(pane, handlers) {
     h('hr', { class: 'hr' }),
     h('div', { class: 'section-title' }, 'Pass alerts'),
     h('div', { class: 'toggle-line switch' }, [h('span', {}, 'Notify before a pass'), notifyChk]),
+    h('div', { class: 'toggle-line switch' }, [h('span', {}, 'Play alert sound'), soundChk]),
+    h('label', { class: 'fld' }, [h('span', {}, 'Alert sound'), soundStyle]),
+    h('div', { class: 'section-title', style: 'margin-top:10px' }, 'Pass event alerts'),
+    eventControl('Satellite rising (AOS)', 'notifyAos', 'notifyAosSound', 'beacon'),
+    eventControl('Maximum elevation', 'notifyPeak', 'notifyPeakSound', 'sparkle'),
+    eventControl('Pass ending (LOS)', 'notifyLos', 'notifyLosSound', 'descending'),
+    h('div', { class: 'section-title', style: 'margin-top:10px' }, 'Rotator alerts'),
+    h('div', { class: 'toggle-line switch' }, [h('span', {}, 'Enable rotator sounds'), checkbox(store.get().rotatorSounds !== false, (v) => store.patch({ rotatorSounds: v }))]),
+    eventControl('Rotator connected', null, 'rotatorConnectSound', 'digital'),
+    eventControl('Rotator disconnected', null, 'rotatorDisconnectSound', 'low'),
+    eventControl('Tracking started', null, 'rotatorTrackSound', 'beacon'),
+    eventControl('Rotator parked', null, 'rotatorParkSound', 'soft'),
+    h('div', { class: 'toggle-line switch' }, [h('span', {}, 'Speak pass details'), voiceChk]),
+    h('label', { class: 'fld' }, [h('span', {}, 'Voice'), voiceSelect]),
+    h('div', { class: 'row', style: 'display:grid;grid-template-columns:repeat(3,1fr);gap:8px' }, [
+      h('label', { class: 'fld' }, [h('span', {}, 'Rate'), voiceRate]),
+      h('label', { class: 'fld' }, [h('span', {}, 'Pitch'), voicePitch]),
+      h('label', { class: 'fld' }, [h('span', {}, 'Volume'), voiceVolume]),
+    ]),
+    h('label', { class: 'fld' }, [h('span', {}, 'Announcement style'), templatePreset]),
+    h('label', { class: 'fld' }, [h('span', {}, 'What the announcer says'), voiceTemplate]),
+    h('div', { class: 'muted', style: 'font-size:10px;margin-top:-5px;line-height:1.5' }, [
+      'You can write normal sentences and include: ',
+      h('code', {}, '{satellite}'), ' name · ', h('code', {}, '{minutes}'), ' until rise · ',
+      h('code', {}, '{duration}'), ' pass length · ', h('code', {}, '{maxElevation}'), ' peak angle · ',
+      h('code', {}, '{visibility}'), ' viewing note. Use ', h('code', {}, '{minuteWord}'),
+      ' and ', h('code', {}, '{durationWord}'), ' for correct singular/plural wording.'
+    ]),
     h('label', { class: 'fld' }, [h('span', {}, 'Lead time (minutes)'), notifyLead]),
+    h('div', { class: 'row', style: 'display:flex;gap:8px' }, [
+      h('button', { class: 'btn sm', onclick: () => window.playPassAlert?.() }, 'Test sound'),
+      h('button', { class: 'btn sm', onclick: () => window.testPassVoice?.() }, 'Test voice'),
+    ]),
     h('div', { class: 'section-title' }, 'Backup'),
     h('div', { class: 'row', style: 'display:flex;gap:8px' }, [exportBtn, importBtn, importInput]),
     dataMsg

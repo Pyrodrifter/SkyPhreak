@@ -7,6 +7,7 @@
   --text-dim: #8b97a8;
   --accent: #4a9fd4;
   --accent-2: #57d0a0;
+  --success: #45db91;
   --warn: #ffd23f;
   --danger: #ff6b6b;
   --topbar-hi: #0f1620;
@@ -58,7 +59,7 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-button, input, select { font: inherit; }
+button, input, select, textarea { font: inherit; }
 button, .sat-row, .pass-row, .panel-toggle, .mission-link {
   transition: color .16s ease, background-color .16s ease, border-color .16s ease,
     box-shadow .16s ease, transform .16s ease, opacity .16s ease;
@@ -143,8 +144,17 @@ button:focus-visible, input:focus-visible, select:focus-visible {
 .sb-dot {
   width: 11px; height: 11px; border-radius: 50%;
   background: var(--danger); box-shadow: 0 0 5px color-mix(in srgb, var(--danger) 70%, transparent);
+  flex: 0 0 11px;
+  animation: sb-offline-beat 2.8s ease-in-out infinite;
 }
-.sb-dot.on { background: var(--accent-2); box-shadow: 0 0 6px color-mix(in srgb, var(--accent-2) 80%, transparent); }
+.sb-dot.on { background: var(--success); box-shadow: 0 0 6px color-mix(in srgb, var(--success) 80%, transparent); animation: sb-online-breathe 2s ease-in-out infinite; }
+.sb-dot.connecting { background: transparent; border: 2px solid rgba(64,205,255,.25); border-top-color: #40cdff; box-sizing: border-box; box-shadow: 0 0 8px rgba(64,205,255,.55); animation: sb-connecting-spin .7s linear infinite; }
+.sb-dot.disconnecting { background: #ffb347; box-shadow: 0 0 8px rgba(255,179,71,.72); animation: sb-disconnecting-pulse .55s ease-in-out infinite alternate; }
+@keyframes sb-offline-beat { 0%, 72%, 100% { opacity: .72; transform: scale(.9); } 78% { opacity: 1; transform: scale(1.12); } 84% { transform: scale(.94); } 90% { transform: scale(1.06); } }
+@keyframes sb-online-breathe { 0%, 100% { transform: scale(.92); box-shadow: 0 0 4px color-mix(in srgb, var(--accent-2) 55%, transparent); } 50% { transform: scale(1.1); box-shadow: 0 0 11px color-mix(in srgb, var(--accent-2) 92%, transparent); } }
+@keyframes sb-connecting-spin { to { transform: rotate(360deg); } }
+@keyframes sb-disconnecting-pulse { to { opacity: .38; transform: scale(.82); } }
+@media (prefers-reduced-motion: reduce) { .sb-dot, .sb-dot.on, .sb-dot.connecting, .sb-dot.disconnecting { animation: none; } }
 
 /* ----------------------------------- Body --------------------------------- */
 .body { flex: 1; display: flex; min-height: 0; }
@@ -306,7 +316,7 @@ button:focus-visible, input:focus-visible, select:focus-visible {
 
 /* --------------------------------- Inputs --------------------------------- */
 /* Comfortable, touch-friendly sizing throughout (field-ready but still tidy). */
-input[type="text"], input[type="number"], select {
+input[type="text"], input[type="number"], select, textarea {
   background: var(--panel-2);
   border: 1px solid var(--line);
   color: var(--text);
@@ -316,7 +326,7 @@ input[type="text"], input[type="number"], select {
   min-height: var(--ctl-h);
   width: 100%;
 }
-input:focus, select:focus { outline: 1px solid var(--accent); border-color: var(--accent); }
+input:focus, select:focus, textarea:focus { outline: 1px solid var(--accent); border-color: var(--accent); }
 input[type="checkbox"] { width: var(--chk); height: var(--chk); accent-color: var(--accent); cursor: pointer; flex: 0 0 auto; }
 label.fld { display: block; margin-bottom: 12px; }
 label.fld > span { display: block; color: var(--text-dim); font-size: 11px; margin-bottom: 5px; }
@@ -388,7 +398,7 @@ button.btn:disabled { opacity: 0.5; cursor: default; }
 
 /* Cable-wrap gauge in the status bar. */
 .sb-wrap-val { font-variant-numeric: tabular-nums; }
-.sb-wrap-val.ok { color: var(--accent-2); }
+.sb-wrap-val.ok { color: var(--success); text-shadow: 0 0 8px color-mix(in srgb, var(--success) 25%, transparent); }
 .sb-wrap-val.amber { color: var(--warn); }
 .sb-wrap-val.red { color: var(--danger); font-weight: 700; }
 
@@ -505,7 +515,7 @@ button.btn.xs { min-height: 22px; padding: 2px 8px; font-size: 10px; }
 .theme-accent::-webkit-color-swatch-wrapper { padding: 0; }
 
 /* Appearance popover (⚙ in the topbar): size, theme, accent, field mode. */
-.appearance-wrap { position: relative; }
+.appearance-wrap { position: relative; display: flex; }
 .appearance-pop {
   position: absolute; top: calc(100% + 6px); right: 0; z-index: 60;
   background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
@@ -674,11 +684,28 @@ html.ui-lg .mission-console {
 .mission-link:last-of-type { border: 0; }
 .mission-link span:not(.mission-dot) { display: block; color: var(--text); font-size: 10px; white-space: nowrap; }
 .mission-dot { width: 9px; height: 9px; flex: none; border-radius: 50%; background: var(--danger); box-shadow: 0 0 6px color-mix(in srgb, var(--danger) 62%, transparent); }
-.mission-dot.on { background: #39dd87; box-shadow: 0 0 9px rgba(57,221,135,.7); }
+.mission-dot.on { background: var(--success); box-shadow: 0 0 9px color-mix(in srgb, var(--success) 70%, transparent); }
 .mission-links > .mission-metric { min-width: 66px; padding: 7px 11px; border-left: 1px solid var(--line); }
 .mission-links > .mission-metric b { font-size: 13px; }
 .mission-console .topbar .toggle { flex: none; }
 .mission-console .topbar .toggle button { min-width: 78px; padding-left: 11px; padding-right: 11px; }
+.mission-console .topbar-controls { align-self: stretch; display: grid; grid-template-columns: 1fr auto; grid-template-rows: 14px 1fr; align-items: center; gap: 2px 7px; flex: 0 0 auto; padding: 7px 9px 8px 11px; border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--line)); border-radius: 9px; background: linear-gradient(150deg, rgba(7,25,40,.7), rgba(3,12,21,.55)); box-shadow: inset 0 1px rgba(255,255,255,.025); }
+.mission-console .topbar-controls-label { grid-column: 1 / -1; color: var(--accent); font-size: 8px; font-weight: 800; letter-spacing: 1.15px; line-height: 1; text-transform: uppercase; }
+.mission-console .topbar .view-switch { grid-column: 1; align-self: center; height: 34px; border-color: color-mix(in srgb, var(--accent) 25%, var(--line)); border-radius: 7px; background: rgba(2,10,17,.5); }
+.mission-console .topbar .view-switch button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-width: 72px; height: 32px; padding: 0 10px; color: var(--text-dim); font-size: 11px; font-weight: 650; }
+.mission-console .topbar .view-switch button + button { border-left: 1px solid var(--line); }
+.mission-console .topbar .view-switch button:hover { color: var(--text); background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.mission-console .topbar .view-switch button.active { color: #04121d; background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 88%, white), var(--accent)); box-shadow: inset 0 1px rgba(255,255,255,.3), 0 0 12px color-mix(in srgb, var(--accent) 18%, transparent); }
+.mission-console .topbar-settings { grid-column: 2; display: grid; place-items: center; width: 34px; height: 34px; padding: 0; border: 1px solid color-mix(in srgb, var(--accent) 25%, var(--line)); border-radius: 7px; background: rgba(2,10,17,.5); color: var(--text-dim); cursor: pointer; }
+.mission-console .topbar-settings:hover { color: var(--accent); border-color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, rgba(2,10,17,.7)); }
+.mission-console .stage-display-controls { align-self: auto; display: flex; grid-template-columns: none; grid-template-rows: none; height: 36px; gap: 0; padding: 0; border: 0; border-right: 1px solid color-mix(in srgb, var(--accent) 28%, var(--line)); border-radius: 0; background: transparent; box-shadow: none; backdrop-filter: none; }
+.mission-console .stage-display-controls .topbar-controls-label { display: none; }
+.mission-console .stage-display-controls .view-switch { height: 36px; border: 0; border-radius: 8px 0 0 8px; background: transparent; }
+.mission-console .stage-display-controls .view-switch button { min-width: 0; width: auto; height: 36px; padding: 0 10px; gap: 6px; font-size: 10px; }
+.mission-console .stage-display-controls .view-switch button span:first-child { display: inline-flex; }
+.mission-console .stage-display-controls .appearance-wrap { border-left: 1px solid color-mix(in srgb, var(--line) 80%, transparent); }
+.mission-console .stage-display-controls .topbar-settings { display: inline-flex; width: auto; height: 36px; gap: 6px; padding: 0 10px; border: 0; border-radius: 0 8px 8px 0; background: transparent; font-size: 10px; font-weight: 650; }
+.mission-console .stage-display-controls .appearance-pop { top: calc(100% + 8px); right: 0; }
 
 .mission-console .body { gap: 16px; padding: 14px 16px; background: radial-gradient(ellipse at 50% -18%, color-mix(in srgb, var(--accent) 19%, var(--bg)) 0%, var(--bg) 50%); }
 .mission-console .sidebar, .mission-console .rightpanel { border: 1px solid var(--line); border-radius: 9px; background: linear-gradient(160deg, var(--panel), color-mix(in srgb, var(--panel) 84%, #06101c)); }
@@ -697,17 +724,30 @@ html.ui-lg .mission-console {
 .mission-console .panel-toggle { top: auto; bottom: 12px; transform: none; height: 35px; width: 35px; border-radius: 7px; }
 .mission-console .panel-toggle.side { left: 10px; }
 .mission-console .panel-toggle.right { right: 10px; }
-.mission-console .stage-tools { top: 12px; right: 12px; gap: 7px; }
-.mission-console .stage-tools .btn { width: 38px; height: 36px; min-height: 36px; padding: 0; font-size: 0; background: rgba(5,13,23,.78); backdrop-filter: blur(8px); }
-.mission-console .stage-tools .btn-ico { margin: 0; }
+.mission-console .stage-tools { top: 12px; right: 12px; gap: 0; align-items: center; height: 40px; padding: 2px; overflow: visible; border: 1px solid color-mix(in srgb, var(--accent) 25%, var(--line)); border-radius: 10px; background: rgba(4,13,23,.76); box-shadow: 0 8px 22px rgba(0,0,0,.22), inset 0 1px rgba(255,255,255,.025); backdrop-filter: blur(10px); }
+.mission-console .stage-tool-group { display: flex; height: 36px; overflow: hidden; border: 0; border-radius: 0; background: transparent; box-shadow: none; backdrop-filter: none; }
+.mission-console .stage-tools .stage-tool-group .btn { width: auto; height: 36px; min-height: 36px; padding: 0 10px; border: 0; border-right: 1px solid color-mix(in srgb, var(--line) 80%, transparent); border-radius: 0; background: transparent; color: var(--text-dim); font-size: 10px; font-weight: 650; }
+.mission-console .stage-tools .stage-tool-group .btn:last-child { border-right: 0; }
+.mission-console .stage-tools .stage-tool-group .btn:hover { color: var(--text); background: color-mix(in srgb, var(--accent) 10%, transparent); }
+.mission-console .stage-tools .btn-ico { margin-right: 6px; color: var(--accent); }
+.mission-console .stage-tools button:active { transform: translateY(1px); }
+.mission-console .stage-tools button { position: relative; letter-spacing: .12px; }
+.mission-console .stage-tools .ico { width: 15px; height: 15px; flex: 0 0 15px; stroke-width: 1.8; }
+.mission-console .stage-tools .view-switch button.active::after { content: ''; position: absolute; left: 9px; right: 9px; bottom: 2px; height: 2px; border-radius: 2px; background: rgba(3,18,29,.55); }
+.mission-console .stage-tools .view-switch button:not(.active):hover svg,
+.mission-console .stage-tools .stage-tool-group .btn:hover svg { filter: drop-shadow(0 0 4px color-mix(in srgb, var(--accent) 55%, transparent)); }
+.mission-console .stage-tools .topbar-settings:hover svg { filter: none; }
 .mission-console .view-hint { left: 50%; right: auto; transform: translateX(-50%); bottom: 12px; max-width: min(66%, 420px); pointer-events: none; border: 1px solid rgba(110,180,240,.18); }
 /* Stop is permanently available in the footer; a second floating copy obscured the
    map hint and looked misplaced on compact stages. */
 .mission-console .estop-fab, .mission-console .estop-fab.show { display: none; }
-.mission-console .tabs { padding: 0 9px; background: rgba(7,15,26,.65); }
-.mission-console .tabs button { gap: 5px; padding-top: var(--mc-tab-py); padding-bottom: calc(var(--mc-tab-py) - 3px); font-size: var(--mc-tab-fs); }
+.mission-console .tabs { padding: 0 8px; gap: 2px; background: linear-gradient(180deg, rgba(7,18,30,.78), rgba(6,14,24,.58)); }
+.mission-console .tabs button { position: relative; gap: 6px; margin-top: 5px; padding-top: calc(var(--mc-tab-py) - 5px); padding-bottom: calc(var(--mc-tab-py) - 1px); border-radius: 7px 7px 0 0; font-size: var(--mc-tab-fs); letter-spacing: .65px; }
 .mission-console .tabs button:hover { color: var(--text); background: color-mix(in srgb, var(--accent) 7%, transparent); }
-.mission-console .tabs button.active { text-shadow: 0 0 14px color-mix(in srgb, var(--accent) 55%, transparent); }
+.mission-console .tabs button.active { color: var(--accent); border-bottom-color: transparent; background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 9%, transparent), transparent); text-shadow: none; }
+.mission-console .tabs button.active::after { content: ''; position: absolute; left: 18%; right: 18%; bottom: -1px; height: 2px; border-radius: 2px 2px 0 0; background: var(--accent); box-shadow: 0 0 5px color-mix(in srgb, var(--accent) 48%, transparent); }
+.mission-console .tab-ico { width: 16px; height: 16px; justify-content: center; color: color-mix(in srgb, var(--accent) 72%, var(--text-dim)); opacity: .9; }
+.mission-console .tabs button.active .tab-ico { color: var(--accent); opacity: 1; }
 .mission-console .tabpane { padding: 15px 14px 18px; }
 
 /* Section headers across the panes: accent text with a small glowing tick so Setup /
@@ -821,6 +861,58 @@ html.ui-lg .mission-console {
 
 .mission-console .pass-mini { width: 50px; height: 50px; flex: none; }
 
+/* ---- Wave 1: readiness bar, quality score chip, mission timeline ---- */
+.readiness-bar {
+  width: 100%; display: flex; align-items: center; gap: 10px; margin: 0 0 14px;
+  padding: 10px 13px; border-radius: 10px; cursor: pointer; text-align: left;
+  border: 1px solid var(--line); background: var(--panel-2); color: var(--text);
+}
+.readiness-wrap { margin: 0 0 14px; }
+.readiness-wrap .readiness-bar { margin-bottom: 0; border-radius: 10px 10px 0 0; }
+.readiness-bar .rdy-dot { width: 10px; height: 10px; flex: none; border-radius: 50%; background: var(--text-dim); }
+.readiness-bar .rdy-label { font-size: 12px; font-weight: 800; letter-spacing: .6px; }
+.readiness-bar .rdy-sub { color: var(--text-dim); font-size: 10px; }
+.readiness-bar .rdy-chev { margin-left: auto; color: var(--text-dim); font-size: 11px; }
+.readiness-bar.ready { border-color: color-mix(in srgb, var(--success) 45%, var(--line)); background: color-mix(in srgb, var(--success) 9%, var(--panel-2)); }
+.readiness-bar.ready .rdy-dot { background: var(--success); box-shadow: 0 0 8px var(--success); }
+.readiness-bar.ready .rdy-label { color: var(--success); }
+.readiness-bar.warn { border-color: color-mix(in srgb, var(--warn) 45%, var(--line)); background: color-mix(in srgb, var(--warn) 9%, var(--panel-2)); }
+.readiness-bar.warn .rdy-dot { background: var(--warn); box-shadow: 0 0 8px var(--warn); }
+.readiness-bar.warn .rdy-label { color: var(--warn); }
+.readiness-bar.fail { border-color: color-mix(in srgb, var(--danger) 50%, var(--line)); background: color-mix(in srgb, var(--danger) 10%, var(--panel-2)); }
+.readiness-bar.fail .rdy-dot { background: var(--danger); box-shadow: 0 0 8px var(--danger); }
+.readiness-bar.fail .rdy-label { color: var(--danger); }
+.readiness-list { border: 1px solid var(--line); border-top: 0; border-radius: 0 0 10px 10px; background: var(--panel-2); }
+.rdy-item { display: flex; align-items: center; gap: 9px; padding: 7px 13px; border-top: 1px solid color-mix(in srgb, var(--line) 60%, transparent); font-size: 11px; }
+.rdy-item-ic { width: 15px; flex: none; text-align: center; font-size: 11px; font-weight: 800; color: var(--text-dim); }
+.rdy-item.ok .rdy-item-ic { color: var(--success); }
+.rdy-item.warn .rdy-item-ic { color: var(--warn); }
+.rdy-item.fail .rdy-item-ic { color: var(--danger); }
+.rdy-item.off { opacity: .5; }
+.rdy-item-label { color: var(--text); font-weight: 600; }
+.rdy-item-detail { margin-left: auto; color: var(--text-dim); text-align: right; font-variant-numeric: tabular-nums; }
+
+.score-chip { flex: none; min-width: 22px; padding: 1px 6px; border-radius: 6px; font-size: 10px; font-weight: 800; font-variant-numeric: tabular-nums; text-align: center; border: 1px solid var(--line); color: var(--text-dim); }
+.score-chip.good { color: var(--success); border-color: color-mix(in srgb, var(--success) 45%, var(--line)); background: color-mix(in srgb, var(--success) 12%, transparent); }
+.score-chip.ok { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 40%, var(--line)); background: color-mix(in srgb, var(--warn) 10%, transparent); }
+
+.mc-timeline { display: flex; flex-direction: column; }
+.tl-now { display: flex; align-items: center; gap: 8px; margin: 4px 0 8px; }
+.tl-now-tag { font-size: 9px; font-weight: 800; letter-spacing: 1px; color: var(--accent-2); }
+.tl-now-line { flex: 1; height: 1px; background: linear-gradient(90deg, var(--accent-2), transparent); }
+.tl-row { display: grid; grid-template-columns: 46px 18px 1fr auto; align-items: center; gap: 10px; padding: 8px 6px; border-radius: 8px; cursor: pointer; }
+.tl-row:hover { background: rgba(12,26,44,.6); }
+.tl-row.past { opacity: .42; }
+.tl-time { font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--text); }
+.tl-icon { font-size: 13px; text-align: center; }
+.tl-body { min-width: 0; }
+.tl-label { display: flex; align-items: baseline; gap: 7px; min-width: 0; }
+.tl-evt { font-size: 11px; font-weight: 700; color: var(--text); white-space: nowrap; }
+.tl-sat { font-size: 10px; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tl-detail { margin-top: 2px; font-size: 9px; color: var(--text-dim); font-variant-numeric: tabular-nums; }
+.tl-rel { font-size: 10px; color: var(--accent); font-variant-numeric: tabular-nums; }
+.tl-row.tl-max .tl-icon, .tl-row.tl-max .tl-evt { color: var(--accent-2); }
+
 .mission-console .pass-arm {
   position: absolute; top: 7px; right: 9px; z-index: 3;
   font-size: 8px; font-weight: 700; letter-spacing: .4px;
@@ -834,16 +926,9 @@ html.ui-lg .mission-console {
 .mission-console .pass-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; min-width: 72px; }
 .mission-console .pass-stats b { display: block; margin-top: 2px; font-size: 10px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 
-.mission-console .statusbar { height: var(--mc-sb-h); gap: 10px; margin: 0 12px 12px; padding: 0 16px; border: 1px solid var(--line); border-radius: 9px; background: linear-gradient(100deg, var(--topbar-hi), #091522); }
-.mission-console .statusbar .clock { display: flex; flex-direction: column; justify-content: center; min-width: 176px; font-variant-numeric: tabular-nums; line-height: 1.05; }
-.mission-console .statusbar .clock-time { color: var(--text); font-size: var(--mc-time-fs); font-weight: 750; letter-spacing: -.35px; }
-.mission-console .statusbar .clock-meta { margin-top: 5px; color: var(--text-dim); font-size: 11px; white-space: nowrap; }
-.mission-console .statusbar .sb-item { min-height: 42px; padding: 0 11px; }
+/* (Footer styling lives in the "segmented instrument strip" block near the end of
+   this file — keep a single source of truth so specificity fights can't recur.) */
 .mission-console .statusbar .sb-track-mode { gap: 9px; }
-.mission-console .statusbar .sb-k { color: var(--accent); }
-.mission-console .statusbar .btn.sm { min-width: 96px; min-height: 44px; border-radius: 8px; }
-.mission-console .statusbar .track-btn { min-width: 78px; }
-.mission-console .statusbar .btn.danger { min-width: 150px; font-size: 14px; letter-spacing: .25px; border-width: 1px; }
 .mission-console .statusbar .btn.danger::before { content: '■ '; }
 
 /* Keep Windows text rasterisation clean at 100–150% display scaling. */
@@ -869,13 +954,123 @@ html.ui-lg .mission-console {
   .mission-console .tabs button > span:not(.tab-ico) { display: none; }
   .mission-console .tabs button { padding-left: 4px; padding-right: 4px; }
   .mission-console .tab-ico { margin: 0; }
-  .mission-console .statusbar { height: 64px; margin-left: 8px; margin-right: 8px; padding: 0 10px; }
-  .mission-console .statusbar .clock { min-width: 136px; }
-  .mission-console .statusbar .clock-time { font-size: 19px; }
-  .mission-console .statusbar .sb-target, .mission-console .statusbar .sb-wrap, .mission-console .statusbar .sb-sep { display: none; }
-  .mission-console .statusbar .track-btn { min-width: 68px; }
-  .mission-console .statusbar .btn.sm { min-width: 76px; min-height: 40px; }
-  .mission-console .statusbar .btn.danger { min-width: 126px; }
+  .mission-console .statusbar { height: 64px; margin-left: 8px; margin-right: 8px; padding: 6px; }
+  .mission-console .statusbar .clock { min-width: 0; }
+  .mission-console .clock-zone { min-width: 84px; padding: 0 8px; }
+  .mission-console .clock-zone b { font-size: 15px; }
+  .mission-console .statusbar .sb-target, .mission-console .statusbar .sb-tle, .mission-console .statusbar .sb-wrap, .mission-console .statusbar .sb-sep { display: none; }
+  .mission-console .statusbar .park-btn, .mission-console .statusbar .btn.danger { min-width: 76px; min-height: 40px; }
 }
 @media (max-width: 900px) { .mission-console .sidebar { display: none; } .mission-console .statusbar .sb-connection { display: none; } }
 @media (max-width: 840px) { .mission-console .mission-metrics { display: none; } .mission-console .brand-logo { width: 42px; height: 42px; } .mission-console .brand-text small, .mission-target-kind { display: none; } }
+
+/* Mission-control footer: segmented instrument strip. */
+.mission-console .statusbar { height: var(--mc-sb-h); gap: 6px; margin: 0 8px 10px; padding: 8px; border-color: color-mix(in srgb, var(--accent) 28%, var(--line)); border-radius: 7px; background: linear-gradient(100deg, #06111d, #071827 50%, #06111d); box-shadow: inset 0 1px rgba(255,255,255,.025), 0 8px 24px rgba(0,0,0,.28); }
+/* Two side-by-side zones (UTC | LOCAL). flex-direction is set explicitly — an older
+   column rule once leaked in here and stacked the zones taller than the bar. */
+.mission-console .statusbar .clock { display: flex; flex-direction: row; align-items: stretch; min-width: 0; }
+.mission-console .clock-zone { display: flex; flex-direction: column; justify-content: center; min-width: 104px; padding: 0 12px; border-right: 1px solid var(--line); }
+.mission-console .clock-zone:last-child { border-right: 0; }
+.mission-console .clock-zone small, .mission-console .statusbar .sb-k { display: block; margin-bottom: 5px; color: var(--accent); font-size: 8px; font-weight: 800; letter-spacing: 1px; text-transform: uppercase; }
+.mission-console .clock-zone b { color: var(--text); font-size: 19px; font-weight: 650; letter-spacing: .25px; }
+.mission-console .clock-zone em { margin-top: 5px; color: var(--text-dim); font-size: 9px; font-style: normal; white-space: nowrap; }
+.mission-console .statusbar .sb-item { min-height: 46px; padding: 0 12px; border-right: 1px solid var(--line); }
+.mission-console .sb-orbit-icon, .mission-console .sb-state-icon { display: grid; place-items: center; width: 31px; height: 31px; min-width: 31px; min-height: 31px; flex: 0 0 31px; box-sizing: border-box; border: 1px solid var(--accent); border-radius: 50%; color: var(--accent); font-size: 20px; box-shadow: inset 0 0 10px color-mix(in srgb, var(--accent) 12%, transparent); transition: color .45s ease, border-color .45s ease, box-shadow .45s ease, opacity .45s ease; }
+.mission-console .sb-orbit-icon::before, .mission-console .sb-state-icon::before { content: ''; display: block; width: 11px; height: 11px; box-sizing: border-box; border: 1px solid currentColor; border-radius: 50%; box-shadow: 0 0 6px color-mix(in srgb, currentColor 45%, transparent); }
+.mission-console .sb-state-icon::before { width: 12px; height: 12px; border-width: 2px; background: color-mix(in srgb, currentColor 24%, transparent); }
+.mission-console .sb-orbit-icon { position: relative; }
+.mission-console .sb-orbit-icon.active { color: var(--success); animation: sb-orbit-rotate 2.4s linear infinite; }
+.mission-console .sb-orbit-icon.active::after { content: ''; position: absolute; top: -3px; left: 50%; width: 5px; height: 5px; box-sizing: border-box; border-radius: 50%; background: currentColor; box-shadow: 0 0 8px currentColor; transform: translateX(-50%); transition: width .4s ease, height .4s ease, background-color .45s ease, box-shadow .45s ease; }
+.mission-console .sb-orbit-icon.active:not(.connected) { color: #ffb347; animation-duration: 4s; opacity: .72; }
+.mission-console .sb-orbit-icon.active.slewing { color: #b77cff; border-color: #b77cff; box-shadow: inset 0 0 12px rgba(183,124,255,.28), 0 0 10px rgba(183,124,255,.4); }
+.mission-console .sb-orbit-icon.active.slewing::before { border-color: currentColor; background: rgba(183,124,255,.22); }
+.mission-console .sb-orbit-icon.active.slewing::after { width: 7px; height: 7px; box-shadow: 0 0 12px currentColor; }
+.mission-console .sb-state-icon.seeking { color: #ffb347; animation: sb-target-seek 1.1s ease-in-out infinite alternate; }
+.mission-console .sb-state-icon.tracking { color: var(--success); animation: sb-target-lock 1.5s ease-out infinite; }
+.mission-console .sb-state-icon.parked { color: #70a6c7; animation: sb-target-parked 2.8s ease-in-out infinite; }
+@keyframes sb-orbit-rotate { to { transform: rotate(360deg); } }
+@keyframes sb-target-seek { to { box-shadow: inset 0 0 13px rgba(255,179,71,.28), 0 0 9px rgba(255,179,71,.38); } }
+@keyframes sb-target-lock { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--success) 55%, transparent); } 70%, 100% { box-shadow: 0 0 0 8px transparent; } }
+@keyframes sb-target-parked { 50% { opacity: .58; } }
+@media (prefers-reduced-motion: reduce) { .mission-console .sb-orbit-icon.active, .mission-console .sb-orbit-icon.active.slewing, .mission-console .sb-state-icon.seeking, .mission-console .sb-state-icon.tracking, .mission-console .sb-state-icon.parked { animation: none; } }
+.mission-console .sb-track-mode .track-btns { gap: 2px; }
+.mission-console .sb-track-mode .track-btn { min-width: 0; min-height: 26px; padding: 0 9px; border: 0; border-radius: 6px; background: transparent; color: var(--text-dim); font-size: 11px; }
+.mission-console .sb-track-mode .track-btn:hover { color: var(--text); }
+.mission-console .sb-track-mode .track-btn.active { background: var(--accent); color: #04121d; }
+.mission-console .sb-target .sb-val { display: block; font-size: 12px; }
+.mission-console .sb-tle { flex-direction: column; align-items: flex-start; justify-content: center; min-width: 92px; }
+/* Big slab buttons — Park / Stop / collapse only. The track-mode buttons are ALSO
+   `.btn.sm`, so this must never target `.btn.sm` broadly or it flattens the seg. */
+.mission-console .statusbar .park-btn, .mission-console .statusbar .btn.danger, .mission-console .statusbar .sb-collapse { min-width: 92px; min-height: 52px; border-radius: 8px; background: linear-gradient(180deg, rgba(10,31,49,.95), rgba(7,23,38,.95)); border-color: color-mix(in srgb, var(--accent) 22%, var(--line)); }
+.mission-console .statusbar .park-btn { color: #9ec9e9; font-size: 13px; }
+.mission-console .statusbar .btn.danger { min-width: 138px; color: #ff626c; font-size: 13px; border-color: rgba(255,82,92,.5); background: rgba(54,14,23,.18); }
+.mission-console .statusbar .sb-connection { min-width: 92px; border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--line)); border-radius: 8px; background: rgba(7,25,40,.72); }
+.mission-console .statusbar button.sb-connection { color: var(--text-dim); font: inherit; cursor: pointer; text-align: left; }
+.mission-console .statusbar button.sb-connection:hover { border-color: color-mix(in srgb, var(--accent) 60%, var(--line)); background: rgba(10,35,55,.96); }
+.mission-console .statusbar .sb-connection .sb-txt { display: flex; flex-direction: column; font-size: 9px; }
+.mission-console .statusbar .sb-connection .sb-txt::after { content: 'Offline'; margin-top: 3px; color: var(--text-dim); font-size: 8px; }
+.mission-console .statusbar .sb-connection:has(.sb-dot.on) .sb-txt::after { content: 'Connected'; color: var(--success); }
+.mission-console .statusbar .sb-collapse { min-width: 34px; width: 34px; padding: 0; font-size: 16px; color: var(--text-dim); }
+.quick-connect-pop { position: fixed; z-index: 1000; width: 240px; box-sizing: border-box; padding: 14px; border: 1px solid color-mix(in srgb, var(--accent) 42%, var(--line)); border-radius: 10px; background: linear-gradient(150deg, #0a2032, #071521); color: var(--text); box-shadow: 0 14px 38px rgba(0,0,0,.55), inset 0 1px rgba(255,255,255,.04); }
+.quick-connect-head { display: flex; align-items: center; gap: 9px; font-size: 13px; }
+.quick-connect-state { margin: 5px 0 10px 20px; color: var(--text-dim); font-size: 10px; text-transform: uppercase; letter-spacing: .8px; }
+.quick-connect-detail { overflow: hidden; margin-bottom: 12px; padding: 9px; border: 1px solid var(--line); border-radius: 6px; background: rgba(2,10,17,.5); color: var(--text-dim); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.quick-connect-action { width: 100%; }
+.quick-connect-hint { margin-top: 9px; color: var(--text-dim); font-size: 9px; text-align: center; }
+.mission-console .statusbar .sb-collapse:hover { color: var(--text); }
+
+/* Shared footer alignment grid. All information modules use the same 48 px
+   content box so labels, values, icons, and dividers share a baseline. */
+.mission-console .statusbar { align-items: center; }
+.mission-console .statusbar .clock,
+.mission-console .statusbar .sb-item { height: 48px; min-height: 48px; box-sizing: border-box; }
+.mission-console .clock-zone { height: 48px; box-sizing: border-box; padding-top: 3px; padding-bottom: 3px; }
+.mission-console .statusbar .sb-track-mode,
+.mission-console .statusbar .sb-target { align-items: center; }
+.mission-console .statusbar .sb-track-mode > div,
+.mission-console .statusbar .sb-target > div { display: flex; min-width: 0; height: 42px; flex-direction: column; justify-content: center; }
+.mission-console .statusbar .sb-k { line-height: 10px; margin-bottom: 4px; }
+.mission-console .statusbar .sb-val { line-height: 18px; }
+.mission-console .statusbar .sb-tle { height: 48px; min-height: 48px; }
+.mission-console .statusbar .sb-connection { height: 52px; min-height: 52px; justify-content: center; padding: 0 12px; border-right: 1px solid color-mix(in srgb, var(--accent) 18%, var(--line)); }
+.mission-console .statusbar .park-btn,
+.mission-console .statusbar .btn.danger { display: inline-flex; align-items: center; justify-content: center; gap: 8px; line-height: 1; }
+.mission-console .statusbar .btn.danger::before { content: none; }
+.mission-console .sb-btn-icon { display: inline-grid; place-items: center; width: 20px; height: 20px; flex: 0 0 20px; border: 1px solid currentColor; border-radius: 50%; font-size: 12px; }
+.mission-console .sb-stop-icon { width: 10px; height: 10px; flex: 0 0 10px; border-radius: 1px; background: currentColor; box-shadow: 0 0 8px color-mix(in srgb, currentColor 65%, transparent); }
+.mission-console .statusbar .sb-collapse { display: inline-grid; place-items: center; }
+
+/* Collapsed footer: a slim strip — clock and STOP stay reachable, everything else
+   tucks away until the chevron re-expands it. */
+.mission-console .statusbar.collapsed { height: 46px; padding: 5px 8px; }
+.mission-console .statusbar.collapsed .sb-item, .mission-console .statusbar.collapsed .sb-sep,
+.mission-console .statusbar.collapsed .park-btn { display: none; }
+.mission-console .statusbar.collapsed .clock-zone { flex-direction: row; align-items: baseline; gap: 7px; min-width: 0; }
+.mission-console .statusbar.collapsed .clock-zone small { margin-bottom: 0; }
+.mission-console .statusbar.collapsed .clock-zone b { font-size: 14px; }
+.mission-console .statusbar.collapsed .clock-zone em { display: none; }
+.mission-console .statusbar.collapsed .btn.danger, .mission-console .statusbar.collapsed .sb-collapse { min-height: 34px; }
+
+/* These must follow the footer block above so desktop min-widths do not override
+   the compact layout at smaller window sizes. */
+@media (max-width: 1080px) {
+  .mission-console .statusbar { height: 64px; margin-left: 8px; margin-right: 8px; padding: 6px; }
+  .mission-console .statusbar .clock { min-width: 0; }
+  .mission-console .clock-zone { min-width: 84px; padding: 0 8px; }
+  .mission-console .clock-zone b { font-size: 15px; }
+  .mission-console .statusbar .sb-target, .mission-console .statusbar .sb-tle,
+  .mission-console .statusbar .sb-wrap, .mission-console .statusbar > .sb-sep { display: none; }
+  .mission-console .statusbar .park-btn, .mission-console .statusbar .btn.danger { min-width: 76px; min-height: 40px; }
+  .mission-console .statusbar .btn.danger { min-width: 112px; }
+}
+@media (max-width: 900px) {
+  .mission-console .statusbar .sb-connection { display: none; }
+  .mission-console .statusbar .sb-track-mode { border-right: 0; }
+}
+@media (max-width: 720px) {
+  .mission-console .clock-zone:last-child, .mission-console .statusbar .park-btn { display: none; }
+  .mission-console .statusbar .clock { flex: 0 0 auto; }
+  .mission-console .statusbar .sb-track-mode { padding: 0 6px; }
+  .mission-console .sb-orbit-icon { display: none; }
+  .mission-console .statusbar .btn.danger { min-width: 96px; }
+}
