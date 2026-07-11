@@ -60,10 +60,14 @@ body {
 }
 
 button, input, select, textarea { font: inherit; }
-button, .sat-row, .pass-row, .panel-toggle, .mission-link {
+button, .panel-toggle, .mission-link {
   transition: color .16s ease, background-color .16s ease, border-color .16s ease,
     box-shadow .16s ease, transform .16s ease, opacity .16s ease;
 }
+/* Satellite/sky rows, pass cards and readiness/timeline controls are recreated by
+   the 1 Hz live update. Transitions on those fresh nodes restart under a stationary
+   pointer and look like a rhythmic flicker, so their hover feedback is immediate. */
+.sat-row, .pass-row, .readiness-bar, .tl-row, .pass-arm { transition: none !important; }
 button:focus-visible, input:focus-visible, select:focus-visible {
   outline: 2px solid color-mix(in srgb, var(--accent) 75%, white);
   outline-offset: 2px;
@@ -310,7 +314,7 @@ button:focus-visible, input:focus-visible, select:focus-visible {
   flex: 0 0 auto; min-width: 30px; text-align: right; font-variant-numeric: tabular-nums;
   font-size: 11px; font-weight: 600; color: var(--text-dim);
 }
-.sky-el.up { color: var(--accent-2); }
+.sky-el.up { color: var(--success); text-shadow: 0 0 7px color-mix(in srgb, var(--success) 22%, transparent); }
 .sky-el.down { opacity: 0.45; }
 .sky-el.none { min-width: 0; }
 
@@ -369,7 +373,7 @@ button.btn:disabled { opacity: 0.5; cursor: default; }
 .kv .k { color: var(--text-dim); }
 .kv .v { text-align: right; font-variant-numeric: tabular-nums; color: var(--text); }
 .kv .v.big { font-size: 15px; font-weight: 600; }
-.kv .v.up { color: var(--accent-2); }
+.kv .v.up { color: var(--success); }
 .kv .v.down { color: var(--text-dim); }
 .kv .v.warn { color: var(--warn); }
 
@@ -378,16 +382,16 @@ button.btn:disabled { opacity: 0.5; cursor: default; }
 .dash-name { font-size: 16px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dash-id { color: var(--text-dim); font-size: 11px; font-variant-numeric: tabular-nums; flex: none; }
 .dash-badge { flex: none; font-size: 9px; font-weight: 700; letter-spacing: 0.5px; padding: 2px 6px; border-radius: 4px; }
-.dash-badge.up { color: var(--accent-2); background: color-mix(in srgb, var(--accent-2) 16%, transparent); }
+.dash-badge.up { color: var(--success); background: color-mix(in srgb, var(--success) 16%, transparent); }
 .dash-badge.down { color: var(--text-dim); background: rgba(255,255,255,0.04); }
 .dash-status { font-weight: 600; color: var(--text-dim); margin: 0 0 13px; }
-.dash-status.up { color: var(--accent-2); }
+.dash-status.up { color: var(--success); }
 .stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 15px; }
 .stat { background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 11px 12px; }
 .stat-l { color: var(--text-dim); font-size: 9px; text-transform: uppercase; letter-spacing: 0.5px; }
 .stat-v { font-size: var(--stat-fs); font-weight: 600; font-variant-numeric: tabular-nums; margin-top: 2px; color: var(--text); }
 .stat.big .stat-v { font-size: var(--stat-fs-big); }
-.stat.up .stat-v { color: var(--accent-2); }
+.stat.up .stat-v { color: var(--success); }
 .stat.down .stat-v { color: var(--text-dim); }
 .stat.warn .stat-v { color: var(--warn); }
 
@@ -564,7 +568,7 @@ button.btn.xs { min-height: 22px; padding: 2px 8px; font-size: 10px; }
 .tab-ico { margin-right: 6px; opacity: 0.9; }
 .tabs button { display: inline-flex; align-items: center; justify-content: center; }
 .stage-tools .btn { display: inline-flex; align-items: center; justify-content: center; }
-.tle-status { font-size: 11px; color: var(--accent-2); }
+.tle-status { font-size: 11px; color: var(--success); text-shadow: 0 0 7px color-mix(in srgb, var(--success) 20%, transparent); }
 .tle-status.warn { color: var(--warn); }
 .stale-badge {
   font-size: 9px; text-transform: uppercase; letter-spacing: 0.4px;
@@ -803,8 +807,8 @@ html.ui-lg .mission-console {
 .mission-pass-eyebrow { text-transform: uppercase; letter-spacing: 1.1px; font-size: 10px; font-weight: 800; color: var(--accent-2); }
 .mission-live { display: inline-flex; align-items: center; gap: 6px; font-size: 9px; font-weight: 800; letter-spacing: 1px; text-transform: uppercase; color: var(--text-dim); }
 .mission-live-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text-dim); }
-.mission-live.on { color: var(--accent-2); }
-.mission-live.on .mission-live-dot { background: var(--accent-2); box-shadow: 0 0 8px var(--accent-2); animation: mc-pulse 1.6s ease-in-out infinite; }
+.mission-live.on { color: var(--success); }
+.mission-live.on .mission-live-dot { background: var(--success); box-shadow: 0 0 8px var(--success); animation: mc-pulse 1.6s ease-in-out infinite; }
 @keyframes mc-pulse { 50% { opacity: .3; } }
 
 /* Info-tab pointing hero — big AZ / EL, mirrors the Passes NOW/NEXT hero. */
@@ -814,7 +818,7 @@ html.ui-lg .mission-console {
   background: linear-gradient(150deg, color-mix(in srgb, var(--accent) 13%, var(--panel-2)), var(--panel-2) 62%);
   box-shadow: inset 0 0 24px color-mix(in srgb, var(--accent) 7%, transparent);
 }
-.info-hero.up { border-color: color-mix(in srgb, var(--accent-2) 48%, var(--line)); }
+.info-hero.up { border-color: color-mix(in srgb, var(--success) 48%, var(--line)); }
 .info-hero-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin-bottom: 13px; }
 .info-hero-id { min-width: 0; }
 .info-hero-name { font-size: 16px; font-weight: 800; letter-spacing: .2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -822,10 +826,10 @@ html.ui-lg .mission-console {
 .info-azel { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .info-azel-cell small { display: block; text-transform: uppercase; letter-spacing: 1px; font-size: 9px; font-weight: 800; color: var(--text-dim); }
 .info-azel-cell b { display: block; margin-top: 3px; font-size: 30px; line-height: 1; font-weight: 800; font-variant-numeric: tabular-nums; letter-spacing: -.5px; color: var(--accent); }
-.info-azel-cell b.up { color: var(--accent-2); }
+.info-azel-cell b.up { color: var(--success); }
 .info-azel-cell b.down { color: var(--text-dim); }
 .info-status { margin-top: 13px; font-size: 11px; font-weight: 600; color: var(--text-dim); font-variant-numeric: tabular-nums; }
-.info-status.up { color: var(--accent-2); }
+.info-status.up { color: var(--success); }
 
 .mission-hero-body { display: flex; gap: 14px; margin-top: 11px; align-items: flex-start; }
 .mission-hero-info { flex: 1 1 auto; min-width: 0; }
@@ -1016,10 +1020,15 @@ html.ui-lg .mission-console {
 @keyframes sb-target-lock { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--success) 55%, transparent); } 70%, 100% { box-shadow: 0 0 0 8px transparent; } }
 @keyframes sb-target-parked { 50% { opacity: .58; } }
 @media (prefers-reduced-motion: reduce) { .mission-console .sb-orbit-icon.active, .mission-console .sb-orbit-icon.active.slewing, .mission-console .sb-state-icon.seeking, .mission-console .sb-state-icon.tracking, .mission-console .sb-state-icon.parked { animation: none; } }
-.mission-console .sb-track-mode .track-btns { gap: 2px; }
-.mission-console .sb-track-mode .track-btn { min-width: 0; min-height: 26px; padding: 0 9px; border: 0; border-radius: 6px; background: transparent; color: var(--text-dim); font-size: 11px; }
-.mission-console .sb-track-mode .track-btn:hover { color: var(--text); }
-.mission-console .sb-track-mode .track-btn.active { background: var(--accent); color: #04121d; }
+.mission-console .sb-track-mode .track-btns { gap: 3px; padding: 2px; border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--line)); border-radius: 9px; background: rgba(2,10,17,.42); }
+.mission-console .sb-track-mode .track-btn { min-width: 66px; min-height: 38px; padding: 0 12px; border: 0; border-radius: 7px; background: transparent; color: var(--text-dim); font-size: 11px; font-weight: 700; touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+.mission-console .sb-track-mode .track-btn:hover { color: var(--text); background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.mission-console .sb-track-mode .track-btn:active { transform: scale(.97); }
+.mission-console .sb-track-mode .track-btn.active { background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 90%, white), var(--accent)); color: #04121d; box-shadow: inset 0 1px rgba(255,255,255,.3), 0 0 9px color-mix(in srgb, var(--accent) 18%, transparent); }
+.mission-console .sb-track-mode .track-btn:focus-visible { outline-offset: 1px; }
+@media (pointer: coarse) {
+  .mission-console .sb-track-mode .track-btn { min-width: 74px; min-height: 42px; padding: 0 14px; font-size: 12px; }
+}
 .mission-console .sb-target .sb-val { display: block; font-size: 12px; }
 .mission-console .sb-tle { flex-direction: column; align-items: flex-start; justify-content: center; min-width: 92px; }
 /* Big slab buttons — Park / Stop / collapse only. The track-mode buttons are ALSO
@@ -1098,6 +1107,7 @@ html.ui-lg .mission-console {
   .mission-console .clock-zone:last-child, .mission-console .statusbar .park-btn { display: none; }
   .mission-console .statusbar .clock { flex: 0 0 auto; }
   .mission-console .statusbar .sb-track-mode { padding: 0 6px; }
+  .mission-console .sb-track-mode .track-btn { min-width: 58px; padding: 0 8px; }
   .mission-console .sb-orbit-icon { display: none; }
   .mission-console .statusbar .btn.danger { min-width: 96px; }
 }

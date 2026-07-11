@@ -284,8 +284,11 @@ export function createUI(handlers) {
   // Auto-track mode buttons — now live in the status bar (built below).
   const trackBtns = {};
   const trackModes = [['off', 'Off'], ['selected', 'Selected'], ['schedule', 'Tracked']];
-  const trackBar = h('div', { class: 'track-btns' }, trackModes.map(([m, label]) =>
-    (trackBtns[m] = h('button', { class: 'btn sm track-btn', title: trackTitle(m), onclick: () => store.patchIn('hw.rotator', { autoMode: m }) }, label))));
+  const trackBar = h('div', { class: 'track-btns', role: 'radiogroup', 'aria-label': 'Rotator tracking mode' }, trackModes.map(([m, label]) =>
+    (trackBtns[m] = h('button', {
+      class: 'btn sm track-btn', type: 'button', role: 'radio', 'aria-checked': 'false',
+      title: trackTitle(m), onclick: () => store.patchIn('hw.rotator', { autoMode: m }),
+    }, label))));
 
   // Edge handles to collapse/expand the side panels (map-first mode).
   const sideToggle = h('button', { class: 'panel-toggle side', title: 'Collapse / expand the list', onclick: () => store.patch({ sideCollapsed: !store.get().sideCollapsed }) }, '◂');
@@ -1183,7 +1186,11 @@ export function createUI(handlers) {
   // Sync the on-map auto-track buttons + the Hardware-pane dropdown to the store.
   function syncAutoMode() {
     const mode = store.get().hw.rotator.autoMode || 'off';
-    for (const [m] of trackModes) trackBtns[m].classList.toggle('active', m === mode);
+    for (const [m] of trackModes) {
+      const active = m === mode;
+      trackBtns[m].classList.toggle('active', active);
+      trackBtns[m].setAttribute('aria-checked', active ? 'true' : 'false');
+    }
     if (hwRefs.autoModeSel) hwRefs.autoModeSel.value = mode;
   }
 

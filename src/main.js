@@ -58,6 +58,10 @@ let selCache = { key: '', passes: [], arc: [] };
 // Passes for every tracked (checked) satellite, merged and time-sorted for the
 // Passes tab. Recomputed only when the tracked set / station / min-el changes.
 let trackedPassesCache = { key: '', list: [] };
+// Separate geometric windows used to drive the rotator. The visible pass list can
+// intentionally hide the low horizon (e.g. 5°), but hardware must obey its own
+// tracking minimum (often 0°) so AOS/LOS are not shortened by a display filter.
+let rotatorPassesCache = [];
 
 // HW connection flags (mirrored from main-process status events).
 let rotConnected = false;
@@ -453,7 +457,7 @@ function onState(state) {
     recomputeSelected();
   }
   // Recompute the all-tracked pass list when the checked set (or location) changes.
-  const tkey = `${[...state.tracked].sort().join(',')}|${state.station.lat}|${state.station.lon}|${state.station.altKm}|${state.minEl}`;
+  const tkey = `${[...state.tracked].sort().join(',')}|${state.station.lat}|${state.station.lon}|${state.station.altKm}|${state.minEl}|${state.hw.rotator.minEl}`;
   if (tkey !== trackedPassesCache.key) {
     trackedPassesCache.key = tkey;
     recomputeTrackedPasses();
@@ -511,11 +515,14 @@ function recomputeTrackedPasses() {
   const state = store.get();
   const observer = state.station;
   const out = [];
+  const rotatorOut = [];
   for (const id of state.tracked) {
     const sat = catalogById.get(id);
     if (!sat) continue;
     const passes = predictPasses(sat.satrec, observer, { minEl: state.minEl, hours: 48, count: 8 });
     const color = colorFor(id, state.tracked);
+    const controlPasses = predictPasses(sat.satrec, observer, { minEl: state.hw.rotator.minEl ?? 0, hours: 48, count: 8 });
+    for (const p of controlPasses) rotatorOut.push({ id, name: sat.name, pass: p });
     for (const p of passes) {
       // Sample the sky-track (az/el) AOS→LOS for the row's mini polar plot.
       const a = p.aos.getTime();
@@ -551,6 +558,8 @@ function recomputeTrackedPasses() {
   }
   out.sort((a, b) => a.pass.aos - b.pass.aos);
   trackedPassesCache.list = out;
+  rotatorOut.sort((a, b) => a.pass.aos - b.pass.aos);
+  rotatorPassesCache = rotatorOut;
 }
 
 // Is a satellite (given its sub-point + altitude) in sunlight rather than Earth's
@@ -1102,7 +1111,7 @@ let preslewId = null; // id we're pre-positioning for (AOS az), before the pass 
 // Stay locked on the current pass until its LOS, then jump to the best pass still
 // in progress; park when none is active.
 function pickScheduledTarget(frame, nowMs) {
-  const active = trackedPassesCache.list.filter(
+  const active = rotatorPassesCache.filter(
     (p) => nowMs >= p.pass.aos.getTime() && nowMs <= p.pass.los.getTime()
   );
   if (!active.length) { schedLockId = null; return null; }
@@ -1112,7 +1121,7 @@ function pickScheduledTarget(frame, nowMs) {
   };
   // An armed pass wins outright while it's in progress (the operator committed to it).
   const armed = store.get().hw.rotator.armedPass;
-  if (armed && active.some((p) => p.id === armed.id && Math.abs(p.pass.aos.getTime() - armed.aos) < 60000)) {
+  if (armed && active.some((p) => p.id === armed.id)) {
     const t = liveLook(armed.id);
     if (t) { schedLockId = armed.id; return t; }
   }
@@ -1262,7 +1271,7 @@ function pickPreslew(nowMs, mode, rot) {
   if (mode === 'schedule') {
     // If a pass is armed, pre-slew only for it; otherwise the soonest imminent one.
     const armed = rot.armedPass;
-    for (const p of trackedPassesCache.list) {
+    for (const p of rotatorPassesCache) {
       const t = p.pass.aos.getTime();
       if (armed && !(p.id === armed.id && Math.abs(t - armed.aos) < 60000)) continue;
       if (t > nowMs && t - nowMs <= lead && (!best || t < best.t)) {
