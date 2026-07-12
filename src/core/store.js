@@ -41,6 +41,9 @@ const DEFAULTS = {
   notifyVoiceRate: 0.95,
   notifyVoicePitch: 1,
   notifyVoiceVolume: 1,
+  // Robotic "ship computer" delivery (Subnautica-style): flat low pitch, deliberate
+  // rate, preceded by a two-tone computer chime. Overrides the rate/pitch sliders.
+  notifyVoiceRobotic: false,
   notifyVoiceTemplate: '{satellite} will rise in {minutes} {minuteWord}. Pass duration is about {duration} {durationWord}, with a maximum elevation of {maxElevation} degrees. {visibility}',
   notifyLead: 5, // minutes before AOS to notify
   mapStyle: 'vector', // 'vector' = dark blue lines | 'relief' = shaded topographic

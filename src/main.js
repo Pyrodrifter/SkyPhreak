@@ -58,6 +58,10 @@ let selCache = { key: '', passes: [], arc: [] };
 // Passes for every tracked (checked) satellite, merged and time-sorted for the
 // Passes tab. Recomputed only when the tracked set / station / min-el changes.
 let trackedPassesCache = { key: '', list: [] };
+// Separate geometric windows used to drive the rotator. The visible pass list can
+// intentionally hide the low horizon (e.g. 5°), but hardware must obey its own
+// tracking minimum (often 0°) so AOS/LOS are not shortened by a display filter.
+let rotatorPassesCache = [];
 
 // HW connection flags (mirrored from main-process status events).
 let rotConnected = false;
@@ -453,7 +457,7 @@ function onState(state) {
     recomputeSelected();
   }
   // Recompute the all-tracked pass list when the checked set (or location) changes.
-  const tkey = `${[...state.tracked].sort().join(',')}|${state.station.lat}|${state.station.lon}|${state.station.altKm}|${state.minEl}`;
+  const tkey = `${[...state.tracked].sort().join(',')}|${state.station.lat}|${state.station.lon}|${state.station.altKm}|${state.minEl}|${state.hw.rotator.minEl}`;
   if (tkey !== trackedPassesCache.key) {
     trackedPassesCache.key = tkey;
     recomputeTrackedPasses();
@@ -511,11 +515,14 @@ function recomputeTrackedPasses() {
   const state = store.get();
   const observer = state.station;
   const out = [];
+  const rotatorOut = [];
   for (const id of state.tracked) {
     const sat = catalogById.get(id);
     if (!sat) continue;
     const passes = predictPasses(sat.satrec, observer, { minEl: state.minEl, hours: 48, count: 8 });
     const color = colorFor(id, state.tracked);
+    const controlPasses = predictPasses(sat.satrec, observer, { minEl: state.hw.rotator.minEl ?? 0, hours: 48, count: 8 });
+    for (const p of controlPasses) rotatorOut.push({ id, name: sat.name, pass: p });
     for (const p of passes) {
       // Sample the sky-track (az/el) AOS→LOS for the row's mini polar plot.
       const a = p.aos.getTime();
@@ -551,6 +558,8 @@ function recomputeTrackedPasses() {
   }
   out.sort((a, b) => a.pass.aos - b.pass.aos);
   trackedPassesCache.list = out;
+  rotatorOut.sort((a, b) => a.pass.aos - b.pass.aos);
+  rotatorPassesCache = rotatorOut;
 }
 
 // Is a satellite (given its sub-point + altitude) in sunlight rather than Earth's
@@ -688,6 +697,7 @@ function playPassAlert(style = store.get().notifySoundStyle || 'chime') {
       low: [[260, 0, 0.25], [330, 0.28, 0.35]],
       motor: [[320, 0, 0.08], [380, 0.09, 0.08], [450, 0.18, 0.08], [540, 0.27, 0.2]],
       lock: [[880, 0, 0.07], [1100, 0.1, 0.16]],
+      computer: [[659, 0, 0.08], [988, 0.1, 0.08], [1319, 0.2, 0.16]], // ship-computer preamble
     };
     (patterns[style] || patterns.chime).forEach(([frequency, offset, duration]) => {
       const at = start + offset;
@@ -707,6 +717,43 @@ function playPassAlert(style = store.get().notifySoundStyle || 'chime') {
   }
 }
 
+// Web Speech exposes no gender metadata, so "automatic female" matches commonly
+// female-named system voices and falls back gracefully.
+const FEMALE_VOICE = /aria|ava|emma|jenny|joanna|karen|kendra|kimberly|linda|michelle|moira|salli|samantha|susan|tessa|victoria|zira|female/i;
+function pickVoice(st) {
+  const voices = window.speechSynthesis.getVoices();
+  return st.notifyVoiceURI === '__female__'
+    ? (voices.find((v) => FEMALE_VOICE.test(v.name)) || voices.find((v) => /^en[-_]/i.test(v.lang)) || voices[0])
+    : voices.find((v) => v.voiceURI === st.notifyVoiceURI);
+}
+
+// Apply voice + delivery to an utterance. Robotic mode forces a flat, deep,
+// deliberate "ship computer" cadence (Subnautica-style) over the rate/pitch sliders.
+function configureVoice(utterance, st) {
+  const voice = pickVoice(st);
+  if (voice) utterance.voice = voice;
+  if (st.notifyVoiceRobotic) {
+    utterance.rate = 0.86;
+    utterance.pitch = 0.32;
+  } else {
+    utterance.rate = Math.min(2, Math.max(0.5, st.notifyVoiceRate || 0.95));
+    utterance.pitch = Math.min(2, Math.max(0, st.notifyVoicePitch ?? 1));
+  }
+  utterance.volume = Math.min(1, Math.max(0, st.notifyVoiceVolume ?? 1));
+}
+
+// Speak the utterance — in robotic mode, precede it with the computer chime so the
+// words land just after the "attention" tone, like a submarine PDA.
+function speakUtterance(utterance, st) {
+  window.speechSynthesis.cancel();
+  if (st.notifyVoiceRobotic) {
+    playPassAlert('computer');
+    setTimeout(() => window.speechSynthesis.speak(utterance), 340);
+  } else {
+    window.speechSynthesis.speak(utterance);
+  }
+}
+
 function speakPassAlert(pass, mins) {
   if (!('speechSynthesis' in window)) return;
   const st = store.get();
@@ -722,20 +769,9 @@ function speakPassAlert(pass, mins) {
   };
   const fallback = '{satellite} will rise in {minutes} {minuteWord}. Maximum elevation {maxElevation} degrees.';
   const message = (st.notifyVoiceTemplate || fallback).replace(/\{(satellite|minutes|minuteWord|duration|durationWord|maxElevation|visibility)\}/g, (_, key) => values[key]);
-  window.speechSynthesis.cancel();
   const utterance = new SpeechSynthesisUtterance(message);
-  const voices = window.speechSynthesis.getVoices();
-  // Web Speech does not expose gender metadata, so automatic female selection
-  // matches commonly female-named system voices and falls back gracefully.
-  const femaleNames = /aria|ava|emma|jenny|joanna|karen|kendra|kimberly|linda|michelle|moira|salli|samantha|susan|tessa|victoria|zira|female/i;
-  const voice = st.notifyVoiceURI === '__female__'
-    ? (voices.find((v) => femaleNames.test(v.name)) || voices.find((v) => /^en[-_]/i.test(v.lang)) || voices[0])
-    : voices.find((v) => v.voiceURI === st.notifyVoiceURI);
-  if (voice) utterance.voice = voice;
-  utterance.rate = Math.min(2, Math.max(0.5, st.notifyVoiceRate || 0.95));
-  utterance.pitch = Math.min(2, Math.max(0, st.notifyVoicePitch ?? 1));
-  utterance.volume = Math.min(1, Math.max(0, st.notifyVoiceVolume ?? 1));
-  window.speechSynthesis.speak(utterance);
+  configureVoice(utterance, st);
+  speakUtterance(utterance, st);
 }
 
 window.playPassAlert = playPassAlert;
@@ -777,16 +813,8 @@ function speakLifecycleAlert(pass, event) {
   if (!message) return;
   const st = store.get();
   const utterance = new SpeechSynthesisUtterance(message);
-  const voices = window.speechSynthesis.getVoices();
-  const femaleNames = /aria|ava|emma|jenny|joanna|karen|kendra|kimberly|linda|michelle|moira|salli|samantha|susan|tessa|victoria|zira|female/i;
-  utterance.voice = st.notifyVoiceURI === '__female__'
-    ? (voices.find((v) => femaleNames.test(v.name)) || voices[0])
-    : voices.find((v) => v.voiceURI === st.notifyVoiceURI) || null;
-  utterance.rate = Math.min(2, Math.max(0.5, st.notifyVoiceRate || 0.95));
-  utterance.pitch = Math.min(2, Math.max(0, st.notifyVoicePitch ?? 1));
-  utterance.volume = Math.min(1, Math.max(0, st.notifyVoiceVolume ?? 1));
-  window.speechSynthesis.cancel();
-  window.speechSynthesis.speak(utterance);
+  configureVoice(utterance, st);
+  speakUtterance(utterance, st);
 }
 
 function checkPassNotifications() {
@@ -1083,7 +1111,7 @@ let preslewId = null; // id we're pre-positioning for (AOS az), before the pass 
 // Stay locked on the current pass until its LOS, then jump to the best pass still
 // in progress; park when none is active.
 function pickScheduledTarget(frame, nowMs) {
-  const active = trackedPassesCache.list.filter(
+  const active = rotatorPassesCache.filter(
     (p) => nowMs >= p.pass.aos.getTime() && nowMs <= p.pass.los.getTime()
   );
   if (!active.length) { schedLockId = null; return null; }
@@ -1093,7 +1121,7 @@ function pickScheduledTarget(frame, nowMs) {
   };
   // An armed pass wins outright while it's in progress (the operator committed to it).
   const armed = store.get().hw.rotator.armedPass;
-  if (armed && active.some((p) => p.id === armed.id && Math.abs(p.pass.aos.getTime() - armed.aos) < 60000)) {
+  if (armed && active.some((p) => p.id === armed.id)) {
     const t = liveLook(armed.id);
     if (t) { schedLockId = armed.id; return t; }
   }
@@ -1243,7 +1271,7 @@ function pickPreslew(nowMs, mode, rot) {
   if (mode === 'schedule') {
     // If a pass is armed, pre-slew only for it; otherwise the soonest imminent one.
     const armed = rot.armedPass;
-    for (const p of trackedPassesCache.list) {
+    for (const p of rotatorPassesCache) {
       const t = p.pass.aos.getTime();
       if (armed && !(p.id === armed.id && Math.abs(t - armed.aos) < 60000)) continue;
       if (t > nowMs && t - nowMs <= lead && (!best || t < best.t)) {
