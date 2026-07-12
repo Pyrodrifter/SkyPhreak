@@ -83,6 +83,16 @@ let motionRunning = false;
 let timeWarpOffset = 0;
 let rotTelemetry = null; // last { az, el, azRate, elRate } reported by SuperRot firmware
 let activeTrackId = null; // id the rotator is actively tracking (null when parked/idle)
+let lastMissionKey = '', lastMissionSent = 0;
+
+function publishRotatorMission(target, missionState) {
+  const rot = store.get().hw.rotator;
+  if (!rotConnected || rot.protocol !== 'superrot' || !window.pyro?.rotator?.mission) return;
+  const key = `${target}|${missionState}`, nowMs = Date.now();
+  if (key === lastMissionKey && nowMs - lastMissionSent < 5000) return;
+  lastMissionKey = key; lastMissionSent = nowMs;
+  window.pyro.rotator.mission(target || '-', missionState || 'idle');
+}
 let lastDrivenId = null; // last object the smooth controller was driven toward
 
 // Session blackbox — flight recorder for commanded/actual pointing, Doppler and
@@ -1462,6 +1472,7 @@ function driveHardware(frame, date, live = true) {
       : (rotConnected && mode !== 'off' ? 'Parked' : null),
   });
   updateRotatorAudioState(track ? 'tracking' : pre ? 'preslew' : (rotConnected && mode !== 'off' ? 'parked' : 'idle'));
+  publishRotatorMission(track?.name || pre?.name || '', track ? 'tracking' : pre ? 'preslew' : (rotConnected && mode !== 'off' ? 'parked' : 'idle'));
 
   // Drive the rotator: track when there's a target, pre-position when a pass is
   // imminent, else park once. The SuperRot setpoint is refreshed at 10 Hz by

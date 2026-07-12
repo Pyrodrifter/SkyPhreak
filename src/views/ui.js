@@ -7,6 +7,7 @@ import { scoreBreakdown } from '../core/passScore.js';
 import { normalizeMask, maskElAt, MASK_PRESETS } from '../core/horizonMask.js';
 import { MODES, RADIO_PRESETS } from '../core/radioProfiles.js';
 import { analyzeSchedule } from '../core/scheduler.js';
+import { openSuperRotSetup } from './superrotSetup.js';
 
 // Sun, Moon and planets shown in the Sky box (id, label, marker colour).
 const SKY_BODIES = [
@@ -2105,6 +2106,7 @@ function buildHwPane(pane, handlers) {
     h('div', { class: 'row', style: 'display:flex;gap:8px;margin-top:6px' }, [
       h('button', { class: 'btn sm', title: 'Run the homing sequence — seeks the elevation endstop; azimuth zero is the compass-set position (SuperRot only)', onclick: () => handlers.homeRotator() }, 'Home'),
       h('button', { class: 'btn sm', title: 'Unwind the azimuth cable to a neutral wrap without changing heading (SuperRot only)', onclick: () => handlers.unwindRotator() }, 'Unwind'),
+      h('button', { class: 'btn sm', title: 'Create or import a reusable SuperRot hardware profile', onclick: openSuperRotSetup }, 'Build / configure'),
     ]),
 
     // --- Auto-track: everyday controls, visible ---

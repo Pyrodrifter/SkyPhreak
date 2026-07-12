@@ -9,9 +9,11 @@
     "dev": "concurrently -k -n VITE,ELECTRON -c cyan,green \"vite\" \"npm:dev:electron\"",
     "dev:electron": "wait-on tcp:5173 && cross-env ELECTRON_DEV=1 electron .",
     "build": "vite build",
+    "test:electron": "node --test electron/*.test.cjs",
+    "prepare:flasher": "node scripts/install-flasher-assets.mjs",
     "fetch-textures": "node scripts/fetch-textures.mjs",
     "start": "npm run build && electron .",
-    "dist": "vite build && electron-builder"
+    "dist": "npm run prepare:flasher && vite build && electron-builder"
   },
   "build": {
     "appId": "com.pyro.skyphreak",
@@ -20,6 +22,13 @@
     "files": [
       "dist/**/*",
       "electron/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "electron/superrot-flasher",
+        "to": "superrot-flasher",
+        "filter": ["**/*"]
+      }
     ],
     "directories": {
       "output": "release",
