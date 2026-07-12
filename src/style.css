@@ -1137,3 +1137,17 @@ html.ui-lg .mission-console {
 .bbox-stat b { display: block; font-size: 15px; color: var(--accent-2); font-variant-numeric: tabular-nums; }
 .bbox-stat span { font-size: 10px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted, #8792a6); }
 .bbox-ctl { display: flex; gap: 6px; flex-wrap: wrap; }
+
+/* ---------------------------- Conflict scheduler ---------------------------- */
+.planner-bar { display: flex; align-items: center; gap: 8px; margin: 8px 0; padding: 8px 10px; border-radius: 8px;
+  background: color-mix(in srgb, var(--accent) 10%, var(--panel-2)); border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent); }
+.planner-ic { font-size: 15px; color: var(--accent); }
+.planner-txt { display: flex; flex-direction: column; line-height: 1.25; flex: 1 1 auto; min-width: 0; }
+.planner-txt b { font-size: 12px; }
+.planner-txt span { font-size: 10.5px; color: var(--muted, #8792a6); }
+.planner-arm { flex: 0 0 auto; border: 1px solid var(--accent); background: transparent; color: var(--accent);
+  border-radius: 6px; padding: 4px 9px; font-size: 11px; cursor: pointer; white-space: nowrap; }
+.planner-arm:hover { background: var(--accent); color: #04121d; }
+.plan-badge { font-size: 9.5px; padding: 1px 5px; border-radius: 4px; letter-spacing: .02em; white-space: nowrap; }
+.plan-badge.in { color: var(--accent-2); border: 1px solid color-mix(in srgb, var(--accent-2) 45%, transparent); }
+.plan-badge.clash { color: #ffb14a; border: 1px solid color-mix(in srgb, #ffb14a 45%, transparent); }

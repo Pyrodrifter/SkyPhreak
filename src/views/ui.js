@@ -6,6 +6,7 @@ import { buildTimeline } from '../core/timeline.js';
 import { scoreBreakdown } from '../core/passScore.js';
 import { normalizeMask, maskElAt, MASK_PRESETS } from '../core/horizonMask.js';
 import { MODES, RADIO_PRESETS } from '../core/radioProfiles.js';
+import { analyzeSchedule } from '../core/scheduler.js';
 
 // Sun, Moon and planets shown in the Sky box (id, label, marker colour).
 const SKY_BODIES = [
@@ -993,6 +994,32 @@ export function createUI(handlers) {
       ])))]);
   }
 
+  // Conflict planner banner: only shown when passes actually overlap. Summarises
+  // the optimal non-conflicting plan and offers a one-click "arm the next planned
+  // pass" so the operator can commit to the recommendation.
+  function renderPlanner(pane, items, schedule, passKey, now) {
+    if (!schedule || schedule.conflictIds.size === 0) return;
+    const upcoming = items.filter((it) => it.pass.los.getTime() >= now);
+    const planned = upcoming.filter((it) => schedule.planIds.has(passKey(it)));
+    const clashes = upcoming.filter((it) => schedule.conflictIds.has(passKey(it))).length;
+    // Soonest planned pass that isn't already the armed one.
+    const ap = store.get().hw.rotator.armedPass;
+    const next = [...planned].sort((a, b) => a.pass.aos - b.pass.aos)
+      .find((it) => !(ap && ap.id === it.id && Math.abs(ap.aos - it.pass.aos.getTime()) < 60000));
+    const armBtn = next ? h('button', {
+      class: 'planner-arm', title: `Arm ${next.name} (${next.pass.aos.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}) — the next pass in the optimal plan`,
+      onclick: (e) => { e.stopPropagation(); handlers.armPass(next.id, next.pass.aos.getTime(), next.pass.los.getTime()); },
+    }, '⤴ Arm next planned') : '';
+    pane.append(h('div', { class: 'planner-bar' }, [
+      h('span', { class: 'planner-ic' }, '⧉'),
+      h('div', { class: 'planner-txt' }, [
+        h('b', {}, `${planned.length} pass${planned.length === 1 ? '' : 'es'} in optimal plan`),
+        h('span', {}, `${clashes} overlap${clashes === 1 ? '' : 's'} · plan score ${Math.round(schedule.totalScore)}`),
+      ]),
+      armBtn,
+    ]));
+  }
+
   // Chronological event feed (WAKE → AOS → MAX → LOS → PARK across all passes).
   function renderTimeline(pane, items, now) {
     const events = buildTimeline(items, { now, preslewLead: store.get().hw.rotator.preslewLead });
@@ -1056,6 +1083,15 @@ export function createUI(handlers) {
     const ordered = sort === 'el' ? [...items].sort((a, b) => b.pass.maxEl - a.pass.maxEl)
       : sort === 'best' ? [...items].sort((a, b) => (b.score || 0) - (a.score || 0))
       : items;
+
+    // Conflict-aware scheduler: a single rotator tracks one bird at a time, so
+    // overlapping passes conflict. Compute the optimal non-overlapping plan and
+    // flag conflicts so the rows can badge them.
+    const passKey = (it) => it.id + '@' + it.pass.aos.getTime();
+    const schedule = analyzeSchedule(items.map((it) => ({
+      id: passKey(it), start: it.pass.aos.getTime(), end: it.pass.los.getTime(), score: it.score || 0,
+    })));
+    renderPlanner(pane, items, schedule, passKey, now);
     // The NOW/NEXT hero is always the soonest current/upcoming pass (independent of the
     // row sort), so it stays in step with main's readiness focus. `items` is aos-sorted.
     const missionPass = items.find((it) => it.id === selId && it.pass.los.getTime() >= now)
@@ -1125,6 +1161,14 @@ export function createUI(handlers) {
               h('span', { class: 'pass-sat' }, it.name),
               it.visible ? h('span', { class: 'pass-vis', title: 'Optically visible — satellite sunlit while you are in darkness' }, '👁') : '',
               it.score != null ? scoreChip(it.score, it.scoreParts) : '',
+              // Only badge when the scheduler is actually resolving a conflict —
+              // with no overlaps every pass is trivially "in plan" (just noise).
+              schedule.conflictIds.size === 0 ? ''
+                : schedule.planIds.has(passKey(it))
+                  ? h('span', { class: 'plan-badge in', title: 'In the recommended non-conflicting plan' }, '✓ plan')
+                  : schedule.conflictIds.has(passKey(it))
+                    ? h('span', { class: 'plan-badge clash', title: 'Overlaps a higher-value pass — the scheduler skips it' }, '⚠ clash')
+                    : '',
             ]),
             h('div', { class: 'pass-l2' }, [
               h('span', { class: 'pass-l2-k' }, 'MAX'),
