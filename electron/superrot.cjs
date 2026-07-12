@@ -208,6 +208,12 @@ class SuperRotClient extends EventEmitter {
     if (!parts.length) return { ok: false, error: 'no config values' };
     return this._write('C ' + parts.join(' ') + '\n');
   }
+  // Compact mission metadata for the controller's local web display.
+  mission(target = '', state = 'idle') {
+    const t = encodeURIComponent(String(target).slice(0, 31) || '-');
+    const s = encodeURIComponent(String(state).slice(0, 15) || 'idle');
+    return this._write(`M ${t} ${s}\n`);
+  }
 
   close() {
     try {

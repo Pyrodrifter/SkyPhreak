@@ -324,6 +324,10 @@ const rotatorMgr = {
     if (this.protocol === 'superrot') return this.client.config(cfg);
     return { ok: false, error: 'config sync is SuperRot-only' };
   },
+  mission(target, state) {
+    if (!this.client || this.protocol !== 'superrot') return { ok: false, error: 'mission metadata is SuperRot-only' };
+    return this.client.mission(target, state);
+  },
   close() {
     if (this.client) {
       this.client.removeAllListeners('status');
@@ -372,6 +376,7 @@ ipcMain.handle('rotator:park', () => rotatorMgr.park());
 ipcMain.handle('rotator:home', () => rotatorMgr.home());
 ipcMain.handle('rotator:unwind', () => rotatorMgr.unwind());
 ipcMain.handle('rotator:config', (_e, cfg) => rotatorMgr.config(cfg));
+ipcMain.handle('rotator:mission', (_e, { target, state }) => rotatorMgr.mission(target, state));
 
 ipcMain.handle('radio:connect', (_e, { host, port }) => radio.connect(host, port));
 ipcMain.handle('radio:disconnect', () => radio.close());

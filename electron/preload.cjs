@@ -42,6 +42,7 @@ contextBridge.exposeInMainWorld('pyro', {
     home: () => ipcRenderer.invoke('rotator:home'),
     unwind: () => ipcRenderer.invoke('rotator:unwind'),
     config: (cfg) => ipcRenderer.invoke('rotator:config', cfg),
+    mission: (target, state) => ipcRenderer.invoke('rotator:mission', { target, state }),
     onStatus: (cb) => ipcRenderer.on('hw:rotator-status', (_e, s) => cb(s)),
   },
   radio: {
