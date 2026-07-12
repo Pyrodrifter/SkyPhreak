@@ -52,6 +52,10 @@ const DEFAULTS = {
   showDso: false, // master show/hide for all deep-sky objects on the sky views
   emeFreqMHz: 144, // frequency for EME (Moon-bounce) path-loss / Doppler readouts
   minEl: 5,
+  // Horizon mask: sparse [{ az, el }] obstruction profile (trees/buildings/hills)
+  // that raises the effective minimum elevation per-azimuth. Empty = flat 0°.
+  horizonMask: [],
+  horizonMaskOn: true, // apply the mask to pass visibility/readiness (off = ignore it)
   hw: {
     rotator: {
       // 'hamlib' = legacy rotctld (jerky goto). 'superrot' = continuous-motion driver.

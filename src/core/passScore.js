@@ -9,9 +9,7 @@
  *   Freshness   0..10   TLE age (full under 1 d, fading to 0 by 7 d)
  *   Sun         −10     pass encroaches on the Sun keep-out (when guard enabled)
  *   Mount limit −30     peak above the mount's El max (no flip-over available)
- *
- * Horizon obstruction is intentionally absent here: once the horizon mask lands,
- * predictions themselves account for it, so the geometry parts already reflect it.
+ *   Horizon     −15/−40 partly clipped by / fully behind the local horizon mask
  */
 export function scorePass(pass, ctx = {}) {
   const parts = [];
@@ -34,6 +32,9 @@ export function scorePass(pass, ctx = {}) {
   if (ctx.elMax != null && pass.maxEl > ctx.elMax && ctx.elMax < 135) {
     parts.push({ label: 'Above mount limit', pts: -30 });
   }
+
+  if (ctx.blockedAtPeak) parts.push({ label: 'Behind horizon', pts: -40 });
+  else if (ctx.obstructed) parts.push({ label: 'Horizon-clipped', pts: -15 });
 
   const score = Math.max(0, Math.min(100, parts.reduce((s, p) => s + p.pts, 0)));
   return { score, parts };

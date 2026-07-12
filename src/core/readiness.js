@@ -64,6 +64,15 @@ export function computeReadiness(ctx) {
         : `${Math.max(0, Math.round(headroom))}° headroom — consider Unwind`);
   }
 
+  // Horizon clearance — does the pass clear the local obstruction mask?
+  if (ctx.horizonActive && ctx.blockedAtPeak != null) {
+    if (ctx.blockedAtPeak) add('Horizon clearance', 'fail', 'pass stays behind terrain/obstructions');
+    else if (ctx.obstructed) add('Horizon clearance', 'warn',
+      ctx.peakClearanceDeg != null ? `clears by only ${ctx.peakClearanceDeg.toFixed(0)}° at best` : 'partly clipped by horizon');
+    else add('Horizon clearance', 'ok',
+      ctx.peakClearanceDeg != null ? `clears mask by ${ctx.peakClearanceDeg.toFixed(0)}°` : 'clears the horizon');
+  }
+
   // Sun clearance over the pass arc (only when the guard is enabled).
   if (ctx.sunAvoid && ctx.sunSepDeg != null) {
     const clear = ctx.sunSepDeg > ctx.sunAvoidDeg;

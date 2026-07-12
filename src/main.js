@@ -9,6 +9,7 @@ import { precessToDate, dsoById, DSOS } from './core/dso.js';
 import { predictPasses } from './core/passes.js';
 import { scorePass } from './core/passScore.js';
 import { computeReadiness } from './core/readiness.js';
+import { normalizeMask, evaluateArc, maskElAt } from './core/horizonMask.js';
 import { MotionController } from './core/motion.js';
 import { THEMES, applyTheme } from './core/themes.js';
 import { createUI, colorFor } from './views/ui.js';
@@ -516,6 +517,7 @@ function recomputeTrackedPasses() {
   const observer = state.station;
   const out = [];
   const rotatorOut = [];
+  const mask = state.horizonMaskOn ? normalizeMask(state.horizonMask) : [];
   for (const id of state.tracked) {
     const sat = catalogById.get(id);
     if (!sat) continue;
@@ -547,13 +549,22 @@ function recomputeTrackedPasses() {
       const peakLook = lookAngles(sat.satrec, tPeak, observer);
       if (sunLook && sunLook.look && peakLook) sunSepDeg = angSep(peakLook.az, peakLook.el, sunLook.look.az, sunLook.look.el);
 
+      // Horizon mask: how much of the sky-arc actually clears local obstructions.
+      const horizon = evaluateArc(mask, arc, p.maxEl);
+
       const rot = state.hw.rotator;
       const sc = scorePass(p, {
         visible, tleAgeDays: tleAgeDays(sat.satrec), elMax: rot.elMax,
         sunAvoid: rot.sunAvoid, sunAvoidDeg: rot.sunAvoidDeg, sunSepDeg,
+        obstructed: horizon.obstructed, blockedAtPeak: horizon.blockedAtPeak,
       });
 
-      out.push({ id, name: sat.name, color, pass: p, arc, visible, sunSepDeg, score: sc.score, scoreParts: sc.parts });
+      out.push({
+        id, name: sat.name, color, pass: p, arc, visible, sunSepDeg,
+        score: sc.score, scoreParts: sc.parts,
+        obstructed: horizon.obstructed, peakClearanceDeg: horizon.peakClearanceDeg,
+        blockedAtPeak: horizon.blockedAtPeak, clearFraction: horizon.clearFraction,
+      });
     }
   }
   out.sort((a, b) => a.pass.aos - b.pass.aos);
@@ -887,6 +898,10 @@ function updateReadiness() {
     sunAvoid: !!rot.sunAvoid,
     sunAvoidDeg: rot.sunAvoidDeg,
     sunSepDeg: focus.sunSepDeg,
+    horizonActive: !!state.horizonMaskOn && Array.isArray(state.horizonMask) && state.horizonMask.length > 0,
+    obstructed: focus.obstructed,
+    blockedAtPeak: focus.blockedAtPeak,
+    peakClearanceDeg: focus.peakClearanceDeg,
   });
   ui.setReadiness({ ...result, passId: focus.id, passName: focus.name });
 }

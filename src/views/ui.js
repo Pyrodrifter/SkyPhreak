@@ -4,6 +4,7 @@ import { DSOS } from '../core/dso.js';
 import { icon } from './icons.js';
 import { buildTimeline } from '../core/timeline.js';
 import { scoreBreakdown } from '../core/passScore.js';
+import { normalizeMask, maskElAt, MASK_PRESETS } from '../core/horizonMask.js';
 
 // Sun, Moon and planets shown in the Sky box (id, label, marker colour).
 const SKY_BODIES = [
@@ -1323,6 +1324,146 @@ function trackTitle(m) {
 }
 
 /* ----------------------------- Station pane ----------------------------- */
+// Horizon-mask editor: a compass silhouette of local obstructions (trees, hills,
+// buildings) that raises the effective min-elevation per azimuth. Drawn live as a
+// polar plot; edited as a list of az→el points; seedable from presets.
+function buildHorizonMask(pane) {
+  const wrap = h('div', {});
+  const canvas = h('canvas', { class: 'hmask-canvas', width: 260, height: 260 });
+  const list = h('div', { class: 'hmask-list' });
+
+  const get = () => normalizeMask(store.get().horizonMask);
+  const save = (pts) => store.patch({ horizonMask: normalizeMask(pts) });
+
+  function draw() {
+    const mask = get();
+    const on = store.get().horizonMaskOn && mask.length > 0;
+    const ctx = canvas.getContext('2d');
+    const W = canvas.width, H = canvas.height, cx = W / 2, cy = H / 2, R = W / 2 - 14;
+    ctx.clearRect(0, 0, W, H);
+    const css = getComputedStyle(document.documentElement);
+    const line = (css.getPropertyValue('--grid') || '#31415f').trim();
+    const accent = (css.getPropertyValue('--accent') || '#4a9fd4').trim();
+    // Elevation rings (0/30/60/90 — horizon outer, zenith centre).
+    ctx.strokeStyle = line; ctx.fillStyle = line; ctx.lineWidth = 1;
+    ctx.font = '9px system-ui, sans-serif';
+    for (const el of [0, 30, 60]) {
+      const r = R * (1 - el / 90);
+      ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.stroke();
+    }
+    for (const [az, lab] of [[0, 'N'], [90, 'E'], [180, 'S'], [270, 'W']]) {
+      const a = (az - 90) * Math.PI / 180;
+      ctx.beginPath(); ctx.moveTo(cx, cy);
+      ctx.lineTo(cx + R * Math.cos(a), cy + R * Math.sin(a)); ctx.stroke();
+      ctx.fillText(lab, cx + (R + 5) * Math.cos(a) - 3, cy + (R + 5) * Math.sin(a) + 3);
+    }
+    // Obstruction silhouette: fill from the horizon inward to the mask elevation.
+    if (mask.length) {
+      ctx.beginPath();
+      for (let az = 0; az <= 360; az += 3) {
+        const el = Math.min(90, Math.max(0, maskElAt(mask, az)));
+        const r = R * (1 - el / 90);
+        const a = (az - 90) * Math.PI / 180;
+        const x = cx + r * Math.cos(a), y = cy + r * Math.sin(a);
+        az === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+      }
+      ctx.closePath();
+      // The blocked region is the annulus between the silhouette and the horizon;
+      // draw the silhouette ring, then hatch outward by stroking the outer circle.
+      ctx.fillStyle = on ? 'rgba(255,110,90,0.16)' : 'rgba(120,130,150,0.12)';
+      // Fill the OUTER ring (blocked band) using even-odd with the horizon circle.
+      ctx.save();
+      ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI * 2);
+      for (let az = 360; az >= 0; az -= 3) {
+        const el = Math.min(90, Math.max(0, maskElAt(mask, az)));
+        const r = R * (1 - el / 90);
+        const a = (az - 90) * Math.PI / 180;
+        ctx.lineTo(cx + r * Math.cos(a), cy + r * Math.sin(a));
+      }
+      ctx.fill('evenodd');
+      ctx.restore();
+      ctx.strokeStyle = on ? '#ff6e5a' : '#8792a6'; ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      for (let az = 0; az <= 360; az += 3) {
+        const el = Math.min(90, Math.max(0, maskElAt(mask, az)));
+        const r = R * (1 - el / 90);
+        const a = (az - 90) * Math.PI / 180;
+        const x = cx + r * Math.cos(a), y = cy + r * Math.sin(a);
+        az === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+      }
+      ctx.closePath(); ctx.stroke();
+      // Sample points as accent dots.
+      ctx.fillStyle = accent;
+      for (const p of mask) {
+        const r = R * (1 - p.el / 90);
+        const a = (p.az - 90) * Math.PI / 180;
+        ctx.beginPath(); ctx.arc(cx + r * Math.cos(a), cy + r * Math.sin(a), 2.5, 0, Math.PI * 2); ctx.fill();
+      }
+    }
+  }
+
+  function renderList() {
+    const mask = get();
+    list.replaceChildren();
+    if (!mask.length) {
+      list.append(h('div', { class: 'muted', style: 'padding:4px 0' }, 'No obstructions — flat 0° horizon. Add points or pick a preset.'));
+    }
+    for (let i = 0; i < mask.length; i++) {
+      const p = mask[i];
+      const azIn = h('input', { type: 'number', value: p.az, step: '1', min: '0', max: '360',
+        oninput: (e) => { const v = parseFloat(e.target.value); if (!Number.isNaN(v)) { const m = get(); m[i] = { ...m[i], az: v }; save(m); refresh(); } } });
+      const elIn = h('input', { type: 'number', value: p.el, step: '1', min: '0', max: '90',
+        oninput: (e) => { const v = parseFloat(e.target.value); if (!Number.isNaN(v)) { const m = get(); m[i] = { ...m[i], el: v }; save(m); draw(); } } });
+      const del = h('button', { class: 'btn sm', title: 'Remove point', onclick: () => { const m = get(); m.splice(i, 1); save(m); refresh(); } }, '✕');
+      list.append(h('div', { class: 'hmask-row' }, [
+        h('span', { class: 'hmask-lbl' }, 'Az'), azIn,
+        h('span', { class: 'hmask-lbl' }, 'El'), elIn, del,
+      ]));
+    }
+  }
+
+  function refresh() { renderList(); draw(); }
+
+  const applyChk = checkbox(store.get().horizonMaskOn !== false, (v) => { store.patch({ horizonMaskOn: v }); draw(); });
+  const presetSel = h('select', {
+    onchange: (e) => {
+      const key = e.target.value;
+      if (key && MASK_PRESETS[key]) { save(MASK_PRESETS[key].points); refresh(); }
+      e.target.value = '';
+    },
+  }, [h('option', { value: '' }, 'Load preset…'),
+      ...Object.entries(MASK_PRESETS).map(([k, v]) => h('option', { value: k }, v.label))]);
+  const addBtn = h('button', { class: 'btn sm', onclick: () => { const m = get(); m.push({ az: nextGapAz(m), el: 15 }); save(m); refresh(); } }, '+ Add point');
+  const clearBtn = h('button', { class: 'btn sm', onclick: () => { save([]); refresh(); } }, 'Clear');
+
+  wrap.append(
+    h('hr', { class: 'hr' }),
+    h('div', { class: 'section-title' }, 'Horizon mask'),
+    h('div', { class: 'toggle-line switch' }, [h('span', {}, 'Apply obstruction mask to passes'), applyChk]),
+    h('div', { class: 'hmask-top' }, [canvas]),
+    h('div', { class: 'hmask-ctl' }, [presetSel, addBtn, clearBtn]),
+    list,
+    h('div', { class: 'muted', style: 'margin-top:6px' }, 'Define minimum elevation per compass bearing. Passes clipped by the mask are down-scored, and the readiness check flags ones stuck behind terrain.')
+  );
+  pane.append(wrap);
+  refresh();
+  // Redraw on theme change so the silhouette picks up new CSS colors.
+  store.subscribe(() => draw());
+}
+
+// Pick an azimuth for a new point that isn't already used (spreads them out).
+function nextGapAz(mask) {
+  if (!mask.length) return 0;
+  const used = mask.map((p) => p.az).sort((a, b) => a - b);
+  let best = 0, bestGap = -1;
+  for (let i = 0; i < used.length; i++) {
+    const a = used[i], b = i + 1 < used.length ? used[i + 1] : used[0] + 360;
+    const gap = b - a;
+    if (gap > bestGap) { bestGap = gap; best = (a + b) / 2 % 360; }
+  }
+  return Math.round(best);
+}
+
 function buildStationPane(pane, handlers) {
   const st = store.get().station;
   const mk = (label, value, step, on) =>
@@ -1341,6 +1482,9 @@ function buildStationPane(pane, handlers) {
     ]),
     h('div', { class: 'muted' }, 'Pass predictions and look angles are computed for this location.')
   );
+
+  // Horizon mask — local obstruction profile.
+  buildHorizonMask(pane);
 
   // TLE freshness scheduler.
   const sched = store.get().tleSched;
