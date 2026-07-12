@@ -48,7 +48,10 @@ test('provisions in safe order and ignores non-reply JSON', async () => {
       cb();
       queueMicrotask(() => {
         this.emit('data', Buffer.from('{"event":"telemetry"}\nnot json\n'));
-        this.emit('data', Buffer.from(JSON.stringify({ ok: true, [command.cmd]: true }) + '\n'));
+        const reply = command.cmd === 'diagnose'
+          ? { ok: true, diagnostics: true, driversDisabled: true, stepPulses: 0 }
+          : { ok: true, [command.cmd]: true };
+        this.emit('data', Buffer.from(JSON.stringify(reply) + '\n'));
       });
     }
   }
@@ -59,7 +62,7 @@ test('provisions in safe order and ignores non-reply JSON', async () => {
   };
   const result = await provision({ port: 'COM9', profile, SerialPortClass: FakeSerial, timeoutMs: 100 });
   assert.equal(result.ok, true);
-  assert.deepEqual(commands.map((c) => c.cmd), ['enterSetup', 'defaults', 'set', 'validate', 'save', 'reboot']);
+  assert.deepEqual(commands.map((c) => c.cmd), ['enterSetup', 'defaults', 'set', 'validate', 'diagnose', 'save', 'reboot']);
   assert.equal(commands[2].elLimitPin, 33);
 });
 

@@ -192,9 +192,11 @@ async function provision({ port, profile, SerialPortClass, timeoutMs = REPLY_TIM
     await requestJson(serial, { cmd: 'defaults' }, timeoutMs);
     await requestJson(serial, { cmd: 'set', ...fields }, timeoutMs);
     await requestJson(serial, { cmd: 'validate' }, timeoutMs);
+    const diagnostics = await requestJson(serial, { cmd: 'diagnose' }, timeoutMs);
+    if (!diagnostics.driversDisabled || diagnostics.stepPulses !== 0) fail('Controller did not confirm a safe diagnostic state.');
     await requestJson(serial, { cmd: 'save' }, timeoutMs);
     await requestJson(serial, { cmd: 'reboot' }, timeoutMs);
-    return { ok: true, rebooting: true };
+    return { ok: true, rebooting: true, diagnostics };
   } finally {
     await closeSerial(serial);
   }
