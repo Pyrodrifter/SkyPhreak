@@ -1122,3 +1122,10 @@ html.ui-lg .mission-console {
 .hmask-row input { width: 100%; min-width: 0; }
 .hmask-lbl { font-size: 11px; color: var(--muted, #8792a6); }
 .hmask-row .btn.sm { padding: 2px 8px; line-height: 1.4; }
+
+/* ---------------------------- Radio profiles ---------------------------- */
+.rprof { display: flex; flex-direction: column; gap: 8px; }
+.rprof-head { display: flex; gap: 6px; align-items: center; }
+.rprof-head select { flex: 1 1 auto; min-width: 0; }
+.rprof-grid { display: grid; grid-template-columns: 1fr auto; gap: 6px 8px; align-items: end; }
+.rprof-grid .fld:nth-child(2), .rprof-grid .fld:nth-child(4) { min-width: 74px; }

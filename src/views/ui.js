@@ -5,6 +5,7 @@ import { icon } from './icons.js';
 import { buildTimeline } from '../core/timeline.js';
 import { scoreBreakdown } from '../core/passScore.js';
 import { normalizeMask, maskElAt, MASK_PRESETS } from '../core/horizonMask.js';
+import { MODES, RADIO_PRESETS } from '../core/radioProfiles.js';
 
 // Sun, Moon and planets shown in the Sky box (id, label, marker colour).
 const SKY_BODIES = [
@@ -1451,6 +1452,104 @@ function buildHorizonMask(pane) {
   store.subscribe(() => draw());
 }
 
+// Per-satellite radio profile editor: pin an up/down/mode/transponder set to each
+// tracked bird so it tunes to its own frequencies (with full-Doppler correction),
+// instead of the single global downlink. Persists to store.radioProfiles[id].
+function buildRadioProfiles() {
+  const host = h('div', { class: 'rprof' });
+
+  const nameFor = (id) => {
+    const c = store.getCatalog().find((s) => s.noradId === id);
+    if (c) return c.name;
+    const f = store.get().favorites.find((fa) => fa.id === id);
+    if (f) return f.name;
+    const t = (store.get().tleStore || {})[id];
+    return t ? t.name : 'NORAD ' + id;
+  };
+
+  let editId = null; // which tracked sat we're editing
+
+  const getProfile = (id) => (store.get().radioProfiles || {})[id] || {};
+  const setProfile = (id, patch) => {
+    const all = { ...(store.get().radioProfiles || {}) };
+    all[id] = { ...(all[id] || {}), ...patch };
+    store.patch({ radioProfiles: all });
+  };
+  const clearProfile = (id) => {
+    const all = { ...(store.get().radioProfiles || {}) };
+    delete all[id];
+    store.patch({ radioProfiles: all });
+  };
+
+  const mhzInput = (hz, on) => h('input', {
+    type: 'number', step: '0.0001', value: hz ? (hz / 1e6).toFixed(4) : '',
+    placeholder: '—',
+    oninput: (e) => { const v = parseFloat(e.target.value); on(Number.isNaN(v) ? 0 : Math.round(v * 1e6)); },
+  });
+  const modeSel = (mode, on) => {
+    const s = h('select', { onchange: (e) => on(e.target.value) }, MODES.map((m) => h('option', { value: m }, m)));
+    s.value = mode || 'FM';
+    return s;
+  };
+
+  function render() {
+    const st = store.get();
+    const ids = st.tracked || [];
+    host.replaceChildren();
+    if (!ids.length) {
+      host.append(h('div', { class: 'muted' }, 'Track satellites to give them radio profiles.'));
+      return;
+    }
+    if (!ids.includes(editId)) editId = ids.includes(st.selected) ? st.selected : ids[0];
+
+    // Which satellite are we editing?
+    const satSel = h('select', { onchange: (e) => { editId = e.target.value; render(); } },
+      ids.map((id) => {
+        const has = (st.radioProfiles || {})[id];
+        return h('option', { value: id }, nameFor(id) + (has ? '  •' : ''));
+      }));
+    satSel.value = editId;
+
+    const p = getProfile(editId);
+    const presetSel = h('select', {
+      onchange: (e) => {
+        const key = e.target.value;
+        if (key && RADIO_PRESETS[key]) setProfile(editId, { ...RADIO_PRESETS[key] });
+        render();
+      },
+    }, [h('option', { value: '' }, 'Preset…'),
+        ...Object.entries(RADIO_PRESETS).map(([k, v]) => h('option', { value: k }, v.label))]);
+
+    const invertChk = checkbox(!!p.invert, (v) => setProfile(editId, { invert: v }));
+
+    host.append(
+      h('label', { class: 'fld' }, [h('span', {}, 'Satellite'), satSel]),
+      h('div', { class: 'rprof-head' }, [presetSel,
+        h('button', { class: 'btn sm', title: 'Remove this satellite’s profile (falls back to the default downlink)', onclick: () => { clearProfile(editId); render(); } }, 'Clear')]),
+      h('label', { class: 'fld' }, [h('span', {}, 'Label'),
+        h('input', { type: 'text', value: p.label || '', placeholder: 'e.g. RS-44 linear', oninput: (e) => setProfile(editId, { label: e.target.value }) })]),
+      h('div', { class: 'rprof-grid' }, [
+        h('label', { class: 'fld' }, [h('span', {}, 'Downlink (MHz)'), mhzInput(p.downlinkHz, (hz) => setProfile(editId, { downlinkHz: hz }))]),
+        h('label', { class: 'fld' }, [h('span', {}, 'Mode'), modeSel(p.downlinkMode, (m) => setProfile(editId, { downlinkMode: m }))]),
+        h('label', { class: 'fld' }, [h('span', {}, 'Uplink (MHz)'), mhzInput(p.uplinkHz, (hz) => setProfile(editId, { uplinkHz: hz }))]),
+        h('label', { class: 'fld' }, [h('span', {}, 'Mode'), modeSel(p.uplinkMode, (m) => setProfile(editId, { uplinkMode: m }))]),
+      ]),
+      h('div', { class: 'toggle-line switch' }, [h('span', {}, 'Linear inverting transponder'), invertChk]),
+      h('div', { class: 'muted', style: 'font-size:11px' }, 'Downlink tunes your RX; uplink is Doppler-corrected in the opposite sense so the QSO stays locked. Leave uplink blank for beacons/telemetry.')
+    );
+  }
+
+  render();
+  // Re-render only when the tracked set or selection changes — NOT on the store
+  // patches our own inputs trigger, which would steal focus mid-typing.
+  let sig = (store.get().tracked || []).join(',') + '|' + store.get().selected;
+  store.subscribe(() => {
+    const next = (store.get().tracked || []).join(',') + '|' + store.get().selected;
+    if (next !== sig) { sig = next; render(); }
+  });
+  return host;
+}
+
 // Pick an azimuth for a new point that isn't already used (spreads them out).
 function nextGapAz(mask) {
   if (!mask.length) return 0;
@@ -1890,10 +1989,12 @@ function buildHwPane(pane, handlers) {
       h('label', { class: 'fld' }, [h('span', {}, 'Port'), radPort]),
     ]),
     radConnect,
-    h('label', { class: 'fld', style: 'margin-top:8px' }, [h('span', {}, 'Downlink frequency (MHz)'), downlink]),
+    h('label', { class: 'fld', style: 'margin-top:8px' }, [h('span', {}, 'Default downlink (MHz)'), downlink]),
+    h('div', { class: 'muted', style: 'font-size:11px' }, 'Used when the active satellite has no profile below.'),
     h('div', { class: 'toggle-line switch' }, [h('span', {}, 'Doppler correction'), doppler]),
     radFreqLive,
   ]);
+  const radioProfilesSection = section('Radio profiles (per satellite)', [buildRadioProfiles()]);
 
   pane.append(
     // --- Connection: the essentials, always visible ---
@@ -1930,6 +2031,7 @@ function buildHwPane(pane, handlers) {
     parkSection,
     calibSection,
     radioSection,
+    radioProfilesSection,
   );
 
   renderRotDynamic();

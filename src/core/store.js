@@ -107,6 +107,10 @@ const DEFAULTS = {
     },
     radio: { host: '127.0.0.1', port: 4532, downlinkHz: 145800000, doppler: false },
   },
+  // Per-satellite radio profiles keyed by NORAD id: { downlinkHz, downlinkMode,
+  // uplinkHz, uplinkMode, invert, label }. Override the single global downlink so
+  // each bird tunes to its own up/down pair. See core/radioProfiles.js.
+  radioProfiles: {},
 };
 
 const listeners = new Set();

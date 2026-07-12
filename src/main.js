@@ -10,6 +10,7 @@ import { predictPasses } from './core/passes.js';
 import { scorePass } from './core/passScore.js';
 import { computeReadiness } from './core/readiness.js';
 import { normalizeMask, evaluateArc, maskElAt } from './core/horizonMask.js';
+import { resolveProfile, tuning as radioTuning } from './core/radioProfiles.js';
 import { MotionController } from './core/motion.js';
 import { THEMES, applyTheme } from './core/themes.js';
 import { createUI, colorFor } from './views/ui.js';
@@ -1479,19 +1480,30 @@ function driveHardware(frame, date, live = true) {
   updateCableWrap(rot);
 
   // Radio Doppler — follows the tracked satellite (or the selected one). Only
-  // satellites carry a dopplerFactor; the Moon/planets/DSOs don't.
+  // satellites carry a dopplerFactor; the Moon/planets/DSOs don't. The active
+  // satellite's per-sat radio profile (up/down/mode/invert) overrides the global
+  // downlink; full-Doppler correction is applied to both links independently.
   const dopTarget = track || selected;
   const dopplerFactor = dopTarget && dopTarget.look && dopTarget.look.dopplerFactor != null ? dopTarget.look.dopplerFactor : null;
+  const dopId = dopTarget && dopTarget.id;
+  const profile = dopId ? resolveProfile(state.radioProfiles, dopId, state.hw.radio) : null;
+  const tune = dopplerFactor != null ? radioTuning(profile, dopplerFactor) : null;
   if (ui.hw.radFreqLive) {
     ui.hw.radFreqLive.innerHTML = '';
-    if (dopplerFactor != null) {
-      const observed = state.hw.radio.downlinkHz * dopplerFactor;
-      ui.hw.radFreqLive.append(elKV('k', 'Tuned freq'), elKV('v', (observed / 1e6).toFixed(5) + ' MHz'));
+    if (tune) {
+      ui.hw.radFreqLive.append(
+        elKV('k', 'Downlink ' + tune.downlinkMode),
+        elKV('v', (tune.downlinkTunedHz / 1e6).toFixed(5) + ' MHz'));
+      if (tune.hasUplink) {
+        ui.hw.radFreqLive.append(
+          elKV('k', 'Uplink ' + tune.uplinkMode + (tune.invert ? ' ↕' : '')),
+          elKV('v', (tune.uplinkTunedHz / 1e6).toFixed(5) + ' MHz'));
+      }
     }
   }
-  if (radConnected && state.hw.radio.doppler && dopplerFactor != null) {
+  if (radConnected && state.hw.radio.doppler && tune && tune.downlinkTunedHz) {
     if (date.getTime() - lastRadSend > 1000) {
-      window.pyro.radio.setFreq(state.hw.radio.downlinkHz * dopplerFactor);
+      window.pyro.radio.setFreq(tune.downlinkTunedHz);
       lastRadSend = date.getTime();
     }
   }
