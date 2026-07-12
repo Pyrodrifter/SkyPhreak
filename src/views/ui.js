@@ -1550,6 +1550,55 @@ function buildRadioProfiles() {
   return host;
 }
 
+// Session blackbox panel: live recorder stats (samples, span, pointing error) +
+// CSV/JSON export and clear. Polls the recorder in main.js while mounted.
+function buildBlackbox(handlers) {
+  const host = h('div', { class: 'bbox' });
+  const statRow = h('div', { class: 'bbox-stats' });
+  const download = (name, text, type) => {
+    const blob = new Blob([text], { type });
+    const a = h('a', { href: URL.createObjectURL(blob), download: name });
+    document.body.append(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  };
+  const stamp = () => new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+
+  const csvBtn = h('button', { class: 'btn sm', onclick: () => download(`skyphreak-blackbox-${stamp()}.csv`, handlers.blackboxCSV(), 'text/csv') }, 'Export CSV');
+  const jsonBtn = h('button', { class: 'btn sm', onclick: () => download(`skyphreak-blackbox-${stamp()}.json`, handlers.blackboxJSON(), 'application/json') }, 'Export JSON');
+  const clearBtn = h('button', { class: 'btn sm', onclick: () => { handlers.blackboxClear(); refresh(); } }, 'Clear');
+
+  const stat = (label, value) => h('div', { class: 'bbox-stat' }, [h('b', {}, value), h('span', {}, label)]);
+  function fmtDur(ms) {
+    if (!ms) return '0s';
+    const s = Math.round(ms / 1000);
+    if (s < 60) return s + 's';
+    const m = Math.floor(s / 60);
+    return m < 60 ? `${m}m ${s % 60}s` : `${Math.floor(m / 60)}h ${m % 60}m`;
+  }
+  function refresh() {
+    const s = handlers.blackboxStats();
+    statRow.replaceChildren(
+      stat('samples', String(s.samples)),
+      stat('events', String(s.events)),
+      stat('duration', fmtDur(s.durationMs)),
+      stat('max err', s.maxErrDeg == null ? '—' : s.maxErrDeg.toFixed(1) + '°'),
+      stat('RMS err', s.rmsErrDeg == null ? '—' : s.rmsErrDeg.toFixed(2) + '°'),
+    );
+    const empty = s.samples === 0 && s.events === 0;
+    csvBtn.disabled = empty; jsonBtn.disabled = empty; clearBtn.disabled = empty;
+  }
+
+  host.append(
+    statRow,
+    h('div', { class: 'bbox-ctl' }, [csvBtn, jsonBtn, clearBtn]),
+    h('div', { class: 'muted', style: 'font-size:11px' }, 'Records commanded vs actual pointing, tuning and hardware events while the rotator is connected. Export the pointing log (CSV) or the full session (JSON) for post-pass analysis.')
+  );
+  refresh();
+  // Poll while the tab is alive — cheap (reads an in-memory summary).
+  setInterval(refresh, 2000);
+  return host;
+}
+
 // Pick an azimuth for a new point that isn't already used (spreads them out).
 function nextGapAz(mask) {
   if (!mask.length) return 0;
@@ -1995,6 +2044,7 @@ function buildHwPane(pane, handlers) {
     radFreqLive,
   ]);
   const radioProfilesSection = section('Radio profiles (per satellite)', [buildRadioProfiles()]);
+  const blackboxSection = section('Session blackbox', [buildBlackbox(handlers)]);
 
   pane.append(
     // --- Connection: the essentials, always visible ---
@@ -2032,6 +2082,7 @@ function buildHwPane(pane, handlers) {
     calibSection,
     radioSection,
     radioProfilesSection,
+    blackboxSection,
   );
 
   renderRotDynamic();

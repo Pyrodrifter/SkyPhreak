@@ -11,6 +11,7 @@ import { scorePass } from './core/passScore.js';
 import { computeReadiness } from './core/readiness.js';
 import { normalizeMask, evaluateArc, maskElAt } from './core/horizonMask.js';
 import { resolveProfile, tuning as radioTuning } from './core/radioProfiles.js';
+import { createBlackbox } from './core/blackbox.js';
 import { MotionController } from './core/motion.js';
 import { THEMES, applyTheme } from './core/themes.js';
 import { createUI, colorFor } from './views/ui.js';
@@ -84,6 +85,13 @@ let rotTelemetry = null; // last { az, el, azRate, elRate } reported by SuperRot
 let activeTrackId = null; // id the rotator is actively tracking (null when parked/idle)
 let lastDrivenId = null; // last object the smooth controller was driven toward
 
+// Session blackbox — flight recorder for commanded/actual pointing, Doppler and
+// hardware events. Sampled once every blackboxIntervalMs while connected.
+const blackbox = createBlackbox();
+let lastBlackboxSample = 0;
+let lastLoggedTrackId = null; // last activeTrackId written to the blackbox event log
+const BLACKBOX_INTERVAL_MS = 2000;
+
 window.addEventListener('error', (e) => console.error(e.error || e.message));
 window.addEventListener('unhandledrejection', (e) => console.error('unhandledrejection:', e.reason));
 
@@ -154,6 +162,11 @@ async function boot() {
     setEmeFreq: (mhz) => store.patch({ emeFreqMHz: Math.max(1, mhz || 144) }),
     // Manually paste in a TLE (2/3-line set) for a sat not in any Celestrak group.
     addManualTle: (text) => addManualTle(text),
+    // Session blackbox: live stats for the recorder panel, plus export/clear.
+    blackboxStats: () => blackbox.stats(),
+    blackboxCSV: () => blackbox.toCSV(),
+    blackboxJSON: () => blackbox.toJSON(),
+    blackboxClear: () => { blackbox.clear(); blackbox.event('session', 'log cleared'); },
   });
 
   map2d = new Map2D(ui.view2d);
@@ -1020,7 +1033,9 @@ function wireHardwareStatus() {
   window.pyro.rotator.onStatus((s) => {
     if (lastRotatorAudioConnected !== null && s.connected !== lastRotatorAudioConnected) {
       playRotatorCue(s.connected ? 'connect' : 'disconnect');
+      blackbox.event('rotator', s.connected ? 'connected' : 'disconnected');
     }
+    if (s.connected && s.error) blackbox.event('rotator-error', s.error);
     lastRotatorAudioConnected = s.connected;
     rotConnected = s.connected;
     if (s.telemetry) rotTelemetry = s.telemetry;
@@ -1034,6 +1049,7 @@ function wireHardwareStatus() {
     ui.setRotorConnected(s.connected); // on-map rotor light
   });
   window.pyro.radio.onStatus((s) => {
+    if (s.connected !== radConnected) blackbox.event('radio', s.connected ? 'connected' : 'disconnected');
     radConnected = s.connected;
     ui.hw.radPill._set(s.connected, s.connected ? `Radio connected ${s.host || ''}:${s.port || ''}` : (s.error ? 'Radio: ' + s.error : 'Radio disconnected'));
     ui.hw.radConnect.textContent = s.connected ? 'Disconnect' : 'Connect';
@@ -1506,6 +1522,29 @@ function driveHardware(frame, date, live = true) {
       window.pyro.radio.setFreq(tune.downlinkTunedHz);
       lastRadSend = date.getTime();
     }
+  }
+
+  // Blackbox: log track-target changes (acquire / release) as they happen.
+  if (rotConnected && live && activeTrackId !== lastLoggedTrackId) {
+    if (activeTrackId) {
+      const s = catalogById.get(activeTrackId);
+      blackbox.event('track', 'acquire ' + (s ? s.name : activeTrackId));
+    } else if (lastLoggedTrackId) {
+      blackbox.event('track', 'release');
+    }
+    lastLoggedTrackId = activeTrackId;
+  }
+
+  // Blackbox: sample commanded vs actual pointing + tuned freq while connected.
+  if (rotConnected && live && frame.rotor && date.getTime() - lastBlackboxSample >= BLACKBOX_INTERVAL_MS) {
+    blackbox.sample({
+      t: date.getTime(),
+      commanded: frame.rotor.commanded,
+      actual: frame.rotor.actual,
+      freqHz: tune && tune.downlinkTunedHz ? tune.downlinkTunedHz : null,
+      trackId: activeTrackId,
+    });
+    lastBlackboxSample = date.getTime();
   }
 }
 

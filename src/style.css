@@ -1129,3 +1129,11 @@ html.ui-lg .mission-console {
 .rprof-head select { flex: 1 1 auto; min-width: 0; }
 .rprof-grid { display: grid; grid-template-columns: 1fr auto; gap: 6px 8px; align-items: end; }
 .rprof-grid .fld:nth-child(2), .rprof-grid .fld:nth-child(4) { min-width: 74px; }
+
+/* ---------------------------- Session blackbox ---------------------------- */
+.bbox { display: flex; flex-direction: column; gap: 8px; }
+.bbox-stats { display: flex; flex-wrap: wrap; gap: 6px; }
+.bbox-stat { flex: 1 1 60px; min-width: 56px; background: var(--panel-2); border: 1px solid color-mix(in srgb, var(--accent) 18%, transparent); border-radius: 7px; padding: 6px 8px; text-align: center; }
+.bbox-stat b { display: block; font-size: 15px; color: var(--accent-2); font-variant-numeric: tabular-nums; }
+.bbox-stat span { font-size: 10px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted, #8792a6); }
+.bbox-ctl { display: flex; gap: 6px; flex-wrap: wrap; }
