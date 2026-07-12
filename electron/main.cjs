@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const https = require('node:https');
 const { HamlibClient } = require('./hamlib.cjs');
 const { SuperRotClient } = require('./superrot.cjs');
+const flasher = require('./flasher.cjs');
 
 // Keep the smooth-motion control loop running at full rate when the window is in the
 // background/minimized/occluded. Chromium otherwise throttles renderer timers to ~1 Hz
@@ -124,6 +125,38 @@ ipcMain.handle('settings:get', () => readJson(settingsPath(), null));
 ipcMain.handle('settings:set', (_e, data) => {
   writeJson(settingsPath(), data);
   return true;
+});
+
+/* ------------------------- SuperRot USB flasher ------------------------- */
+
+// Development assets live beside this module. Packaged builds copy the directory
+// outside app.asar because native flashing executables cannot run from an archive.
+const flasherResourcesPath = () => isDev ? path.join(__dirname, 'superrot-flasher') : path.join(process.resourcesPath, 'superrot-flasher');
+const firmwareManifestPath = () => path.join(flasherResourcesPath(), 'manifest.json');
+
+ipcMain.handle('flasher:listPorts', () => flasher.listPorts());
+ipcMain.handle('flasher:availability', () => {
+  try {
+    const manifest = flasher.loadManifest(firmwareManifestPath());
+    const tool = flasher.defaultToolPath(path.dirname(flasherResourcesPath()));
+    if (!fs.existsSync(tool)) throw new Error('Bundled ESP32 flashing tool is absent.');
+    return { ok: true, firmwareVersion: manifest.firmwareVersion, chip: manifest.chip };
+  } catch (error) {
+    return { ok: false, error: error.message };
+  }
+});
+ipcMain.handle('flasher:flash', async (_event, request = {}) => {
+  try {
+    const result = await flasher.flash({
+      port: request.port,
+      manifestPath: firmwareManifestPath(),
+      resourcesPath: path.dirname(flasherResourcesPath()),
+      onProgress: (message) => sendToRenderer('flasher:progress', { message }),
+    });
+    return result;
+  } catch (error) {
+    return { ok: false, error: error.message };
+  }
 });
 
 /* ------------------------------ TLE fetch ------------------------------- */

@@ -6,6 +6,16 @@ contextBridge.exposeInMainWorld('pyro', {
     get: () => ipcRenderer.invoke('settings:get'),
     set: (data) => ipcRenderer.invoke('settings:set', data),
   },
+  flasher: {
+    listPorts: () => ipcRenderer.invoke('flasher:listPorts'),
+    availability: () => ipcRenderer.invoke('flasher:availability'),
+    flash: (port) => ipcRenderer.invoke('flasher:flash', { port }),
+    onProgress: (cb) => {
+      const listener = (_event, progress) => cb(progress);
+      ipcRenderer.on('flasher:progress', listener);
+      return () => ipcRenderer.removeListener('flasher:progress', listener);
+    },
+  },
   tle: {
     fetch: (group) => ipcRenderer.invoke('tle:fetch', group),
     fetchOne: (id) => ipcRenderer.invoke('tle:fetchOne', id),
