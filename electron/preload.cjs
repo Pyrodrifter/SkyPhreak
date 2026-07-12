@@ -10,6 +10,7 @@ contextBridge.exposeInMainWorld('pyro', {
     listPorts: () => ipcRenderer.invoke('flasher:listPorts'),
     availability: () => ipcRenderer.invoke('flasher:availability'),
     flash: (port) => ipcRenderer.invoke('flasher:flash', { port }),
+    provision: (port, profile) => ipcRenderer.invoke('flasher:provision', { port, profile }),
     onProgress: (cb) => {
       const listener = (_event, progress) => cb(progress);
       ipcRenderer.on('flasher:progress', listener);

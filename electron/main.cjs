@@ -158,6 +158,13 @@ ipcMain.handle('flasher:flash', async (_event, request = {}) => {
     return { ok: false, error: error.message };
   }
 });
+ipcMain.handle('flasher:provision', async (_event, request = {}) => {
+  try {
+    return await flasher.provision({ port: request.port, profile: request.profile });
+  } catch (error) {
+    return { ok: false, error: error.message };
+  }
+});
 
 /* ------------------------------ TLE fetch ------------------------------- */
 

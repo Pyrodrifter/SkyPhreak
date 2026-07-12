@@ -32,6 +32,7 @@ class SuperRotClient extends EventEmitter {
     this.connected = false;
     this.buffer = '';
     this.telemetry = null; // last { az, el, azRate, elRate }
+    this.trackSeq = 0;
   }
 
   emitStatus(extra = {}) {
@@ -175,7 +176,8 @@ class SuperRotClient extends EventEmitter {
 
   // High-level commands. `track` is the one the smooth controller streams.
   track(az, el, azRate, elRate) {
-    return this._write(`A ${az.toFixed(2)} ${el.toFixed(2)} ${azRate.toFixed(3)} ${elRate.toFixed(3)}\n`);
+    this.trackSeq = (this.trackSeq + 1) >>> 0;
+    return this._write(`A2 ${this.trackSeq} ${az.toFixed(6)} ${el.toFixed(6)} ${azRate.toFixed(6)} ${elRate.toFixed(6)}\n`);
   }
   velocity(azRate, elRate) {
     return this._write(`V ${azRate.toFixed(3)} ${elRate.toFixed(3)}\n`);
@@ -218,6 +220,7 @@ class SuperRotClient extends EventEmitter {
     this.port = null;
     this.connected = false;
     this.buffer = '';
+    this.trackSeq = 0;
   }
 }
 

@@ -4,6 +4,8 @@ const crypto = require('node:crypto');
 const { spawn } = require('node:child_process');
 
 const SUPPORTED_CHIPS = new Set(['esp32', 'esp32s2', 'esp32s3', 'esp32c3', 'esp32c6']);
+const SERIAL_BAUD = 115200;
+const REPLY_TIMEOUT_MS = 2500;
 
 function fail(message) {
   const error = new Error(message);
@@ -119,4 +121,83 @@ function flash({ port, manifestPath, resourcesPath, toolPath, onProgress = () =>
   });
 }
 
-module.exports = { validateManifest, loadManifest, listPorts, defaultToolPath, flash };
+function profileToFirmware(profile) {
+  if (!profile || typeof profile !== 'object' || Array.isArray(profile)) fail('A valid hardware profile is required.');
+  const p = profile.pins || {}, m = profile.mechanics || {}, i = profile.invert || {}, l = profile.limits || {};
+  const output = {
+    azStepPin: p.azStep, azDirPin: p.azDir, elStepPin: p.elStep, elDirPin: p.elDir,
+    enablePin: p.enable, azLimitPin: Number.isInteger(p.azLimit) ? p.azLimit : -1, elLimitPin: p.elLimit,
+    motorSteps: m.motorSteps, microsteps: m.microsteps, azGearRatio: m.azGearRatio, elGearRatio: m.elGearRatio,
+    azMin: l.azMin, azMax: l.azMax, elMin: l.elMin, elMax: l.elMax,
+    azDirectionInvert: !!i.azDirection, elDirectionInvert: !!i.elDirection,
+    enableActiveLow: !!i.enable, azLimitActiveLow: true, elLimitActiveLow: !!i.elLimit,
+    allowStrappingPins: false, elHomeDirection: -1, homingMode: 1,
+  };
+  const pins = ['azStepPin', 'azDirPin', 'elStepPin', 'elDirPin', 'enablePin', 'elLimitPin'];
+  if (pins.some((key) => !Number.isInteger(output[key]))) fail('Profile GPIO assignments must be integers.');
+  const numbers = ['motorSteps', 'microsteps', 'azGearRatio', 'elGearRatio', 'azMin', 'azMax', 'elMin', 'elMax'];
+  if (numbers.some((key) => !Number.isFinite(output[key]))) fail('Profile mechanics and limits must be finite numbers.');
+  return output;
+}
+
+function openSerial(SerialPort, pathName) {
+  return new Promise((resolve, reject) => {
+    const serial = new SerialPort({ path: pathName, baudRate: SERIAL_BAUD, autoOpen: false });
+    serial.open((error) => error ? reject(error) : resolve(serial));
+  });
+}
+
+function closeSerial(serial) {
+  return new Promise((resolve) => {
+    if (!serial?.isOpen) return resolve();
+    serial.close(() => resolve());
+  });
+}
+
+function requestJson(serial, command, timeoutMs = REPLY_TIMEOUT_MS) {
+  return new Promise((resolve, reject) => {
+    let buffer = '';
+    const cleanup = () => { clearTimeout(timer); serial.off('data', onData); serial.off('error', onError); };
+    const onError = (error) => { cleanup(); reject(error); };
+    const onData = (chunk) => {
+      buffer += String(chunk);
+      if (buffer.length > 65536) buffer = buffer.slice(-32768);
+      let newline;
+      while ((newline = buffer.indexOf('\n')) >= 0) {
+        const line = buffer.slice(0, newline).trim(); buffer = buffer.slice(newline + 1);
+        if (!line.startsWith('{')) continue;
+        let reply; try { reply = JSON.parse(line); } catch { continue; }
+        if (typeof reply.ok !== 'boolean') continue; // ignore boot events and tracking telemetry
+        cleanup();
+        if (!reply.ok) reject(new Error(`Controller rejected ${command.cmd}: ${reply.error || 'unknown error'}${reply.detail ? ` (${reply.detail})` : ''}`));
+        else resolve(reply);
+        return;
+      }
+    };
+    const timer = setTimeout(() => { cleanup(); reject(new Error(`Timed out waiting for ${command.cmd} reply.`)); }, timeoutMs);
+    serial.on('data', onData); serial.on('error', onError);
+    serial.write(`${JSON.stringify(command)}\n`, (error) => { if (error) onError(error); });
+  });
+}
+
+/** Explicitly provision an already-flashed controller. This never invokes the flasher. */
+async function provision({ port, profile, SerialPortClass, timeoutMs = REPLY_TIMEOUT_MS }) {
+  if (typeof port !== 'string' || !port.trim() || /[\r\n\0]/.test(port)) fail('A valid serial port is required.');
+  const fields = profileToFirmware(profile);
+  const SerialPort = SerialPortClass || require('serialport').SerialPort;
+  let serial;
+  try {
+    serial = await openSerial(SerialPort, port);
+    await requestJson(serial, { cmd: 'enterSetup' }, timeoutMs);
+    await requestJson(serial, { cmd: 'defaults' }, timeoutMs);
+    await requestJson(serial, { cmd: 'set', ...fields }, timeoutMs);
+    await requestJson(serial, { cmd: 'validate' }, timeoutMs);
+    await requestJson(serial, { cmd: 'save' }, timeoutMs);
+    await requestJson(serial, { cmd: 'reboot' }, timeoutMs);
+    return { ok: true, rebooting: true };
+  } finally {
+    await closeSerial(serial);
+  }
+}
+
+module.exports = { validateManifest, loadManifest, listPorts, defaultToolPath, flash, profileToFirmware, requestJson, provision };
