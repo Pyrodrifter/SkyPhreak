@@ -993,14 +993,14 @@ html.ui-lg .mission-console {
 @media (max-width: 840px) { .mission-console .mission-metrics { display: none; } .mission-console .brand-logo { width: 42px; height: 42px; } .mission-console .brand-text small, .mission-target-kind { display: none; } }
 
 /* Mission-control footer: segmented instrument strip. */
-.mission-console .statusbar { height: var(--mc-sb-h); gap: 6px; margin: 0 8px 10px; padding: 8px; border-color: color-mix(in srgb, var(--accent) 28%, var(--line)); border-radius: 7px; background: linear-gradient(100deg, #06111d, #071827 50%, #06111d); box-shadow: inset 0 1px rgba(255,255,255,.025), 0 8px 24px rgba(0,0,0,.28); }
+.mission-console .statusbar { width: calc(100% - 16px); min-width: 0; height: var(--mc-sb-h); gap: 6px; margin: 0 8px 10px; padding: 8px; flex-wrap: nowrap; overflow: hidden; border-color: color-mix(in srgb, var(--accent) 28%, var(--line)); border-radius: 7px; background: linear-gradient(100deg, #06111d, #071827 50%, #06111d); box-shadow: inset 0 1px rgba(255,255,255,.025), 0 8px 24px rgba(0,0,0,.28); }
 /* Two side-by-side zones (UTC | LOCAL). flex-direction is set explicitly — an older
    column rule once leaked in here and stacked the zones taller than the bar. */
 .mission-console .statusbar .clock { display: flex; flex-direction: row; align-items: stretch; min-width: 0; }
 .mission-console .clock-zone { display: flex; flex-direction: column; justify-content: center; min-width: 104px; padding: 0 12px; border-right: 1px solid var(--line); }
 .mission-console .clock-zone:last-child { border-right: 0; }
 .mission-console .clock-zone small, .mission-console .statusbar .sb-k { display: block; margin-bottom: 5px; color: var(--accent); font-size: 8px; font-weight: 800; letter-spacing: 1px; text-transform: uppercase; }
-.mission-console .clock-zone b { color: var(--text); font-size: 19px; font-weight: 650; letter-spacing: .25px; }
+.mission-console .clock-zone b { color: var(--text); font-size: 19px; font-weight: 650; letter-spacing: .25px; white-space: nowrap; }
 .mission-console .clock-zone em { margin-top: 5px; color: var(--text-dim); font-size: 9px; font-style: normal; white-space: nowrap; }
 .mission-console .statusbar .sb-item { min-height: 46px; padding: 0 12px; border-right: 1px solid var(--line); }
 .mission-console .sb-orbit-icon, .mission-console .sb-state-icon { display: grid; place-items: center; width: 31px; height: 31px; min-width: 31px; min-height: 31px; flex: 0 0 31px; box-sizing: border-box; border: 1px solid var(--accent); border-radius: 50%; color: var(--accent); font-size: 20px; box-shadow: inset 0 0 10px color-mix(in srgb, var(--accent) 12%, transparent); transition: color .45s ease, border-color .45s ease, box-shadow .45s ease, opacity .45s ease; }
@@ -1058,6 +1058,15 @@ html.ui-lg .mission-console {
 .quick-connect-hint { margin-top: 9px; color: var(--text-dim); font-size: 9px; text-align: center; }
 .mission-console .statusbar .sb-collapse:hover { color: var(--text); }
 
+/* Footer priority ladder: keep rotator controls before secondary telemetry as the
+   window narrows. The radio remains available in Hardware and the top status area. */
+@media (max-width: 1500px) {
+  .mission-console .statusbar .sb-radio { display: none; }
+}
+@media (max-width: 1350px) {
+  .mission-console .statusbar .sb-target, .mission-console .statusbar .sb-tle { display: none; }
+}
+
 /* Shared footer alignment grid. All information modules use the same 48 px
    content box so labels, values, icons, and dividers share a baseline. */
 .mission-console .statusbar { align-items: center; }
@@ -1095,26 +1104,37 @@ html.ui-lg .mission-console {
    the compact layout at smaller window sizes. */
 @media (max-width: 1080px) {
   .mission-console .statusbar { height: 64px; margin-left: 8px; margin-right: 8px; padding: 6px; }
-  .mission-console .statusbar .clock { min-width: 0; }
-  .mission-console .clock-zone { min-width: 84px; padding: 0 8px; }
+  .mission-console .statusbar .clock { min-width: 100px; flex: 0 0 100px; overflow: hidden; }
+  .mission-console .clock-zone:first-child { display: none; }
+  .mission-console .clock-zone { width: 100%; min-width: 0; padding: 0 8px; border-right: 0; }
   .mission-console .clock-zone b { font-size: 15px; }
+  .mission-console .clock-zone em { display: none; }
   .mission-console .statusbar .sb-target, .mission-console .statusbar .sb-tle,
   .mission-console .statusbar .sb-wrap, .mission-console .statusbar > .sb-sep { display: none; }
   .mission-console .statusbar .park-btn, .mission-console .statusbar .sb-rot-action, .mission-console .statusbar .btn.danger { min-width: 76px; min-height: 40px; }
   .mission-console .statusbar .sb-rot-action { display: none; }
   .mission-console .statusbar .btn.danger { min-width: 112px; }
+  .mission-console .statusbar .sb-track-mode { min-width: 0; padding-left: 6px; padding-right: 6px; }
 }
 @media (max-width: 900px) {
   .mission-console .statusbar .sb-connection { display: none; }
   .mission-console .statusbar .sb-track-mode { border-right: 0; }
 }
 @media (max-width: 720px) {
-  .mission-console .clock-zone:last-child, .mission-console .statusbar .park-btn { display: none; }
+  .mission-console .statusbar .park-btn { display: none; }
   .mission-console .statusbar .clock { flex: 0 0 auto; }
   .mission-console .statusbar .sb-track-mode { padding: 0 6px; }
   .mission-console .sb-track-mode .track-btn { min-width: 58px; padding: 0 8px; }
   .mission-console .sb-orbit-icon { display: none; }
   .mission-console .statusbar .btn.danger { min-width: 96px; }
+}
+@media (max-width: 560px) {
+  .mission-console .statusbar .clock { display: none; }
+  .mission-console .statusbar { gap: 3px; padding-left: 4px; padding-right: 4px; }
+  .mission-console .statusbar .sb-track-mode { flex: 1 1 auto; }
+  .mission-console .sb-track-mode .track-btns { width: 100%; }
+  .mission-console .sb-track-mode .track-btn { min-width: 0; flex: 1 1 0; padding-left: 5px; padding-right: 5px; }
+  .mission-console .statusbar .btn.danger { min-width: 88px; padding-left: 8px; padding-right: 8px; }
 }
 
 /* ---------------------------- Horizon mask editor ---------------------------- */
