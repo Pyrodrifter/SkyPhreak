@@ -1515,7 +1515,12 @@ function driveHardware(frame, date, live = true) {
   const dopId = dopTarget && dopTarget.id;
   const profile = dopId ? resolveProfile(state.radioProfiles, dopId, state.hw.radio) : null;
   const tune = dopplerFactor != null ? radioTuning(profile, dopplerFactor) : null;
-  ui.setRadioTuning(tune);
+  ui.setRadioTuning(tune ? {
+    ...tune,
+    targetName: dopTarget.name || String(dopId || 'Satellite'),
+    profileLabel: profile?.label || (profile?.source === 'profile' ? 'Saved profile' : 'Global fallback'),
+    source: profile?.source,
+  } : null);
   if (ui.hw.radFreqLive) {
     ui.hw.radFreqLive.innerHTML = '';
     if (tune) {

@@ -1001,16 +1001,30 @@ html.ui-lg .mission-console {
   background: linear-gradient(100deg, #0b0d1b, #111226 48%, #090e1b);
   box-shadow: inset 0 1px rgba(255,255,255,.025), 0 5px 16px rgba(0,0,0,.2);
 }
-.mission-console .rigbar-brand, .mission-console .rigbar-readout { display: flex; align-items: center; min-width: 0; height: 38px; padding: 0 12px; border-right: 1px solid var(--line); }
-.mission-console .rigbar-brand { gap: 9px; min-width: 118px; }
-.mission-console .rigbar-brand > div, .mission-console .rigbar-readout { flex-direction: column; align-items: flex-start; justify-content: center; }
+.mission-console .rigbar-brand, .mission-console .rigbar-readout, .mission-console .rigbar-target, .mission-console .rigbar-shift { display: flex; align-items: center; min-width: 0; height: 38px; padding: 0 12px; border-right: 1px solid var(--line); }
+.mission-console .rigbar-brand { gap: 9px; min-width: 150px; }
+.mission-console .rigbar-brand > div, .mission-console .rigbar-readout, .mission-console .rigbar-target, .mission-console .rigbar-shift { flex-direction: column; align-items: flex-start; justify-content: center; }
 .mission-console .rigbar small { display: block; margin-bottom: 3px; color: #b77cff; font-size: 8px; font-weight: 800; letter-spacing: 1px; }
 .mission-console .rigbar-state { color: var(--text-dim); font-size: 11px; font-weight: 700; }
+.mission-console .rigbar-endpoint { display: block; overflow: hidden; max-width: 112px; margin-top: 1px; color: #68778d; font-size: 8px; text-overflow: ellipsis; }
 .mission-console .rigbar-led { width: 10px; height: 10px; flex: 0 0 10px; border-radius: 50%; background: var(--danger); box-shadow: 0 0 7px color-mix(in srgb, var(--danger) 65%, transparent); }
 .mission-console .rigbar.connected .rigbar-led { background: var(--success); box-shadow: 0 0 8px color-mix(in srgb, var(--success) 70%, transparent); }
 .mission-console .rigbar.connected .rigbar-state { color: var(--success); }
 .mission-console .rigbar-readout { min-width: 190px; }
 .mission-console .rigbar-freq { overflow: hidden; max-width: 100%; color: var(--text); font-size: 12px; font-variant-numeric: tabular-nums; text-overflow: ellipsis; }
+.mission-console .rigbar-target { min-width: 170px; }
+.mission-console .rigbar-target-name { overflow: hidden; max-width: 100%; color: var(--text); font-size: 12px; text-overflow: ellipsis; }
+.mission-console .rigbar-profile { overflow: hidden; max-width: 100%; margin-top: 1px; color: #8d79b8; font-size: 8px; text-overflow: ellipsis; }
+.mission-console .rigbar-shift { min-width: 116px; }
+.mission-console .rigbar-shift-value { color: var(--text); font-size: 12px; font-variant-numeric: tabular-nums; }
+.mission-console .rigbar-shift-value.positive { color: #62d7ff; }
+.mission-console .rigbar-shift-value.negative { color: #d2a1ff; }
+.mission-console .rigbar-spectrum { position: relative; display: flex; align-items: center; justify-content: center; gap: 4px; min-width: 120px; max-width: 300px; height: 34px; flex: 1 1 220px; overflow: hidden; border: 1px solid rgba(183,124,255,.12); border-radius: 6px; background: repeating-linear-gradient(90deg, transparent 0 18px, rgba(183,124,255,.045) 19px), linear-gradient(180deg, rgba(183,124,255,.035), transparent); }
+.mission-console .rigbar-spectrum::after { content: 'CAT STREAM'; position: absolute; right: 7px; bottom: 3px; color: rgba(183,124,255,.42); font-size: 7px; font-weight: 800; letter-spacing: 1px; }
+.mission-console .rigbar-spectrum i { width: 3px; height: calc(var(--bar) * 3px); border-radius: 2px; background: rgba(120,131,151,.35); transform-origin: bottom; }
+.mission-console .rigbar.connected .rigbar-spectrum i { background: linear-gradient(180deg, #c89cff, #7656a8); box-shadow: 0 0 5px rgba(183,124,255,.35); animation: rigbar-pulse 1.35s ease-in-out infinite alternate; animation-delay: calc(var(--bar) * -90ms); }
+@keyframes rigbar-pulse { to { transform: scaleY(1.65); opacity: .72; } }
+@media (prefers-reduced-motion: reduce) { .mission-console .rigbar.connected .rigbar-spectrum i { animation: none; } }
 .mission-console .rigbar-toggle { display: inline-flex; align-items: center; gap: 7px; min-height: 36px; padding: 0 11px; border: 1px solid var(--line); border-radius: 7px; background: rgba(8,17,31,.8); color: var(--text-dim); cursor: pointer; }
 .mission-console .rigbar-toggle-dot { width: 9px; height: 9px; border-radius: 50%; background: #556070; }
 .mission-console .rigbar-toggle.on { color: #d7c4ff; border-color: rgba(183,124,255,.48); }
@@ -1018,8 +1032,14 @@ html.ui-lg .mission-console {
 .mission-console .rigbar-connect { min-width: 94px; min-height: 36px; }
 .mission-console .rigbar-collapse { display: inline-grid; place-items: center; min-width: 34px; width: 34px; min-height: 36px; padding: 0; }
 .mission-console .rigbar.collapsed { height: 36px; flex-basis: 36px; padding-top: 3px; padding-bottom: 3px; }
-.mission-console .rigbar.collapsed .rigbar-readout, .mission-console .rigbar.collapsed .rigbar-toggle, .mission-console .rigbar.collapsed .rigbar-connect { display: none; }
+.mission-console .rigbar.collapsed .rigbar-readout, .mission-console .rigbar.collapsed .rigbar-target, .mission-console .rigbar.collapsed .rigbar-shift, .mission-console .rigbar.collapsed .rigbar-spectrum, .mission-console .rigbar.collapsed .rigbar-toggle, .mission-console .rigbar.collapsed .rigbar-connect { display: none; }
 .mission-console .rigbar.collapsed .rigbar-brand { height: 28px; border-right: 0; }
+@media (max-width: 1350px) {
+  .mission-console .rigbar-spectrum { display: none; }
+}
+@media (max-width: 1100px) {
+  .mission-console .rigbar-target, .mission-console .rigbar-shift { display: none; }
+}
 @media (max-width: 900px) {
   .mission-console .rigbar-tx { display: none; }
   .mission-console .rigbar-readout { min-width: 160px; }

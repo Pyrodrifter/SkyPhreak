@@ -470,7 +470,11 @@ export function createUI(handlers) {
   }, '⌄');
   const rigRx = h('strong', { class: 'rigbar-freq' }, '—');
   const rigTx = h('strong', { class: 'rigbar-freq' }, '—');
+  const rigTarget = h('strong', { class: 'rigbar-target-name' }, 'No satellite');
+  const rigProfile = h('span', { class: 'rigbar-profile' }, 'Global fallback');
+  const rigShift = h('strong', { class: 'rigbar-shift-value' }, '0.00 kHz');
   const rigState = h('span', { class: 'rigbar-state' }, 'Offline');
+  const rigEndpoint = h('span', { class: 'rigbar-endpoint' }, '127.0.0.1:4532');
   const rigDoppler = h('button', {
     class: 'rigbar-toggle', type: 'button', role: 'switch', 'aria-checked': 'false',
     onclick: () => store.patchIn('hw.radio', { doppler: !store.get().hw.radio.doppler }),
@@ -483,9 +487,12 @@ export function createUI(handlers) {
     onclick: () => store.patch({ rigBarCollapsed: !store.get().rigBarCollapsed }),
   }, '⌄');
   const rigbar = h('footer', { class: 'rigbar' }, [
-    h('div', { class: 'rigbar-brand' }, [h('span', { class: 'rigbar-led' }), h('div', {}, [h('small', {}, 'RIGCTLD'), rigState])]),
+    h('div', { class: 'rigbar-brand' }, [h('span', { class: 'rigbar-led' }), h('div', {}, [h('small', {}, 'RIGCTLD'), rigState, rigEndpoint])]),
+    h('div', { class: 'rigbar-target' }, [h('small', {}, 'ACTIVE CHANNEL'), rigTarget, rigProfile]),
     h('div', { class: 'rigbar-readout rigbar-rx' }, [h('small', {}, 'RX / DOWNLINK'), rigRx]),
     h('div', { class: 'rigbar-readout rigbar-tx' }, [h('small', {}, 'TX / UPLINK'), rigTx]),
+    h('div', { class: 'rigbar-shift' }, [h('small', {}, 'DOPPLER Δ'), rigShift]),
+    h('div', { class: 'rigbar-spectrum', title: 'CAT link activity' }, Array.from({ length: 13 }, (_, i) => h('i', { style: `--bar:${(i * 7) % 5 + 1}` }))),
     h('div', { class: 'spacer' }),
     rigDoppler,
     rigConnect,
@@ -499,6 +506,7 @@ export function createUI(handlers) {
     rigbar.classList.toggle('collapsed', !!store.get().rigBarCollapsed);
     rigCollapse.textContent = store.get().rigBarCollapsed ? '⌃' : '⌄';
     rigbar.title = `rigctld ${r.host}:${r.port}`;
+    rigEndpoint.textContent = `${r.host}:${r.port}`;
   }
   store.subscribe(syncRigBar);
   syncRigBar();
@@ -573,6 +581,12 @@ export function createUI(handlers) {
   function setRadioTuning(info) {
     rigRx.textContent = info?.downlinkTunedHz ? `${(info.downlinkTunedHz / 1e6).toFixed(5)} MHz${info.downlinkMode ? ` · ${info.downlinkMode}` : ''}` : '—';
     rigTx.textContent = info?.uplinkTunedHz ? `${(info.uplinkTunedHz / 1e6).toFixed(5)} MHz${info.uplinkMode ? ` · ${info.uplinkMode}` : ''}` : '—';
+    rigTarget.textContent = info?.targetName || 'No satellite';
+    rigProfile.textContent = info?.profileLabel || (info?.source === 'profile' ? 'Saved profile' : 'Global fallback');
+    const shift = info?.downlinkShiftHz || 0;
+    rigShift.textContent = `${shift >= 0 ? '+' : '−'}${Math.abs(shift / 1000).toFixed(2)} kHz`;
+    rigShift.classList.toggle('positive', shift > 0);
+    rigShift.classList.toggle('negative', shift < 0);
   }
 
   // Collapse/expand the side panels, and set the global UI size class.
