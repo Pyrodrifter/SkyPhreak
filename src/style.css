@@ -1032,10 +1032,12 @@ html.ui-lg .mission-console {
 }
 .mission-console .sb-target .sb-val { display: block; font-size: 12px; }
 .mission-console .sb-tle { flex-direction: column; align-items: flex-start; justify-content: center; min-width: 92px; }
-/* Big slab buttons — Park / Stop / collapse only. The track-mode buttons are ALSO
+/* Big slab buttons — rotator actions / Stop / collapse only. The track-mode buttons are ALSO
    `.btn.sm`, so this must never target `.btn.sm` broadly or it flattens the seg. */
-.mission-console .statusbar .park-btn, .mission-console .statusbar .btn.danger, .mission-console .statusbar .sb-collapse { min-width: 92px; min-height: 52px; border-radius: 8px; background: linear-gradient(180deg, rgba(10,31,49,.95), rgba(7,23,38,.95)); border-color: color-mix(in srgb, var(--accent) 22%, var(--line)); }
-.mission-console .statusbar .park-btn { color: #9ec9e9; font-size: 13px; }
+.mission-console .statusbar .park-btn, .mission-console .statusbar .sb-rot-action, .mission-console .statusbar .btn.danger, .mission-console .statusbar .sb-collapse { min-width: 92px; min-height: 52px; border-radius: 8px; background: linear-gradient(180deg, rgba(10,31,49,.95), rgba(7,23,38,.95)); border-color: color-mix(in srgb, var(--accent) 22%, var(--line)); }
+.mission-console .statusbar .park-btn, .mission-console .statusbar .sb-rot-action { color: #9ec9e9; font-size: 13px; }
+.mission-console .statusbar .sb-rot-action { min-width: 84px; }
+.mission-console .statusbar .sb-rot-action:disabled { opacity: .38; cursor: not-allowed; filter: saturate(.45); }
 .mission-console .statusbar .btn.danger { min-width: 138px; color: #ff626c; font-size: 13px; border-color: rgba(255,82,92,.5); background: rgba(54,14,23,.18); }
 .mission-console .statusbar .sb-connection { min-width: 92px; border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--line)); border-radius: 8px; background: rgba(7,25,40,.72); }
 .mission-console .statusbar button.sb-connection { color: var(--text-dim); font: inherit; cursor: pointer; text-align: left; }
@@ -1071,6 +1073,7 @@ html.ui-lg .mission-console {
 .mission-console .statusbar .sb-tle { height: 48px; min-height: 48px; }
 .mission-console .statusbar .sb-connection { height: 52px; min-height: 52px; justify-content: center; padding: 0 12px; border-right: 1px solid color-mix(in srgb, var(--accent) 18%, var(--line)); }
 .mission-console .statusbar .park-btn,
+.mission-console .statusbar .sb-rot-action,
 .mission-console .statusbar .btn.danger { display: inline-flex; align-items: center; justify-content: center; gap: 8px; line-height: 1; }
 .mission-console .statusbar .btn.danger::before { content: none; }
 .mission-console .sb-btn-icon { display: inline-grid; place-items: center; width: 20px; height: 20px; flex: 0 0 20px; border: 1px solid currentColor; border-radius: 50%; font-size: 12px; }
@@ -1081,7 +1084,7 @@ html.ui-lg .mission-console {
    tucks away until the chevron re-expands it. */
 .mission-console .statusbar.collapsed { height: 46px; padding: 5px 8px; }
 .mission-console .statusbar.collapsed .sb-item, .mission-console .statusbar.collapsed .sb-sep,
-.mission-console .statusbar.collapsed .park-btn { display: none; }
+.mission-console .statusbar.collapsed .park-btn, .mission-console .statusbar.collapsed .sb-rot-action { display: none; }
 .mission-console .statusbar.collapsed .clock-zone { flex-direction: row; align-items: baseline; gap: 7px; min-width: 0; }
 .mission-console .statusbar.collapsed .clock-zone small { margin-bottom: 0; }
 .mission-console .statusbar.collapsed .clock-zone b { font-size: 14px; }
@@ -1097,7 +1100,8 @@ html.ui-lg .mission-console {
   .mission-console .clock-zone b { font-size: 15px; }
   .mission-console .statusbar .sb-target, .mission-console .statusbar .sb-tle,
   .mission-console .statusbar .sb-wrap, .mission-console .statusbar > .sb-sep { display: none; }
-  .mission-console .statusbar .park-btn, .mission-console .statusbar .btn.danger { min-width: 76px; min-height: 40px; }
+  .mission-console .statusbar .park-btn, .mission-console .statusbar .sb-rot-action, .mission-console .statusbar .btn.danger { min-width: 76px; min-height: 40px; }
+  .mission-console .statusbar .sb-rot-action { display: none; }
   .mission-console .statusbar .btn.danger { min-width: 112px; }
 }
 @media (max-width: 900px) {

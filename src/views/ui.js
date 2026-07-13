@@ -468,6 +468,18 @@ export function createUI(handlers) {
     class: 'btn sm sb-collapse', title: 'Collapse / expand the status bar',
     onclick: () => store.patch({ sbCollapsed: !store.get().sbCollapsed }),
   }, '⌄');
+  const sbHomeBtn = h('button', {
+    class: 'btn sm sb-rot-action sb-home',
+    title: 'Home rotator: zero AZ at its manually centred position, seek the EL limit switch, then zero EL',
+    disabled: true,
+    onclick: () => handlers.homeRotator(),
+  }, [h('span', { class: 'sb-btn-icon', 'aria-hidden': 'true' }, 'H'), h('span', {}, 'Home')]);
+  const sbUnwindBtn = h('button', {
+    class: 'btn sm sb-rot-action sb-unwind',
+    title: 'Unwind accumulated azimuth turns while keeping the same compass heading',
+    disabled: true,
+    onclick: () => handlers.unwindRotator(),
+  }, [h('span', { class: 'sb-btn-icon', 'aria-hidden': 'true' }, '↶'), h('span', {}, 'Unwind')]);
   const statusbar = h('footer', { class: 'statusbar' }, [
     clockEl,
     h('div', { class: 'sb-sep' }),
@@ -477,6 +489,8 @@ export function createUI(handlers) {
     h('div', { class: 'spacer' }),
     sbWrap,
     // Field controls always within reach — no digging into the Hardware tab.
+    sbHomeBtn,
+    sbUnwindBtn,
     h('button', { class: 'btn sm park-btn', title: 'Park the rotator (to the default preset)', onclick: () => handlers.parkRotator() }, [h('span', { class: 'sb-btn-icon' }, 'P'), h('span', {}, 'Park')]),
     h('button', { class: 'btn sm danger', title: 'Stop the rotator (Esc)', onclick: () => handlers.stopRotator() }, [h('span', { class: 'sb-stop-icon' }), h('span', {}, 'Stop Tracking')]),
     h('div', { class: 'sb-sep' }),
@@ -487,6 +501,12 @@ export function createUI(handlers) {
   function setStatus({ rotConnected, radConnected, tracking, slewing }) {
     sbRot.set(rotConnected);
     sbRad.set(radConnected);
+    const superrotReady = !!rotConnected && store.get().hw.rotator.protocol === 'superrot';
+    sbHomeBtn.disabled = !superrotReady;
+    sbUnwindBtn.disabled = !superrotReady;
+    const unavailable = superrotReady ? '' : ' (connect using SuperRot first)';
+    sbHomeBtn.title = 'Home rotator: zero AZ at its manually centred position, seek the EL limit switch, then zero EL' + unavailable;
+    sbUnwindBtn.title = 'Unwind accumulated azimuth turns while keeping the same compass heading' + unavailable;
     sbTrack.textContent = tracking || 'Idle';
     const mode = store.get().hw.rotator.autoMode || 'off';
     sbOrbitIcon.classList.toggle('active', mode !== 'off');
