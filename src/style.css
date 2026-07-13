@@ -993,6 +993,48 @@ html.ui-lg .mission-console {
 @media (max-width: 840px) { .mission-console .mission-metrics { display: none; } .mission-console .brand-logo { width: 42px; height: 42px; } .mission-console .brand-text small, .mission-target-kind { display: none; } }
 
 /* Mission-control footer: segmented instrument strip. */
+.mission-console .rigbar {
+  display: flex; align-items: center; gap: 6px; width: calc(100% - 16px); min-width: 0;
+  height: 52px; flex: 0 0 52px; margin: 0 8px 5px; padding: 6px 8px;
+  overflow: hidden; white-space: nowrap; color: var(--text-dim);
+  border: 1px solid color-mix(in srgb, #b77cff 26%, var(--line)); border-radius: 7px;
+  background: linear-gradient(100deg, #0b0d1b, #111226 48%, #090e1b);
+  box-shadow: inset 0 1px rgba(255,255,255,.025), 0 5px 16px rgba(0,0,0,.2);
+}
+.mission-console .rigbar-brand, .mission-console .rigbar-readout { display: flex; align-items: center; min-width: 0; height: 38px; padding: 0 12px; border-right: 1px solid var(--line); }
+.mission-console .rigbar-brand { gap: 9px; min-width: 118px; }
+.mission-console .rigbar-brand > div, .mission-console .rigbar-readout { flex-direction: column; align-items: flex-start; justify-content: center; }
+.mission-console .rigbar small { display: block; margin-bottom: 3px; color: #b77cff; font-size: 8px; font-weight: 800; letter-spacing: 1px; }
+.mission-console .rigbar-state { color: var(--text-dim); font-size: 11px; font-weight: 700; }
+.mission-console .rigbar-led { width: 10px; height: 10px; flex: 0 0 10px; border-radius: 50%; background: var(--danger); box-shadow: 0 0 7px color-mix(in srgb, var(--danger) 65%, transparent); }
+.mission-console .rigbar.connected .rigbar-led { background: var(--success); box-shadow: 0 0 8px color-mix(in srgb, var(--success) 70%, transparent); }
+.mission-console .rigbar.connected .rigbar-state { color: var(--success); }
+.mission-console .rigbar-readout { min-width: 190px; }
+.mission-console .rigbar-freq { overflow: hidden; max-width: 100%; color: var(--text); font-size: 12px; font-variant-numeric: tabular-nums; text-overflow: ellipsis; }
+.mission-console .rigbar-toggle { display: inline-flex; align-items: center; gap: 7px; min-height: 36px; padding: 0 11px; border: 1px solid var(--line); border-radius: 7px; background: rgba(8,17,31,.8); color: var(--text-dim); cursor: pointer; }
+.mission-console .rigbar-toggle-dot { width: 9px; height: 9px; border-radius: 50%; background: #556070; }
+.mission-console .rigbar-toggle.on { color: #d7c4ff; border-color: rgba(183,124,255,.48); }
+.mission-console .rigbar-toggle.on .rigbar-toggle-dot { background: #b77cff; box-shadow: 0 0 8px #b77cff; }
+.mission-console .rigbar-connect { min-width: 94px; min-height: 36px; }
+.mission-console .rigbar-collapse { display: inline-grid; place-items: center; min-width: 34px; width: 34px; min-height: 36px; padding: 0; }
+.mission-console .rigbar.collapsed { height: 36px; flex-basis: 36px; padding-top: 3px; padding-bottom: 3px; }
+.mission-console .rigbar.collapsed .rigbar-readout, .mission-console .rigbar.collapsed .rigbar-toggle, .mission-console .rigbar.collapsed .rigbar-connect { display: none; }
+.mission-console .rigbar.collapsed .rigbar-brand { height: 28px; border-right: 0; }
+@media (max-width: 900px) {
+  .mission-console .rigbar-tx { display: none; }
+  .mission-console .rigbar-readout { min-width: 160px; }
+}
+@media (max-width: 650px) {
+  .mission-console .rigbar-rx { flex: 1 1 auto; }
+  .mission-console .rigbar-brand { min-width: 96px; padding-left: 6px; padding-right: 6px; }
+  .mission-console .rigbar-toggle span:last-child { display: none; }
+  .mission-console .rigbar-toggle { padding: 0 9px; }
+  .mission-console .rigbar-connect { min-width: 76px; }
+}
+@media (max-width: 480px) {
+  .mission-console .rigbar-readout { display: none; }
+  .mission-console .rigbar .spacer { flex: 1; }
+}
 .mission-console .statusbar { width: calc(100% - 16px); min-width: 0; height: var(--mc-sb-h); gap: 6px; margin: 0 8px 10px; padding: 8px; flex-wrap: nowrap; overflow: hidden; border-color: color-mix(in srgb, var(--accent) 28%, var(--line)); border-radius: 7px; background: linear-gradient(100deg, #06111d, #071827 50%, #06111d); box-shadow: inset 0 1px rgba(255,255,255,.025), 0 8px 24px rgba(0,0,0,.28); }
 /* Two side-by-side zones (UTC | LOCAL). flex-direction is set explicitly — an older
    column rule once leaked in here and stacked the zones taller than the bar. */

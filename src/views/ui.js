@@ -468,6 +468,40 @@ export function createUI(handlers) {
     class: 'btn sm sb-collapse', title: 'Collapse / expand the status bar',
     onclick: () => store.patch({ sbCollapsed: !store.get().sbCollapsed }),
   }, '⌄');
+  const rigRx = h('strong', { class: 'rigbar-freq' }, '—');
+  const rigTx = h('strong', { class: 'rigbar-freq' }, '—');
+  const rigState = h('span', { class: 'rigbar-state' }, 'Offline');
+  const rigDoppler = h('button', {
+    class: 'rigbar-toggle', type: 'button', role: 'switch', 'aria-checked': 'false',
+    onclick: () => store.patchIn('hw.radio', { doppler: !store.get().hw.radio.doppler }),
+  }, [h('span', { class: 'rigbar-toggle-dot' }), h('span', {}, 'Doppler')]);
+  const rigConnect = h('button', {
+    class: 'btn sm rigbar-connect', onclick: () => handlers.connectRadio(),
+  }, 'Connect');
+  const rigCollapse = h('button', {
+    class: 'btn sm rigbar-collapse', title: 'Collapse / expand rigctld controls',
+    onclick: () => store.patch({ rigBarCollapsed: !store.get().rigBarCollapsed }),
+  }, '⌄');
+  const rigbar = h('footer', { class: 'rigbar' }, [
+    h('div', { class: 'rigbar-brand' }, [h('span', { class: 'rigbar-led' }), h('div', {}, [h('small', {}, 'RIGCTLD'), rigState])]),
+    h('div', { class: 'rigbar-readout rigbar-rx' }, [h('small', {}, 'RX / DOWNLINK'), rigRx]),
+    h('div', { class: 'rigbar-readout rigbar-tx' }, [h('small', {}, 'TX / UPLINK'), rigTx]),
+    h('div', { class: 'spacer' }),
+    rigDoppler,
+    rigConnect,
+    rigCollapse,
+  ]);
+  function syncRigBar() {
+    const r = store.get().hw.radio;
+    const doppler = !!r.doppler;
+    rigDoppler.classList.toggle('on', doppler);
+    rigDoppler.setAttribute('aria-checked', doppler ? 'true' : 'false');
+    rigbar.classList.toggle('collapsed', !!store.get().rigBarCollapsed);
+    rigCollapse.textContent = store.get().rigBarCollapsed ? '⌃' : '⌄';
+    rigbar.title = `rigctld ${r.host}:${r.port}`;
+  }
+  store.subscribe(syncRigBar);
+  syncRigBar();
   const sbHomeBtn = h('button', {
     class: 'btn sm sb-rot-action sb-home',
     title: 'Home rotator: zero AZ at its manually centred position, seek the EL limit switch, then zero EL',
@@ -501,6 +535,9 @@ export function createUI(handlers) {
   function setStatus({ rotConnected, radConnected, tracking, slewing }) {
     sbRot.set(rotConnected);
     sbRad.set(radConnected);
+    rigbar.classList.toggle('connected', !!radConnected);
+    rigState.textContent = radConnected ? 'Connected' : 'Offline';
+    rigConnect.textContent = radConnected ? 'Disconnect' : 'Connect';
     const superrotReady = !!rotConnected && store.get().hw.rotator.protocol === 'superrot';
     sbHomeBtn.disabled = !superrotReady;
     sbUnwindBtn.disabled = !superrotReady;
@@ -533,6 +570,10 @@ export function createUI(handlers) {
     sbWrap.title = `Cable wrap: ${info.az.toFixed(0)}° from north (${t.toFixed(2)} turns). `
       + `Amber ≥ ${info.warn}°, red ≥ ${info.max}° — unwind manually.`;
   }
+  function setRadioTuning(info) {
+    rigRx.textContent = info?.downlinkTunedHz ? `${(info.downlinkTunedHz / 1e6).toFixed(5)} MHz${info.downlinkMode ? ` · ${info.downlinkMode}` : ''}` : '—';
+    rigTx.textContent = info?.uplinkTunedHz ? `${(info.uplinkTunedHz / 1e6).toFixed(5)} MHz${info.uplinkMode ? ` · ${info.uplinkMode}` : ''}` : '—';
+  }
 
   // Collapse/expand the side panels, and set the global UI size class.
   function applyLayout(state) {
@@ -547,6 +588,7 @@ export function createUI(handlers) {
     if (fieldBtn) fieldBtn.classList.toggle('active', !!state.fieldMode);
     followBtn.classList.toggle('active', !!state.followSat);
     statusbar.classList.toggle('collapsed', !!state.sbCollapsed);
+    rigbar.classList.toggle('collapsed', !!state.rigBarCollapsed);
     sbCollapseBtn.textContent = state.sbCollapsed ? '⌃' : '⌄';
     applyWakeLock(!!state.fieldMode);
   }
@@ -656,7 +698,7 @@ export function createUI(handlers) {
     return acts;
   }
 
-  app.append(topbar, h('div', { class: 'body' }, [sidebar, stage, rightpanel]), statusbar, helpOverlay, cmdOverlay);
+  app.append(topbar, h('div', { class: 'body' }, [sidebar, stage, rightpanel]), rigbar, statusbar, helpOverlay, cmdOverlay);
 
   /* ------------------------------ Rendering ------------------------------ */
   // A sat-like {noradId,name,line1,line2} for an id, from catalog or favorites.
@@ -1348,7 +1390,7 @@ export function createUI(handlers) {
     view2d, view3d,
     renderList, updateClock, updateInfo, updatePasses, setActiveView, setTleStamp, setStatus,
     setStaleIds, setTleStatus, syncAutoMode, setRotorConnected, applyLayout, updateSky, isSkyActive,
-    setCableWrap, setSpaceWeather, setReadiness,
+    setCableWrap, setRadioTuning, setSpaceWeather, setReadiness,
     hw: hwRefs,
   };
 }

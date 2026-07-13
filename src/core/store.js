@@ -111,6 +111,7 @@ const DEFAULTS = {
   // uplinkHz, uplinkMode, invert, label }. Override the single global downlink so
   // each bird tunes to its own up/down pair. See core/radioProfiles.js.
   radioProfiles: {},
+  rigBarCollapsed: false,
 };
 
 const listeners = new Set();

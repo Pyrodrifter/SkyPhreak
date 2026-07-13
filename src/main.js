@@ -1515,6 +1515,7 @@ function driveHardware(frame, date, live = true) {
   const dopId = dopTarget && dopTarget.id;
   const profile = dopId ? resolveProfile(state.radioProfiles, dopId, state.hw.radio) : null;
   const tune = dopplerFactor != null ? radioTuning(profile, dopplerFactor) : null;
+  ui.setRadioTuning(tune);
   if (ui.hw.radFreqLive) {
     ui.hw.radFreqLive.innerHTML = '';
     if (tune) {
