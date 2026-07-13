@@ -963,7 +963,14 @@ html.ui-lg .mission-console {
 .mission-console { text-rendering: geometricPrecision; }
 .mission-console .mission-metric, .mission-console .mission-link, .mission-console .tabs button, .mission-console .panel-heading { -webkit-font-smoothing: antialiased; }
 
-@media (max-width: 1500px) { .mission-console .mission-links { display: none; } .mission-console .rightpanel { width: 330px; } }
+@media (max-width: 1500px) {
+  .mission-console .mission-links { display: none; }
+  .mission-console .rightpanel { width: 330px; }
+  /* Panel narrows to 330px here — tighten the tab row so the longest label
+     ("Hardware") still fits without clipping, before we drop to icon-only. */
+  .mission-console .tabs button { gap: 4px; letter-spacing: .3px; padding-left: 3px; padding-right: 3px; }
+  .mission-console .tab-ico { margin-right: 3px; width: 14px; height: 14px; }
+}
 @media (max-width: 1240px) {
   .mission-console .mission-metric:nth-child(5) { display: none; }
   .mission-console .sidebar { width: 200px; }
@@ -1223,10 +1230,11 @@ html.ui-lg .mission-console {
 
 /* ---------------------------- Session blackbox ---------------------------- */
 .bbox { display: flex; flex-direction: column; gap: 8px; }
-.bbox-stats { display: flex; flex-wrap: wrap; gap: 6px; }
-.bbox-stat { flex: 1 1 60px; min-width: 56px; background: var(--panel-2); border: 1px solid color-mix(in srgb, var(--accent) 18%, transparent); border-radius: 7px; padding: 6px 8px; text-align: center; }
-.bbox-stat b { display: block; font-size: 15px; color: var(--accent-2); font-variant-numeric: tabular-nums; }
-.bbox-stat span { font-size: 10px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted, #8792a6); }
+/* Equal columns, always one row — never a ragged 3+2 wrap at narrow panel widths. */
+.bbox-stats { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 5px; }
+.bbox-stat { min-width: 0; background: var(--panel-2); border: 1px solid color-mix(in srgb, var(--accent) 18%, transparent); border-radius: 7px; padding: 6px 4px; text-align: center; }
+.bbox-stat b { display: block; font-size: 15px; color: var(--accent-2); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bbox-stat span { display: block; font-size: 10px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted, #8792a6); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .bbox-ctl { display: flex; gap: 6px; flex-wrap: wrap; }
 
 /* ---------------------------- Conflict scheduler ---------------------------- */
