@@ -486,8 +486,12 @@ export function createUI(handlers) {
     class: 'btn sm rigbar-collapse', title: 'Collapse / expand rigctld controls',
     onclick: () => store.patch({ rigBarCollapsed: !store.get().rigBarCollapsed }),
   }, '⌄');
+  const rigBrand = h('button', {
+    class: 'rigbar-brand', type: 'button', title: 'Quick connect radio',
+    onclick: (e) => { e.stopPropagation(); openQuickConnect('radio', rigBrand); },
+  }, [h('span', { class: 'rigbar-led' }), h('div', {}, [h('small', {}, 'RADIO'), rigState, rigEndpoint])]);
   const rigbar = h('footer', { class: 'rigbar' }, [
-    h('div', { class: 'rigbar-brand' }, [h('span', { class: 'rigbar-led' }), h('div', {}, [h('small', {}, 'RIGCTLD'), rigState, rigEndpoint])]),
+    h('div', { class: 'rigbar-title' }, [h('span', { class: 'rigbar-title-icon', 'aria-hidden': 'true' }, '◉'), h('div', {}, [h('small', {}, 'RIGCTLD CONTROL'), h('strong', {}, 'Radio deck')])]),
     h('div', { class: 'rigbar-target' }, [h('small', {}, 'ACTIVE CHANNEL'), rigTarget, rigProfile]),
     h('div', { class: 'rigbar-readout rigbar-rx' }, [h('small', {}, 'RX / DOWNLINK'), rigRx]),
     h('div', { class: 'rigbar-readout rigbar-tx' }, [h('small', {}, 'TX / UPLINK'), rigTx]),
@@ -496,6 +500,7 @@ export function createUI(handlers) {
     h('div', { class: 'spacer' }),
     rigDoppler,
     rigConnect,
+    rigBrand,
     rigCollapse,
   ]);
   function syncRigBar() {
@@ -537,7 +542,6 @@ export function createUI(handlers) {
     h('button', { class: 'btn sm danger', title: 'Stop the rotator (Esc)', onclick: () => handlers.stopRotator() }, [h('span', { class: 'sb-stop-icon' }), h('span', {}, 'Stop Tracking')]),
     h('div', { class: 'sb-sep' }),
     sbRot.el,
-    sbRad.el,
     sbCollapseBtn,
   ]);
   function setStatus({ rotConnected, radConnected, tracking, slewing }) {
@@ -712,7 +716,7 @@ export function createUI(handlers) {
     return acts;
   }
 
-  app.append(topbar, h('div', { class: 'body' }, [sidebar, stage, rightpanel]), rigbar, statusbar, helpOverlay, cmdOverlay);
+  app.append(topbar, h('div', { class: 'body' }, [sidebar, stage, rightpanel]), statusbar, rigbar, helpOverlay, cmdOverlay);
 
   /* ------------------------------ Rendering ------------------------------ */
   // A sat-like {noradId,name,line1,line2} for an id, from catalog or favorites.
