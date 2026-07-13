@@ -6,6 +6,17 @@ contextBridge.exposeInMainWorld('pyro', {
     get: () => ipcRenderer.invoke('settings:get'),
     set: (data) => ipcRenderer.invoke('settings:set', data),
   },
+  flasher: {
+    listPorts: () => ipcRenderer.invoke('flasher:listPorts'),
+    availability: () => ipcRenderer.invoke('flasher:availability'),
+    flash: (port) => ipcRenderer.invoke('flasher:flash', { port }),
+    provision: (port, profile) => ipcRenderer.invoke('flasher:provision', { port, profile }),
+    onProgress: (cb) => {
+      const listener = (_event, progress) => cb(progress);
+      ipcRenderer.on('flasher:progress', listener);
+      return () => ipcRenderer.removeListener('flasher:progress', listener);
+    },
+  },
   tle: {
     fetch: (group) => ipcRenderer.invoke('tle:fetch', group),
     fetchOne: (id) => ipcRenderer.invoke('tle:fetchOne', id),
@@ -31,6 +42,7 @@ contextBridge.exposeInMainWorld('pyro', {
     home: () => ipcRenderer.invoke('rotator:home'),
     unwind: () => ipcRenderer.invoke('rotator:unwind'),
     config: (cfg) => ipcRenderer.invoke('rotator:config', cfg),
+    mission: (target, state) => ipcRenderer.invoke('rotator:mission', { target, state }),
     onStatus: (cb) => ipcRenderer.on('hw:rotator-status', (_e, s) => cb(s)),
   },
   radio: {

@@ -52,6 +52,10 @@ const DEFAULTS = {
   showDso: false, // master show/hide for all deep-sky objects on the sky views
   emeFreqMHz: 144, // frequency for EME (Moon-bounce) path-loss / Doppler readouts
   minEl: 5,
+  // Horizon mask: sparse [{ az, el }] obstruction profile (trees/buildings/hills)
+  // that raises the effective minimum elevation per-azimuth. Empty = flat 0°.
+  horizonMask: [],
+  horizonMaskOn: true, // apply the mask to pass visibility/readiness (off = ignore it)
   hw: {
     rotator: {
       // 'hamlib' = legacy rotctld (jerky goto). 'superrot' = continuous-motion driver.
@@ -103,6 +107,11 @@ const DEFAULTS = {
     },
     radio: { host: '127.0.0.1', port: 4532, downlinkHz: 145800000, doppler: false },
   },
+  // Per-satellite radio profiles keyed by NORAD id: { downlinkHz, downlinkMode,
+  // uplinkHz, uplinkMode, invert, label }. Override the single global downlink so
+  // each bird tunes to its own up/down pair. See core/radioProfiles.js.
+  radioProfiles: {},
+  rigBarCollapsed: false,
 };
 
 const listeners = new Set();

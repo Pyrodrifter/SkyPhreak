@@ -9,6 +9,9 @@ import { precessToDate, dsoById, DSOS } from './core/dso.js';
 import { predictPasses } from './core/passes.js';
 import { scorePass } from './core/passScore.js';
 import { computeReadiness } from './core/readiness.js';
+import { normalizeMask, evaluateArc, maskElAt } from './core/horizonMask.js';
+import { resolveProfile, tuning as radioTuning } from './core/radioProfiles.js';
+import { createBlackbox } from './core/blackbox.js';
 import { MotionController } from './core/motion.js';
 import { THEMES, applyTheme } from './core/themes.js';
 import { createUI, colorFor } from './views/ui.js';
@@ -80,7 +83,24 @@ let motionRunning = false;
 let timeWarpOffset = 0;
 let rotTelemetry = null; // last { az, el, azRate, elRate } reported by SuperRot firmware
 let activeTrackId = null; // id the rotator is actively tracking (null when parked/idle)
+let lastMissionKey = '', lastMissionSent = 0;
+
+function publishRotatorMission(target, missionState) {
+  const rot = store.get().hw.rotator;
+  if (!rotConnected || rot.protocol !== 'superrot' || !window.pyro?.rotator?.mission) return;
+  const key = `${target}|${missionState}`, nowMs = Date.now();
+  if (key === lastMissionKey && nowMs - lastMissionSent < 5000) return;
+  lastMissionKey = key; lastMissionSent = nowMs;
+  window.pyro.rotator.mission(target || '-', missionState || 'idle');
+}
 let lastDrivenId = null; // last object the smooth controller was driven toward
+
+// Session blackbox — flight recorder for commanded/actual pointing, Doppler and
+// hardware events. Sampled once every blackboxIntervalMs while connected.
+const blackbox = createBlackbox();
+let lastBlackboxSample = 0;
+let lastLoggedTrackId = null; // last activeTrackId written to the blackbox event log
+const BLACKBOX_INTERVAL_MS = 2000;
 
 window.addEventListener('error', (e) => console.error(e.error || e.message));
 window.addEventListener('unhandledrejection', (e) => console.error('unhandledrejection:', e.reason));
@@ -152,6 +172,11 @@ async function boot() {
     setEmeFreq: (mhz) => store.patch({ emeFreqMHz: Math.max(1, mhz || 144) }),
     // Manually paste in a TLE (2/3-line set) for a sat not in any Celestrak group.
     addManualTle: (text) => addManualTle(text),
+    // Session blackbox: live stats for the recorder panel, plus export/clear.
+    blackboxStats: () => blackbox.stats(),
+    blackboxCSV: () => blackbox.toCSV(),
+    blackboxJSON: () => blackbox.toJSON(),
+    blackboxClear: () => { blackbox.clear(); blackbox.event('session', 'log cleared'); },
   });
 
   map2d = new Map2D(ui.view2d);
@@ -516,6 +541,7 @@ function recomputeTrackedPasses() {
   const observer = state.station;
   const out = [];
   const rotatorOut = [];
+  const mask = state.horizonMaskOn ? normalizeMask(state.horizonMask) : [];
   for (const id of state.tracked) {
     const sat = catalogById.get(id);
     if (!sat) continue;
@@ -547,13 +573,22 @@ function recomputeTrackedPasses() {
       const peakLook = lookAngles(sat.satrec, tPeak, observer);
       if (sunLook && sunLook.look && peakLook) sunSepDeg = angSep(peakLook.az, peakLook.el, sunLook.look.az, sunLook.look.el);
 
+      // Horizon mask: how much of the sky-arc actually clears local obstructions.
+      const horizon = evaluateArc(mask, arc, p.maxEl);
+
       const rot = state.hw.rotator;
       const sc = scorePass(p, {
         visible, tleAgeDays: tleAgeDays(sat.satrec), elMax: rot.elMax,
         sunAvoid: rot.sunAvoid, sunAvoidDeg: rot.sunAvoidDeg, sunSepDeg,
+        obstructed: horizon.obstructed, blockedAtPeak: horizon.blockedAtPeak,
       });
 
-      out.push({ id, name: sat.name, color, pass: p, arc, visible, sunSepDeg, score: sc.score, scoreParts: sc.parts });
+      out.push({
+        id, name: sat.name, color, pass: p, arc, visible, sunSepDeg,
+        score: sc.score, scoreParts: sc.parts,
+        obstructed: horizon.obstructed, peakClearanceDeg: horizon.peakClearanceDeg,
+        blockedAtPeak: horizon.blockedAtPeak, clearFraction: horizon.clearFraction,
+      });
     }
   }
   out.sort((a, b) => a.pass.aos - b.pass.aos);
@@ -887,6 +922,10 @@ function updateReadiness() {
     sunAvoid: !!rot.sunAvoid,
     sunAvoidDeg: rot.sunAvoidDeg,
     sunSepDeg: focus.sunSepDeg,
+    horizonActive: !!state.horizonMaskOn && Array.isArray(state.horizonMask) && state.horizonMask.length > 0,
+    obstructed: focus.obstructed,
+    blockedAtPeak: focus.blockedAtPeak,
+    peakClearanceDeg: focus.peakClearanceDeg,
   });
   ui.setReadiness({ ...result, passId: focus.id, passName: focus.name });
 }
@@ -1004,7 +1043,9 @@ function wireHardwareStatus() {
   window.pyro.rotator.onStatus((s) => {
     if (lastRotatorAudioConnected !== null && s.connected !== lastRotatorAudioConnected) {
       playRotatorCue(s.connected ? 'connect' : 'disconnect');
+      blackbox.event('rotator', s.connected ? 'connected' : 'disconnected');
     }
+    if (s.connected && s.error) blackbox.event('rotator-error', s.error);
     lastRotatorAudioConnected = s.connected;
     rotConnected = s.connected;
     if (s.telemetry) rotTelemetry = s.telemetry;
@@ -1018,6 +1059,7 @@ function wireHardwareStatus() {
     ui.setRotorConnected(s.connected); // on-map rotor light
   });
   window.pyro.radio.onStatus((s) => {
+    if (s.connected !== radConnected) blackbox.event('radio', s.connected ? 'connected' : 'disconnected');
     radConnected = s.connected;
     ui.hw.radPill._set(s.connected, s.connected ? `Radio connected ${s.host || ''}:${s.port || ''}` : (s.error ? 'Radio: ' + s.error : 'Radio disconnected'));
     ui.hw.radConnect.textContent = s.connected ? 'Disconnect' : 'Connect';
@@ -1430,6 +1472,7 @@ function driveHardware(frame, date, live = true) {
       : (rotConnected && mode !== 'off' ? 'Parked' : null),
   });
   updateRotatorAudioState(track ? 'tracking' : pre ? 'preslew' : (rotConnected && mode !== 'off' ? 'parked' : 'idle'));
+  publishRotatorMission(track?.name || pre?.name || '', track ? 'tracking' : pre ? 'preslew' : (rotConnected && mode !== 'off' ? 'parked' : 'idle'));
 
   // Drive the rotator: track when there's a target, pre-position when a pass is
   // imminent, else park once. The SuperRot setpoint is refreshed at 10 Hz by
@@ -1464,21 +1507,61 @@ function driveHardware(frame, date, live = true) {
   updateCableWrap(rot);
 
   // Radio Doppler — follows the tracked satellite (or the selected one). Only
-  // satellites carry a dopplerFactor; the Moon/planets/DSOs don't.
+  // satellites carry a dopplerFactor; the Moon/planets/DSOs don't. The active
+  // satellite's per-sat radio profile (up/down/mode/invert) overrides the global
+  // downlink; full-Doppler correction is applied to both links independently.
   const dopTarget = track || selected;
   const dopplerFactor = dopTarget && dopTarget.look && dopTarget.look.dopplerFactor != null ? dopTarget.look.dopplerFactor : null;
+  const dopId = dopTarget && dopTarget.id;
+  const profile = dopId ? resolveProfile(state.radioProfiles, dopId, state.hw.radio) : null;
+  const tune = dopplerFactor != null ? radioTuning(profile, dopplerFactor) : null;
+  ui.setRadioTuning(tune ? {
+    ...tune,
+    targetName: dopTarget.name || String(dopId || 'Satellite'),
+    profileLabel: profile?.label || (profile?.source === 'profile' ? 'Saved profile' : 'Global fallback'),
+    source: profile?.source,
+  } : null);
   if (ui.hw.radFreqLive) {
     ui.hw.radFreqLive.innerHTML = '';
-    if (dopplerFactor != null) {
-      const observed = state.hw.radio.downlinkHz * dopplerFactor;
-      ui.hw.radFreqLive.append(elKV('k', 'Tuned freq'), elKV('v', (observed / 1e6).toFixed(5) + ' MHz'));
+    if (tune) {
+      ui.hw.radFreqLive.append(
+        elKV('k', 'Downlink ' + tune.downlinkMode),
+        elKV('v', (tune.downlinkTunedHz / 1e6).toFixed(5) + ' MHz'));
+      if (tune.hasUplink) {
+        ui.hw.radFreqLive.append(
+          elKV('k', 'Uplink ' + tune.uplinkMode + (tune.invert ? ' ↕' : '')),
+          elKV('v', (tune.uplinkTunedHz / 1e6).toFixed(5) + ' MHz'));
+      }
     }
   }
-  if (radConnected && state.hw.radio.doppler && dopplerFactor != null) {
+  if (radConnected && state.hw.radio.doppler && tune && tune.downlinkTunedHz) {
     if (date.getTime() - lastRadSend > 1000) {
-      window.pyro.radio.setFreq(state.hw.radio.downlinkHz * dopplerFactor);
+      window.pyro.radio.setFreq(tune.downlinkTunedHz);
       lastRadSend = date.getTime();
     }
+  }
+
+  // Blackbox: log track-target changes (acquire / release) as they happen.
+  if (rotConnected && live && activeTrackId !== lastLoggedTrackId) {
+    if (activeTrackId) {
+      const s = catalogById.get(activeTrackId);
+      blackbox.event('track', 'acquire ' + (s ? s.name : activeTrackId));
+    } else if (lastLoggedTrackId) {
+      blackbox.event('track', 'release');
+    }
+    lastLoggedTrackId = activeTrackId;
+  }
+
+  // Blackbox: sample commanded vs actual pointing + tuned freq while connected.
+  if (rotConnected && live && frame.rotor && date.getTime() - lastBlackboxSample >= BLACKBOX_INTERVAL_MS) {
+    blackbox.sample({
+      t: date.getTime(),
+      commanded: frame.rotor.commanded,
+      actual: frame.rotor.actual,
+      freqHz: tune && tune.downlinkTunedHz ? tune.downlinkTunedHz : null,
+      trackId: activeTrackId,
+    });
+    lastBlackboxSample = date.getTime();
   }
 }
 

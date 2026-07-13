@@ -4,6 +4,10 @@ import { DSOS } from '../core/dso.js';
 import { icon } from './icons.js';
 import { buildTimeline } from '../core/timeline.js';
 import { scoreBreakdown } from '../core/passScore.js';
+import { normalizeMask, maskElAt, MASK_PRESETS } from '../core/horizonMask.js';
+import { MODES, RADIO_PRESETS } from '../core/radioProfiles.js';
+import { analyzeSchedule } from '../core/scheduler.js';
+import { openSuperRotSetup } from './superrotSetup.js';
 
 // Sun, Moon and planets shown in the Sky box (id, label, marker colour).
 const SKY_BODIES = [
@@ -464,6 +468,65 @@ export function createUI(handlers) {
     class: 'btn sm sb-collapse', title: 'Collapse / expand the status bar',
     onclick: () => store.patch({ sbCollapsed: !store.get().sbCollapsed }),
   }, '⌄');
+  const rigRx = h('strong', { class: 'rigbar-freq' }, '—');
+  const rigTx = h('strong', { class: 'rigbar-freq' }, '—');
+  const rigTarget = h('strong', { class: 'rigbar-target-name' }, 'No satellite');
+  const rigProfile = h('span', { class: 'rigbar-profile' }, 'Global fallback');
+  const rigShift = h('strong', { class: 'rigbar-shift-value' }, '0.00 kHz');
+  const rigState = h('span', { class: 'rigbar-state' }, 'Offline');
+  const rigEndpoint = h('span', { class: 'rigbar-endpoint' }, '127.0.0.1:4532');
+  const rigDoppler = h('button', {
+    class: 'rigbar-toggle', type: 'button', role: 'switch', 'aria-checked': 'false',
+    onclick: () => store.patchIn('hw.radio', { doppler: !store.get().hw.radio.doppler }),
+  }, [h('span', { class: 'rigbar-toggle-dot' }), h('span', {}, 'Doppler')]);
+  const rigConnect = h('button', {
+    class: 'btn sm rigbar-connect', onclick: () => handlers.connectRadio(),
+  }, 'Connect');
+  const rigCollapse = h('button', {
+    class: 'btn sm rigbar-collapse', title: 'Collapse / expand rigctld controls',
+    onclick: () => store.patch({ rigBarCollapsed: !store.get().rigBarCollapsed }),
+  }, '⌄');
+  const rigBrand = h('button', {
+    class: 'rigbar-brand', type: 'button', title: 'Quick connect radio',
+    onclick: (e) => { e.stopPropagation(); openQuickConnect('radio', rigBrand); },
+  }, [h('span', { class: 'rigbar-led' }), h('div', {}, [h('small', {}, 'RADIO'), rigState, rigEndpoint])]);
+  const rigbar = h('footer', { class: 'rigbar' }, [
+    h('div', { class: 'rigbar-title' }, [h('span', { class: 'rigbar-title-icon', 'aria-hidden': 'true' }, '◉'), h('div', {}, [h('small', {}, 'RIGCTLD CONTROL'), h('strong', {}, 'Radio deck')])]),
+    h('div', { class: 'rigbar-target' }, [h('small', {}, 'ACTIVE CHANNEL'), rigTarget, rigProfile]),
+    h('div', { class: 'rigbar-readout rigbar-rx' }, [h('small', {}, 'RX / DOWNLINK'), rigRx]),
+    h('div', { class: 'rigbar-readout rigbar-tx' }, [h('small', {}, 'TX / UPLINK'), rigTx]),
+    h('div', { class: 'rigbar-shift' }, [h('small', {}, 'DOPPLER Δ'), rigShift]),
+    h('div', { class: 'rigbar-spectrum', title: 'CAT link activity' }, Array.from({ length: 13 }, (_, i) => h('i', { style: `--bar:${(i * 7) % 5 + 1}` }))),
+    h('div', { class: 'spacer' }),
+    rigDoppler,
+    rigConnect,
+    rigBrand,
+    rigCollapse,
+  ]);
+  function syncRigBar() {
+    const r = store.get().hw.radio;
+    const doppler = !!r.doppler;
+    rigDoppler.classList.toggle('on', doppler);
+    rigDoppler.setAttribute('aria-checked', doppler ? 'true' : 'false');
+    rigbar.classList.toggle('collapsed', !!store.get().rigBarCollapsed);
+    rigCollapse.textContent = store.get().rigBarCollapsed ? '⌃' : '⌄';
+    rigbar.title = `rigctld ${r.host}:${r.port}`;
+    rigEndpoint.textContent = `${r.host}:${r.port}`;
+  }
+  store.subscribe(syncRigBar);
+  syncRigBar();
+  const sbHomeBtn = h('button', {
+    class: 'btn sm sb-rot-action sb-home',
+    title: 'Home rotator: zero AZ at its manually centred position, seek the EL limit switch, then zero EL',
+    disabled: true,
+    onclick: () => handlers.homeRotator(),
+  }, [h('span', { class: 'sb-btn-icon', 'aria-hidden': 'true' }, 'H'), h('span', {}, 'Home')]);
+  const sbUnwindBtn = h('button', {
+    class: 'btn sm sb-rot-action sb-unwind',
+    title: 'Unwind accumulated azimuth turns while keeping the same compass heading',
+    disabled: true,
+    onclick: () => handlers.unwindRotator(),
+  }, [h('span', { class: 'sb-btn-icon', 'aria-hidden': 'true' }, '↶'), h('span', {}, 'Unwind')]);
   const statusbar = h('footer', { class: 'statusbar' }, [
     clockEl,
     h('div', { class: 'sb-sep' }),
@@ -473,16 +536,26 @@ export function createUI(handlers) {
     h('div', { class: 'spacer' }),
     sbWrap,
     // Field controls always within reach — no digging into the Hardware tab.
+    sbHomeBtn,
+    sbUnwindBtn,
     h('button', { class: 'btn sm park-btn', title: 'Park the rotator (to the default preset)', onclick: () => handlers.parkRotator() }, [h('span', { class: 'sb-btn-icon' }, 'P'), h('span', {}, 'Park')]),
     h('button', { class: 'btn sm danger', title: 'Stop the rotator (Esc)', onclick: () => handlers.stopRotator() }, [h('span', { class: 'sb-stop-icon' }), h('span', {}, 'Stop Tracking')]),
     h('div', { class: 'sb-sep' }),
     sbRot.el,
-    sbRad.el,
     sbCollapseBtn,
   ]);
   function setStatus({ rotConnected, radConnected, tracking, slewing }) {
     sbRot.set(rotConnected);
     sbRad.set(radConnected);
+    rigbar.classList.toggle('connected', !!radConnected);
+    rigState.textContent = radConnected ? 'Connected' : 'Offline';
+    rigConnect.textContent = radConnected ? 'Disconnect' : 'Connect';
+    const superrotReady = !!rotConnected && store.get().hw.rotator.protocol === 'superrot';
+    sbHomeBtn.disabled = !superrotReady;
+    sbUnwindBtn.disabled = !superrotReady;
+    const unavailable = superrotReady ? '' : ' (connect using SuperRot first)';
+    sbHomeBtn.title = 'Home rotator: zero AZ at its manually centred position, seek the EL limit switch, then zero EL' + unavailable;
+    sbUnwindBtn.title = 'Unwind accumulated azimuth turns while keeping the same compass heading' + unavailable;
     sbTrack.textContent = tracking || 'Idle';
     const mode = store.get().hw.rotator.autoMode || 'off';
     sbOrbitIcon.classList.toggle('active', mode !== 'off');
@@ -509,6 +582,16 @@ export function createUI(handlers) {
     sbWrap.title = `Cable wrap: ${info.az.toFixed(0)}° from north (${t.toFixed(2)} turns). `
       + `Amber ≥ ${info.warn}°, red ≥ ${info.max}° — unwind manually.`;
   }
+  function setRadioTuning(info) {
+    rigRx.textContent = info?.downlinkTunedHz ? `${(info.downlinkTunedHz / 1e6).toFixed(5)} MHz${info.downlinkMode ? ` · ${info.downlinkMode}` : ''}` : '—';
+    rigTx.textContent = info?.uplinkTunedHz ? `${(info.uplinkTunedHz / 1e6).toFixed(5)} MHz${info.uplinkMode ? ` · ${info.uplinkMode}` : ''}` : '—';
+    rigTarget.textContent = info?.targetName || 'No satellite';
+    rigProfile.textContent = info?.profileLabel || (info?.source === 'profile' ? 'Saved profile' : 'Global fallback');
+    const shift = info?.downlinkShiftHz || 0;
+    rigShift.textContent = `${shift >= 0 ? '+' : '−'}${Math.abs(shift / 1000).toFixed(2)} kHz`;
+    rigShift.classList.toggle('positive', shift > 0);
+    rigShift.classList.toggle('negative', shift < 0);
+  }
 
   // Collapse/expand the side panels, and set the global UI size class.
   function applyLayout(state) {
@@ -523,6 +606,7 @@ export function createUI(handlers) {
     if (fieldBtn) fieldBtn.classList.toggle('active', !!state.fieldMode);
     followBtn.classList.toggle('active', !!state.followSat);
     statusbar.classList.toggle('collapsed', !!state.sbCollapsed);
+    rigbar.classList.toggle('collapsed', !!state.rigBarCollapsed);
     sbCollapseBtn.textContent = state.sbCollapsed ? '⌃' : '⌄';
     applyWakeLock(!!state.fieldMode);
   }
@@ -632,7 +716,7 @@ export function createUI(handlers) {
     return acts;
   }
 
-  app.append(topbar, h('div', { class: 'body' }, [sidebar, stage, rightpanel]), statusbar, helpOverlay, cmdOverlay);
+  app.append(topbar, h('div', { class: 'body' }, [sidebar, stage, rightpanel]), statusbar, rigbar, helpOverlay, cmdOverlay);
 
   /* ------------------------------ Rendering ------------------------------ */
   // A sat-like {noradId,name,line1,line2} for an id, from catalog or favorites.
@@ -991,6 +1075,32 @@ export function createUI(handlers) {
       ])))]);
   }
 
+  // Conflict planner banner: only shown when passes actually overlap. Summarises
+  // the optimal non-conflicting plan and offers a one-click "arm the next planned
+  // pass" so the operator can commit to the recommendation.
+  function renderPlanner(pane, items, schedule, passKey, now) {
+    if (!schedule || schedule.conflictIds.size === 0) return;
+    const upcoming = items.filter((it) => it.pass.los.getTime() >= now);
+    const planned = upcoming.filter((it) => schedule.planIds.has(passKey(it)));
+    const clashes = upcoming.filter((it) => schedule.conflictIds.has(passKey(it))).length;
+    // Soonest planned pass that isn't already the armed one.
+    const ap = store.get().hw.rotator.armedPass;
+    const next = [...planned].sort((a, b) => a.pass.aos - b.pass.aos)
+      .find((it) => !(ap && ap.id === it.id && Math.abs(ap.aos - it.pass.aos.getTime()) < 60000));
+    const armBtn = next ? h('button', {
+      class: 'planner-arm', title: `Arm ${next.name} (${next.pass.aos.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}) — the next pass in the optimal plan`,
+      onclick: (e) => { e.stopPropagation(); handlers.armPass(next.id, next.pass.aos.getTime(), next.pass.los.getTime()); },
+    }, '⤴ Arm next planned') : '';
+    pane.append(h('div', { class: 'planner-bar' }, [
+      h('span', { class: 'planner-ic' }, '⧉'),
+      h('div', { class: 'planner-txt' }, [
+        h('b', {}, `${planned.length} pass${planned.length === 1 ? '' : 'es'} in optimal plan`),
+        h('span', {}, `${clashes} overlap${clashes === 1 ? '' : 's'} · plan score ${Math.round(schedule.totalScore)}`),
+      ]),
+      armBtn,
+    ]));
+  }
+
   // Chronological event feed (WAKE → AOS → MAX → LOS → PARK across all passes).
   function renderTimeline(pane, items, now) {
     const events = buildTimeline(items, { now, preslewLead: store.get().hw.rotator.preslewLead });
@@ -1054,6 +1164,15 @@ export function createUI(handlers) {
     const ordered = sort === 'el' ? [...items].sort((a, b) => b.pass.maxEl - a.pass.maxEl)
       : sort === 'best' ? [...items].sort((a, b) => (b.score || 0) - (a.score || 0))
       : items;
+
+    // Conflict-aware scheduler: a single rotator tracks one bird at a time, so
+    // overlapping passes conflict. Compute the optimal non-overlapping plan and
+    // flag conflicts so the rows can badge them.
+    const passKey = (it) => it.id + '@' + it.pass.aos.getTime();
+    const schedule = analyzeSchedule(items.map((it) => ({
+      id: passKey(it), start: it.pass.aos.getTime(), end: it.pass.los.getTime(), score: it.score || 0,
+    })));
+    renderPlanner(pane, items, schedule, passKey, now);
     // The NOW/NEXT hero is always the soonest current/upcoming pass (independent of the
     // row sort), so it stays in step with main's readiness focus. `items` is aos-sorted.
     const missionPass = items.find((it) => it.id === selId && it.pass.los.getTime() >= now)
@@ -1123,6 +1242,14 @@ export function createUI(handlers) {
               h('span', { class: 'pass-sat' }, it.name),
               it.visible ? h('span', { class: 'pass-vis', title: 'Optically visible — satellite sunlit while you are in darkness' }, '👁') : '',
               it.score != null ? scoreChip(it.score, it.scoreParts) : '',
+              // Only badge when the scheduler is actually resolving a conflict —
+              // with no overlaps every pass is trivially "in plan" (just noise).
+              schedule.conflictIds.size === 0 ? ''
+                : schedule.planIds.has(passKey(it))
+                  ? h('span', { class: 'plan-badge in', title: 'In the recommended non-conflicting plan' }, '✓ plan')
+                  : schedule.conflictIds.has(passKey(it))
+                    ? h('span', { class: 'plan-badge clash', title: 'Overlaps a higher-value pass — the scheduler skips it' }, '⚠ clash')
+                    : '',
             ]),
             h('div', { class: 'pass-l2' }, [
               h('span', { class: 'pass-l2-k' }, 'MAX'),
@@ -1281,7 +1408,7 @@ export function createUI(handlers) {
     view2d, view3d,
     renderList, updateClock, updateInfo, updatePasses, setActiveView, setTleStamp, setStatus,
     setStaleIds, setTleStatus, syncAutoMode, setRotorConnected, applyLayout, updateSky, isSkyActive,
-    setCableWrap, setSpaceWeather, setReadiness,
+    setCableWrap, setRadioTuning, setSpaceWeather, setReadiness,
     hw: hwRefs,
   };
 }
@@ -1323,6 +1450,293 @@ function trackTitle(m) {
 }
 
 /* ----------------------------- Station pane ----------------------------- */
+// Horizon-mask editor: a compass silhouette of local obstructions (trees, hills,
+// buildings) that raises the effective min-elevation per azimuth. Drawn live as a
+// polar plot; edited as a list of az→el points; seedable from presets.
+function buildHorizonMask(pane) {
+  const wrap = h('div', {});
+  const canvas = h('canvas', { class: 'hmask-canvas', width: 260, height: 260 });
+  const list = h('div', { class: 'hmask-list' });
+
+  const get = () => normalizeMask(store.get().horizonMask);
+  const save = (pts) => store.patch({ horizonMask: normalizeMask(pts) });
+
+  function draw() {
+    const mask = get();
+    const on = store.get().horizonMaskOn && mask.length > 0;
+    const ctx = canvas.getContext('2d');
+    const W = canvas.width, H = canvas.height, cx = W / 2, cy = H / 2, R = W / 2 - 14;
+    ctx.clearRect(0, 0, W, H);
+    const css = getComputedStyle(document.documentElement);
+    const line = (css.getPropertyValue('--grid') || '#31415f').trim();
+    const accent = (css.getPropertyValue('--accent') || '#4a9fd4').trim();
+    // Elevation rings (0/30/60/90 — horizon outer, zenith centre).
+    ctx.strokeStyle = line; ctx.fillStyle = line; ctx.lineWidth = 1;
+    ctx.font = '9px system-ui, sans-serif';
+    for (const el of [0, 30, 60]) {
+      const r = R * (1 - el / 90);
+      ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.stroke();
+    }
+    for (const [az, lab] of [[0, 'N'], [90, 'E'], [180, 'S'], [270, 'W']]) {
+      const a = (az - 90) * Math.PI / 180;
+      ctx.beginPath(); ctx.moveTo(cx, cy);
+      ctx.lineTo(cx + R * Math.cos(a), cy + R * Math.sin(a)); ctx.stroke();
+      ctx.fillText(lab, cx + (R + 5) * Math.cos(a) - 3, cy + (R + 5) * Math.sin(a) + 3);
+    }
+    // Obstruction silhouette: fill from the horizon inward to the mask elevation.
+    if (mask.length) {
+      ctx.beginPath();
+      for (let az = 0; az <= 360; az += 3) {
+        const el = Math.min(90, Math.max(0, maskElAt(mask, az)));
+        const r = R * (1 - el / 90);
+        const a = (az - 90) * Math.PI / 180;
+        const x = cx + r * Math.cos(a), y = cy + r * Math.sin(a);
+        az === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+      }
+      ctx.closePath();
+      // The blocked region is the annulus between the silhouette and the horizon;
+      // draw the silhouette ring, then hatch outward by stroking the outer circle.
+      ctx.fillStyle = on ? 'rgba(255,110,90,0.16)' : 'rgba(120,130,150,0.12)';
+      // Fill the OUTER ring (blocked band) using even-odd with the horizon circle.
+      ctx.save();
+      ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI * 2);
+      for (let az = 360; az >= 0; az -= 3) {
+        const el = Math.min(90, Math.max(0, maskElAt(mask, az)));
+        const r = R * (1 - el / 90);
+        const a = (az - 90) * Math.PI / 180;
+        ctx.lineTo(cx + r * Math.cos(a), cy + r * Math.sin(a));
+      }
+      ctx.fill('evenodd');
+      ctx.restore();
+      ctx.strokeStyle = on ? '#ff6e5a' : '#8792a6'; ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      for (let az = 0; az <= 360; az += 3) {
+        const el = Math.min(90, Math.max(0, maskElAt(mask, az)));
+        const r = R * (1 - el / 90);
+        const a = (az - 90) * Math.PI / 180;
+        const x = cx + r * Math.cos(a), y = cy + r * Math.sin(a);
+        az === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+      }
+      ctx.closePath(); ctx.stroke();
+      // Sample points as accent dots.
+      ctx.fillStyle = accent;
+      for (const p of mask) {
+        const r = R * (1 - p.el / 90);
+        const a = (p.az - 90) * Math.PI / 180;
+        ctx.beginPath(); ctx.arc(cx + r * Math.cos(a), cy + r * Math.sin(a), 2.5, 0, Math.PI * 2); ctx.fill();
+      }
+    }
+  }
+
+  function renderList() {
+    const mask = get();
+    list.replaceChildren();
+    if (!mask.length) {
+      list.append(h('div', { class: 'muted', style: 'padding:4px 0' }, 'No obstructions — flat 0° horizon. Add points or pick a preset.'));
+    }
+    for (let i = 0; i < mask.length; i++) {
+      const p = mask[i];
+      const azIn = h('input', { type: 'number', value: p.az, step: '1', min: '0', max: '360',
+        oninput: (e) => { const v = parseFloat(e.target.value); if (!Number.isNaN(v)) { const m = get(); m[i] = { ...m[i], az: v }; save(m); refresh(); } } });
+      const elIn = h('input', { type: 'number', value: p.el, step: '1', min: '0', max: '90',
+        oninput: (e) => { const v = parseFloat(e.target.value); if (!Number.isNaN(v)) { const m = get(); m[i] = { ...m[i], el: v }; save(m); draw(); } } });
+      const del = h('button', { class: 'btn sm', title: 'Remove point', onclick: () => { const m = get(); m.splice(i, 1); save(m); refresh(); } }, '✕');
+      list.append(h('div', { class: 'hmask-row' }, [
+        h('span', { class: 'hmask-lbl' }, 'Az'), azIn,
+        h('span', { class: 'hmask-lbl' }, 'El'), elIn, del,
+      ]));
+    }
+  }
+
+  function refresh() { renderList(); draw(); }
+
+  const applyChk = checkbox(store.get().horizonMaskOn !== false, (v) => { store.patch({ horizonMaskOn: v }); draw(); });
+  const presetSel = h('select', {
+    onchange: (e) => {
+      const key = e.target.value;
+      if (key && MASK_PRESETS[key]) { save(MASK_PRESETS[key].points); refresh(); }
+      e.target.value = '';
+    },
+  }, [h('option', { value: '' }, 'Load preset…'),
+      ...Object.entries(MASK_PRESETS).map(([k, v]) => h('option', { value: k }, v.label))]);
+  const addBtn = h('button', { class: 'btn sm', onclick: () => { const m = get(); m.push({ az: nextGapAz(m), el: 15 }); save(m); refresh(); } }, '+ Add point');
+  const clearBtn = h('button', { class: 'btn sm', onclick: () => { save([]); refresh(); } }, 'Clear');
+
+  wrap.append(
+    h('hr', { class: 'hr' }),
+    h('div', { class: 'section-title' }, 'Horizon mask'),
+    h('div', { class: 'toggle-line switch' }, [h('span', {}, 'Apply obstruction mask to passes'), applyChk]),
+    h('div', { class: 'hmask-top' }, [canvas]),
+    h('div', { class: 'hmask-ctl' }, [presetSel, addBtn, clearBtn]),
+    list,
+    h('div', { class: 'muted', style: 'margin-top:6px' }, 'Define minimum elevation per compass bearing. Passes clipped by the mask are down-scored, and the readiness check flags ones stuck behind terrain.')
+  );
+  pane.append(wrap);
+  refresh();
+  // Redraw on theme change so the silhouette picks up new CSS colors.
+  store.subscribe(() => draw());
+}
+
+// Per-satellite radio profile editor: pin an up/down/mode/transponder set to each
+// tracked bird so it tunes to its own frequencies (with full-Doppler correction),
+// instead of the single global downlink. Persists to store.radioProfiles[id].
+function buildRadioProfiles() {
+  const host = h('div', { class: 'rprof' });
+
+  const nameFor = (id) => {
+    const c = store.getCatalog().find((s) => s.noradId === id);
+    if (c) return c.name;
+    const f = store.get().favorites.find((fa) => fa.id === id);
+    if (f) return f.name;
+    const t = (store.get().tleStore || {})[id];
+    return t ? t.name : 'NORAD ' + id;
+  };
+
+  let editId = null; // which tracked sat we're editing
+
+  const getProfile = (id) => (store.get().radioProfiles || {})[id] || {};
+  const setProfile = (id, patch) => {
+    const all = { ...(store.get().radioProfiles || {}) };
+    all[id] = { ...(all[id] || {}), ...patch };
+    store.patch({ radioProfiles: all });
+  };
+  const clearProfile = (id) => {
+    const all = { ...(store.get().radioProfiles || {}) };
+    delete all[id];
+    store.patch({ radioProfiles: all });
+  };
+
+  const mhzInput = (hz, on) => h('input', {
+    type: 'number', step: '0.0001', value: hz ? (hz / 1e6).toFixed(4) : '',
+    placeholder: '—',
+    oninput: (e) => { const v = parseFloat(e.target.value); on(Number.isNaN(v) ? 0 : Math.round(v * 1e6)); },
+  });
+  const modeSel = (mode, on) => {
+    const s = h('select', { onchange: (e) => on(e.target.value) }, MODES.map((m) => h('option', { value: m }, m)));
+    s.value = mode || 'FM';
+    return s;
+  };
+
+  function render() {
+    const st = store.get();
+    const ids = st.tracked || [];
+    host.replaceChildren();
+    if (!ids.length) {
+      host.append(h('div', { class: 'muted' }, 'Track satellites to give them radio profiles.'));
+      return;
+    }
+    if (!ids.includes(editId)) editId = ids.includes(st.selected) ? st.selected : ids[0];
+
+    // Which satellite are we editing?
+    const satSel = h('select', { onchange: (e) => { editId = e.target.value; render(); } },
+      ids.map((id) => {
+        const has = (st.radioProfiles || {})[id];
+        return h('option', { value: id }, nameFor(id) + (has ? '  •' : ''));
+      }));
+    satSel.value = editId;
+
+    const p = getProfile(editId);
+    const presetSel = h('select', {
+      onchange: (e) => {
+        const key = e.target.value;
+        if (key && RADIO_PRESETS[key]) setProfile(editId, { ...RADIO_PRESETS[key] });
+        render();
+      },
+    }, [h('option', { value: '' }, 'Preset…'),
+        ...Object.entries(RADIO_PRESETS).map(([k, v]) => h('option', { value: k }, v.label))]);
+
+    const invertChk = checkbox(!!p.invert, (v) => setProfile(editId, { invert: v }));
+
+    host.append(
+      h('label', { class: 'fld' }, [h('span', {}, 'Satellite'), satSel]),
+      h('div', { class: 'rprof-head' }, [presetSel,
+        h('button', { class: 'btn sm', title: 'Remove this satellite’s profile (falls back to the default downlink)', onclick: () => { clearProfile(editId); render(); } }, 'Clear')]),
+      h('label', { class: 'fld' }, [h('span', {}, 'Label'),
+        h('input', { type: 'text', value: p.label || '', placeholder: 'e.g. RS-44 linear', oninput: (e) => setProfile(editId, { label: e.target.value }) })]),
+      h('div', { class: 'rprof-grid' }, [
+        h('label', { class: 'fld' }, [h('span', {}, 'Downlink (MHz)'), mhzInput(p.downlinkHz, (hz) => setProfile(editId, { downlinkHz: hz }))]),
+        h('label', { class: 'fld' }, [h('span', {}, 'Mode'), modeSel(p.downlinkMode, (m) => setProfile(editId, { downlinkMode: m }))]),
+        h('label', { class: 'fld' }, [h('span', {}, 'Uplink (MHz)'), mhzInput(p.uplinkHz, (hz) => setProfile(editId, { uplinkHz: hz }))]),
+        h('label', { class: 'fld' }, [h('span', {}, 'Mode'), modeSel(p.uplinkMode, (m) => setProfile(editId, { uplinkMode: m }))]),
+      ]),
+      h('div', { class: 'toggle-line switch' }, [h('span', {}, 'Linear inverting transponder'), invertChk]),
+      h('div', { class: 'muted', style: 'font-size:11px' }, 'Downlink tunes your RX; uplink is Doppler-corrected in the opposite sense so the QSO stays locked. Leave uplink blank for beacons/telemetry.')
+    );
+  }
+
+  render();
+  // Re-render only when the tracked set or selection changes — NOT on the store
+  // patches our own inputs trigger, which would steal focus mid-typing.
+  let sig = (store.get().tracked || []).join(',') + '|' + store.get().selected;
+  store.subscribe(() => {
+    const next = (store.get().tracked || []).join(',') + '|' + store.get().selected;
+    if (next !== sig) { sig = next; render(); }
+  });
+  return host;
+}
+
+// Session blackbox panel: live recorder stats (samples, span, pointing error) +
+// CSV/JSON export and clear. Polls the recorder in main.js while mounted.
+function buildBlackbox(handlers) {
+  const host = h('div', { class: 'bbox' });
+  const statRow = h('div', { class: 'bbox-stats' });
+  const download = (name, text, type) => {
+    const blob = new Blob([text], { type });
+    const a = h('a', { href: URL.createObjectURL(blob), download: name });
+    document.body.append(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  };
+  const stamp = () => new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+
+  const csvBtn = h('button', { class: 'btn sm', onclick: () => download(`skyphreak-blackbox-${stamp()}.csv`, handlers.blackboxCSV(), 'text/csv') }, 'Export CSV');
+  const jsonBtn = h('button', { class: 'btn sm', onclick: () => download(`skyphreak-blackbox-${stamp()}.json`, handlers.blackboxJSON(), 'application/json') }, 'Export JSON');
+  const clearBtn = h('button', { class: 'btn sm', onclick: () => { handlers.blackboxClear(); refresh(); } }, 'Clear');
+
+  const stat = (label, value) => h('div', { class: 'bbox-stat' }, [h('b', {}, value), h('span', {}, label)]);
+  function fmtDur(ms) {
+    if (!ms) return '0s';
+    const s = Math.round(ms / 1000);
+    if (s < 60) return s + 's';
+    const m = Math.floor(s / 60);
+    return m < 60 ? `${m}m ${s % 60}s` : `${Math.floor(m / 60)}h ${m % 60}m`;
+  }
+  function refresh() {
+    const s = handlers.blackboxStats();
+    statRow.replaceChildren(
+      stat('samples', String(s.samples)),
+      stat('events', String(s.events)),
+      stat('duration', fmtDur(s.durationMs)),
+      stat('max err', s.maxErrDeg == null ? '—' : s.maxErrDeg.toFixed(1) + '°'),
+      stat('RMS err', s.rmsErrDeg == null ? '—' : s.rmsErrDeg.toFixed(2) + '°'),
+    );
+    const empty = s.samples === 0 && s.events === 0;
+    csvBtn.disabled = empty; jsonBtn.disabled = empty; clearBtn.disabled = empty;
+  }
+
+  host.append(
+    statRow,
+    h('div', { class: 'bbox-ctl' }, [csvBtn, jsonBtn, clearBtn]),
+    h('div', { class: 'muted', style: 'font-size:11px' }, 'Records commanded vs actual pointing, tuning and hardware events while the rotator is connected. Export the pointing log (CSV) or the full session (JSON) for post-pass analysis.')
+  );
+  refresh();
+  // Poll while the tab is alive — cheap (reads an in-memory summary).
+  setInterval(refresh, 2000);
+  return host;
+}
+
+// Pick an azimuth for a new point that isn't already used (spreads them out).
+function nextGapAz(mask) {
+  if (!mask.length) return 0;
+  const used = mask.map((p) => p.az).sort((a, b) => a - b);
+  let best = 0, bestGap = -1;
+  for (let i = 0; i < used.length; i++) {
+    const a = used[i], b = i + 1 < used.length ? used[i + 1] : used[0] + 360;
+    const gap = b - a;
+    if (gap > bestGap) { bestGap = gap; best = (a + b) / 2 % 360; }
+  }
+  return Math.round(best);
+}
+
 function buildStationPane(pane, handlers) {
   const st = store.get().station;
   const mk = (label, value, step, on) =>
@@ -1341,6 +1755,9 @@ function buildStationPane(pane, handlers) {
     ]),
     h('div', { class: 'muted' }, 'Pass predictions and look angles are computed for this location.')
   );
+
+  // Horizon mask — local obstruction profile.
+  buildHorizonMask(pane);
 
   // TLE freshness scheduler.
   const sched = store.get().tleSched;
@@ -1746,10 +2163,13 @@ function buildHwPane(pane, handlers) {
       h('label', { class: 'fld' }, [h('span', {}, 'Port'), radPort]),
     ]),
     radConnect,
-    h('label', { class: 'fld', style: 'margin-top:8px' }, [h('span', {}, 'Downlink frequency (MHz)'), downlink]),
+    h('label', { class: 'fld', style: 'margin-top:8px' }, [h('span', {}, 'Default downlink (MHz)'), downlink]),
+    h('div', { class: 'muted', style: 'font-size:11px' }, 'Used when the active satellite has no profile below.'),
     h('div', { class: 'toggle-line switch' }, [h('span', {}, 'Doppler correction'), doppler]),
     radFreqLive,
   ]);
+  const radioProfilesSection = section('Radio profiles (per satellite)', [buildRadioProfiles()]);
+  const blackboxSection = section('Session blackbox', [buildBlackbox(handlers)]);
 
   pane.append(
     // --- Connection: the essentials, always visible ---
@@ -1766,6 +2186,7 @@ function buildHwPane(pane, handlers) {
     h('div', { class: 'row', style: 'display:flex;gap:8px;margin-top:6px' }, [
       h('button', { class: 'btn sm', title: 'Run the homing sequence — seeks the elevation endstop; azimuth zero is the compass-set position (SuperRot only)', onclick: () => handlers.homeRotator() }, 'Home'),
       h('button', { class: 'btn sm', title: 'Unwind the azimuth cable to a neutral wrap without changing heading (SuperRot only)', onclick: () => handlers.unwindRotator() }, 'Unwind'),
+      h('button', { class: 'btn sm', title: 'Create or import a reusable SuperRot hardware profile', onclick: openSuperRotSetup }, 'Build / configure'),
     ]),
 
     // --- Auto-track: everyday controls, visible ---
@@ -1786,6 +2207,8 @@ function buildHwPane(pane, handlers) {
     parkSection,
     calibSection,
     radioSection,
+    radioProfilesSection,
+    blackboxSection,
   );
 
   renderRotDynamic();
