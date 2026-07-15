@@ -51,4 +51,11 @@ contextBridge.exposeInMainWorld('pyro', {
     setFreq: (hz) => ipcRenderer.invoke('radio:setFreq', { hz }),
     onStatus: (cb) => ipcRenderer.on('hw:radio-status', (_e, s) => cb(s)),
   },
+  lcd: {
+    // conf: { transport:'tcp'|'serial', host, port, path, baud }
+    connect: (conf) => ipcRenderer.invoke('lcd:connect', conf),
+    disconnect: () => ipcRenderer.invoke('lcd:disconnect'),
+    send: (line) => ipcRenderer.invoke('lcd:send', { line }),
+    onStatus: (cb) => ipcRenderer.on('hw:lcd-status', (_e, s) => cb(s)),
+  },
 });

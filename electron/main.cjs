@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const https = require('node:https');
 const { HamlibClient } = require('./hamlib.cjs');
 const { SuperRotClient } = require('./superrot.cjs');
+const { LcdRepeater } = require('./lcdRepeater.cjs');
 const flasher = require('./flasher.cjs');
 
 // Keep the smooth-motion control loop running at full rate when the window is in the
@@ -103,6 +104,7 @@ app.whenReady().then(() => {
 app.on('window-all-closed', () => {
   rotatorMgr.close();
   radio.close();
+  lcd.close();
   if (process.platform !== 'darwin') app.quit();
 });
 
@@ -344,6 +346,11 @@ const rotatorMgr = {
 const radio = new HamlibClient('radio');
 radio.on('status', (s) => sendToRenderer('hw:radio-status', s));
 
+// Standalone LCD/display repeater — a one-way az/el output port, independent of
+// the rotator, that streams the selected target's pointing to a bench display.
+const lcd = new LcdRepeater();
+lcd.on('status', (s) => sendToRenderer('hw:lcd-status', s));
+
 // List USB serial devices for the rotator picker, with human-friendly names so a
 // non-technical user can recognise their hardware ("Silicon Labs CP210x…") instead
 // of guessing a COM number. Returns { ok, ports } or a friendly error if the
@@ -381,3 +388,8 @@ ipcMain.handle('rotator:mission', (_e, { target, state }) => rotatorMgr.mission(
 ipcMain.handle('radio:connect', (_e, { host, port }) => radio.connect(host, port));
 ipcMain.handle('radio:disconnect', () => radio.close());
 ipcMain.handle('radio:setFreq', (_e, { hz }) => radio.send(`F ${Math.round(hz)}\n`));
+
+// LCD/display repeater: connect the output port and push formatted az/el lines.
+ipcMain.handle('lcd:connect', (_e, conf) => lcd.connect(conf));
+ipcMain.handle('lcd:disconnect', () => lcd.close());
+ipcMain.handle('lcd:send', (_e, { line }) => lcd.send(line));

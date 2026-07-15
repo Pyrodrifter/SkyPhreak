@@ -106,6 +106,19 @@ const DEFAULTS = {
       armedPass: null,
     },
     radio: { host: '127.0.0.1', port: 4532, downlinkHz: 145800000, doppler: false },
+    // Standalone LCD/display repeater — a one-way output port that streams the
+    // SELECTED target's az/el (and name) to a bench display (Arduino/ESP32 + LCD),
+    // independent of the rotator. transport 'serial' (USB) or 'tcp' (networked).
+    // format: 'simple' = "AZ179.4 EL42.1" · 'csv' = "179.4,42.1" · 'json'.
+    lcd: {
+      enabled: false,
+      transport: 'serial',
+      host: '127.0.0.1',
+      port: 4535,
+      path: 'COM4',
+      baud: 9600,
+      format: 'simple', // updates once per second (tick rate) while connected
+    },
   },
   // Per-satellite radio profiles keyed by NORAD id: { downlinkHz, downlinkMode,
   // uplinkHz, uplinkMode, invert, label }. Override the single global downlink so
