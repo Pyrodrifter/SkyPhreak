@@ -108,8 +108,10 @@ const DEFAULTS = {
     radio: { host: '127.0.0.1', port: 4532, downlinkHz: 145800000, doppler: false },
     // Standalone LCD/display repeater — a one-way output port that streams the
     // SELECTED target's az/el (and name) to a bench display (Arduino/ESP32 + LCD),
-    // independent of the rotator. transport 'serial' (USB) or 'tcp' (networked).
-    // format: 'simple' = "AZ179.4 EL42.1" · 'csv' = "179.4,42.1" · 'json'.
+    // independent of the rotator. transport: 'serial' (USB) · 'tcp' (we dial out
+    // to a listening display) · 'server' (we listen; the display connects in, e.g.
+    // the PyroLCD ESP32). format: 'simple' = "AZ179.4 EL42.1" · 'csv' = "179.4,42.1"
+    // · 'json' {name,az,el} · 'pyrolcd' {sat,az,el,state} (matches the ESP32 feed).
     lcd: {
       enabled: false,
       transport: 'serial',
