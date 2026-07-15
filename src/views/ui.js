@@ -2171,6 +2171,64 @@ function buildHwPane(pane, handlers) {
   const radioProfilesSection = section('Radio profiles (per satellite)', [buildRadioProfiles()]);
   const blackboxSection = section('Session blackbox', [buildBlackbox(handlers)]);
 
+  // Display repeater: a one-way port that streams the selected target's az/el to a
+  // standalone LCD (Arduino/ESP32). Independent of the rotator — USB or TCP.
+  const lcdPill = statusPill('Display disconnected');
+  const lcdConnect = h('button', { class: 'btn primary', onclick: () => handlers.connectLcd() }, 'Connect');
+  const lcdEnabled = checkbox(hw.lcd.enabled, (v) => store.patchIn('hw.lcd', { enabled: v }));
+  const lcdFormat = h('select', { onchange: (e) => store.patchIn('hw.lcd', { format: e.target.value }) }, [
+    h('option', { value: 'simple' }, 'Simple — AZ179.4 EL42.1'),
+    h('option', { value: 'csv' }, 'CSV — 179.4,42.1'),
+    h('option', { value: 'json' }, 'JSON — {name,az,el}'),
+  ]);
+  lcdFormat.value = hw.lcd.format || 'simple';
+  const lcdTransport = h('select', { onchange: (e) => { store.patchIn('hw.lcd', { transport: e.target.value }); renderLcdDynamic(); } }, [
+    h('option', { value: 'serial' }, 'USB serial'),
+    h('option', { value: 'tcp' }, 'WiFi / TCP'),
+  ]);
+  lcdTransport.value = hw.lcd.transport;
+  const lcdConn = h('div', {});
+  const lcdPortSelect = h('select', { onchange: (e) => store.patchIn('hw.lcd', { path: e.target.value }) });
+  async function refreshLcdPorts() {
+    lcdPortSelect.innerHTML = '';
+    lcdPortSelect.append(h('option', { value: '' }, 'Scanning…'));
+    const r = await window.pyro.rotator.listPorts();
+    lcdPortSelect.innerHTML = '';
+    if (!r.ok) { lcdPortSelect.append(h('option', { value: '' }, r.error || 'USB unavailable')); return; }
+    if (!r.ports.length) { lcdPortSelect.append(h('option', { value: '' }, 'No ports found')); return; }
+    const cur = store.get().hw.lcd.path;
+    for (const p of r.ports) lcdPortSelect.append(h('option', { value: p.path }, p.label));
+    if (r.ports.some((p) => p.path === cur)) lcdPortSelect.value = cur;
+    else { lcdPortSelect.value = r.ports[0].path; store.patchIn('hw.lcd', { path: r.ports[0].path }); }
+  }
+  function renderLcdDynamic() {
+    const l = store.get().hw.lcd;
+    lcdConn.innerHTML = '';
+    if (l.transport === 'serial') {
+      lcdConn.append(
+        h('label', { class: 'fld' }, [h('span', {}, 'USB port'),
+          h('div', { class: 'row', style: 'display:flex;gap:6px' }, [lcdPortSelect, h('button', { class: 'btn sm', onclick: () => refreshLcdPorts() }, 'Refresh')])]),
+        h('label', { class: 'fld' }, [h('span', {}, 'Baud'), inputNum(l.baud, '1', (v) => store.patchIn('hw.lcd', { baud: Math.max(300, Math.round(v)) }))]),
+      );
+      refreshLcdPorts();
+    } else {
+      lcdConn.append(h('div', { class: 'grid2' }, [
+        h('label', { class: 'fld' }, [h('span', {}, 'Host'),
+          h('input', { type: 'text', value: l.host, oninput: (e) => store.patchIn('hw.lcd', { host: e.target.value }) })]),
+        h('label', { class: 'fld' }, [h('span', {}, 'Port'), inputNum(l.port, '1', (v) => store.patchIn('hw.lcd', { port: Math.round(v) }))]),
+      ]));
+    }
+  }
+  const lcdSection = section('Display repeater (LCD)', [
+    lcdPill,
+    h('div', { class: 'toggle-line switch', style: 'margin-top:8px' }, [h('span', {}, 'Stream selected target az/el'), lcdEnabled]),
+    h('label', { class: 'fld' }, [h('span', {}, 'Connection'), lcdTransport]),
+    lcdConn,
+    h('label', { class: 'fld' }, [h('span', {}, 'Line format'), lcdFormat]),
+    lcdConnect,
+    h('div', { class: 'muted', style: 'font-size:11px' }, 'One-way output to a standalone display (Arduino/ESP32 + LCD). Streams the selected target’s bearing once a second — e.g. "AZ179.4 EL42.1" + newline. Elevation goes negative below the horizon. Independent of the rotator.'),
+  ]);
+
   pane.append(
     // --- Connection: the essentials, always visible ---
     h('div', { class: 'section-title' }, 'Rotator'),
@@ -2208,12 +2266,14 @@ function buildHwPane(pane, handlers) {
     calibSection,
     radioSection,
     radioProfilesSection,
+    lcdSection,
     blackboxSection,
   );
 
   renderRotDynamic();
+  renderLcdDynamic();
 
-  return { rotPill, radPill, rotConnect, radConnect, rotTarget, radFreqLive, autoModeSel: autoMode };
+  return { rotPill, radPill, rotConnect, radConnect, rotTarget, radFreqLive, autoModeSel: autoMode, lcdPill, lcdConnect };
 }
 
 /* -------------------------------- helpers ------------------------------- */

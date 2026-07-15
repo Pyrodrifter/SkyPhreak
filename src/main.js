@@ -69,6 +69,7 @@ let rotatorPassesCache = [];
 // HW connection flags (mirrored from main-process status events).
 let rotConnected = false;
 let radConnected = false;
+let lcdConnected = false;
 let lastRotSend = 0;
 let lastRadSend = 0;
 
@@ -166,6 +167,7 @@ async function boot() {
       window.pyro.rotator.setAzEl(az + daz, Math.max(0, el + del));
     },
     connectRadio,
+    connectLcd,
     // Time-warp scrubber: shift the visualisation time by N minutes (0 = live).
     setTimeWarp: (minutes) => { timeWarpOffset = (minutes || 0) * 60000; },
     // EME readout frequency (MHz).
@@ -1058,6 +1060,14 @@ function wireHardwareStatus() {
     ui.hw.rotConnect.textContent = s.connected ? 'Disconnect' : 'Connect';
     ui.setRotorConnected(s.connected); // on-map rotor light
   });
+  window.pyro.lcd.onStatus((s) => {
+    lcdConnected = s.connected;
+    if (ui.hw.lcdPill) {
+      const where = s.transport === 'serial' ? (s.path || 'serial') : `${s.host || ''}:${s.port || ''}`;
+      ui.hw.lcdPill._set(s.connected, s.connected ? `Display connected ${where}` : (s.error ? 'Display: ' + s.error : 'Display disconnected'));
+    }
+    if (ui.hw.lcdConnect) ui.hw.lcdConnect.textContent = s.connected ? 'Disconnect' : 'Connect';
+  });
   window.pyro.radio.onStatus((s) => {
     if (s.connected !== radConnected) blackbox.event('radio', s.connected ? 'connected' : 'disconnected');
     radConnected = s.connected;
@@ -1086,6 +1096,26 @@ async function connectRadio() {
   const { host, port } = store.get().hw.radio;
   const r = await window.pyro.radio.connect(host, port);
   if (!r.ok) ui.hw.radPill._set(false, 'Radio: ' + (r.error || 'failed'));
+}
+
+async function connectLcd() {
+  if (lcdConnected) { await window.pyro.lcd.disconnect(); return; }
+  const l = store.get().hw.lcd;
+  const conf = l.transport === 'serial'
+    ? { transport: 'serial', path: l.path, baud: l.baud }
+    : { transport: 'tcp', host: l.host, port: l.port };
+  const r = await window.pyro.lcd.connect(conf);
+  if (!r.ok) ui.hw.lcdPill && ui.hw.lcdPill._set(false, 'Display: ' + (r.error || 'failed'));
+}
+
+// Format one az/el output line for the display, per the configured protocol.
+// az normalized 0–360; el may be negative (target below the horizon).
+function formatLcdLine(name, az, el, format) {
+  const a = (((az % 360) + 360) % 360).toFixed(1);
+  const e = el.toFixed(1);
+  if (format === 'csv') return `${a},${e}\n`;
+  if (format === 'json') return JSON.stringify({ name, az: +a, el: +e }) + '\n';
+  return `AZ${a} EL${e}\n`; // 'simple' — easy to parse on an Arduino
 }
 
 // The selected rotator/radio target: a satellite, the Moon, a planet, or a DSO.
@@ -1562,6 +1592,12 @@ function driveHardware(frame, date, live = true) {
       trackId: activeTrackId,
     });
     lastBlackboxSample = date.getTime();
+  }
+
+  // LCD repeater: stream the SELECTED target's az/el (+ name) to the bench display
+  // once per tick, whatever the rotator is doing. Below-horizon el is sent as-is.
+  if (lcdConnected && live && state.hw.lcd?.enabled && selected && selected.look) {
+    window.pyro.lcd.send(formatLcdLine(selected.name, selected.look.az, selected.look.el, state.hw.lcd.format));
   }
 }
 
