@@ -1002,20 +1002,21 @@ html.ui-lg .mission-console {
 /* Mission-control footer: segmented instrument strip. */
 .mission-console .rigbar {
   display: flex; align-items: center; gap: 6px; width: calc(100% - 16px); min-width: 0;
-  height: 52px; flex: 0 0 52px; margin: 0 8px 10px; padding: 6px 8px;
+  /* Match the rotator statusbar's height/padding so the two stacked decks line up. */
+  height: var(--mc-sb-h); flex: 0 0 var(--mc-sb-h); margin: 0 8px 8px; padding: 8px;
   overflow: hidden; white-space: nowrap; color: var(--text-dim);
   border: 1px solid color-mix(in srgb, #b77cff 26%, var(--line)); border-radius: 7px;
   background: linear-gradient(100deg, #0b0d1b, #111226 48%, #090e1b);
   box-shadow: inset 0 1px rgba(255,255,255,.025), 0 5px 16px rgba(0,0,0,.2);
 }
-.mission-console .rigbar-brand, .mission-console .rigbar-title, .mission-console .rigbar-readout, .mission-console .rigbar-target, .mission-console .rigbar-shift { display: flex; align-items: center; min-width: 0; height: 38px; padding: 0 12px; border-right: 1px solid var(--line); }
+.mission-console .rigbar-brand, .mission-console .rigbar-title, .mission-console .rigbar-readout, .mission-console .rigbar-target, .mission-console .rigbar-shift { display: flex; align-items: center; min-width: 0; height: 46px; padding: 0 12px; border-right: 1px solid var(--line); }
 .mission-console .rigbar-brand { gap: 9px; min-width: 150px; border: 1px solid color-mix(in srgb, #b77cff 22%, var(--line)); border-radius: 7px; background: rgba(8,17,31,.8); color: var(--text-dim); font: inherit; text-align: left; cursor: pointer; }
 .mission-console .rigbar-brand:hover { border-color: color-mix(in srgb, #b77cff 62%, var(--line)); background: rgba(22,22,48,.94); }
 .mission-console .rigbar-title { gap: 9px; min-width: 132px; }
-.mission-console .rigbar-title-icon { display: inline-grid; place-items: center; width: 25px; height: 25px; border: 1px solid #b77cff; border-radius: 50%; color: #b77cff; box-shadow: inset 0 0 8px rgba(183,124,255,.18); }
+.mission-console .rigbar-title-icon { display: inline-grid; place-items: center; width: 31px; height: 31px; border: 1px solid #b77cff; border-radius: 50%; color: #b77cff; box-shadow: inset 0 0 8px rgba(183,124,255,.18); }
 .mission-console .rigbar-title strong { color: var(--text); font-size: 11px; }
 .mission-console .rigbar-brand > div, .mission-console .rigbar-readout, .mission-console .rigbar-target, .mission-console .rigbar-shift { flex-direction: column; align-items: flex-start; justify-content: center; }
-.mission-console .rigbar small { display: block; margin-bottom: 3px; color: #b77cff; font-size: 8px; font-weight: 800; letter-spacing: 1px; }
+.mission-console .rigbar small { display: block; margin-bottom: 4px; color: #b77cff; font-size: 8px; font-weight: 800; letter-spacing: 1px; }
 .mission-console .rigbar-state { color: var(--text-dim); font-size: 11px; font-weight: 700; }
 .mission-console .rigbar-endpoint { display: block; overflow: hidden; max-width: 112px; margin-top: 1px; color: #68778d; font-size: 8px; text-overflow: ellipsis; }
 .mission-console .rigbar-led { width: 10px; height: 10px; flex: 0 0 10px; border-radius: 50%; background: var(--danger); box-shadow: 0 0 7px color-mix(in srgb, var(--danger) 65%, transparent); }
@@ -1036,12 +1037,14 @@ html.ui-lg .mission-console {
 .mission-console .rigbar.connected .rigbar-spectrum i { background: linear-gradient(180deg, #c89cff, #7656a8); box-shadow: 0 0 5px rgba(183,124,255,.35); animation: rigbar-pulse 1.35s ease-in-out infinite alternate; animation-delay: calc(var(--bar) * -90ms); }
 @keyframes rigbar-pulse { to { transform: scaleY(1.65); opacity: .72; } }
 @media (prefers-reduced-motion: reduce) { .mission-console .rigbar.connected .rigbar-spectrum i { animation: none; } }
-.mission-console .rigbar-toggle { display: inline-flex; align-items: center; gap: 7px; min-height: 36px; padding: 0 11px; border: 1px solid var(--line); border-radius: 7px; background: rgba(8,17,31,.8); color: var(--text-dim); cursor: pointer; }
+.mission-console .rigbar-toggle { display: inline-flex; align-items: center; gap: 7px; min-height: 52px; padding: 0 13px; border: 1px solid var(--line); border-radius: 8px; background: rgba(8,17,31,.8); color: var(--text-dim); cursor: pointer; }
 .mission-console .rigbar-toggle-dot { width: 9px; height: 9px; border-radius: 50%; background: #556070; }
 .mission-console .rigbar-toggle.on { color: #d7c4ff; border-color: rgba(183,124,255,.48); }
 .mission-console .rigbar-toggle.on .rigbar-toggle-dot { background: #b77cff; box-shadow: 0 0 8px #b77cff; }
-.mission-console .rigbar-connect { min-width: 94px; min-height: 36px; }
-.mission-console .rigbar-collapse { display: inline-grid; place-items: center; min-width: 34px; width: 34px; min-height: 36px; padding: 0; }
+/* `.btn` is added to out-specify the global `button.btn.sm` height (0,2,1), the
+   same trick the statusbar buttons use, so these match the 52px rotator buttons. */
+.mission-console .rigbar-connect.btn { min-width: 94px; min-height: 52px; border-radius: 8px; }
+.mission-console .rigbar-collapse.btn { display: inline-grid; place-items: center; min-width: 34px; width: 34px; min-height: 52px; border-radius: 8px; padding: 0; }
 .mission-console .rigbar.collapsed { height: 36px; flex-basis: 36px; padding-top: 3px; padding-bottom: 3px; }
 .mission-console .rigbar.collapsed .rigbar-title, .mission-console .rigbar.collapsed .rigbar-readout, .mission-console .rigbar.collapsed .rigbar-target, .mission-console .rigbar.collapsed .rigbar-shift, .mission-console .rigbar.collapsed .rigbar-spectrum, .mission-console .rigbar.collapsed .rigbar-toggle, .mission-console .rigbar.collapsed .rigbar-connect { display: none; }
 .mission-console .rigbar.collapsed .rigbar-brand { height: 28px; margin-left: auto; }
@@ -1177,6 +1180,9 @@ html.ui-lg .mission-console {
    the compact layout at smaller window sizes. */
 @media (max-width: 1080px) {
   .mission-console .statusbar { height: 64px; margin-left: 8px; margin-right: 8px; padding: 6px; }
+  /* Keep the radio deck the same height as the rotator statusbar when it shrinks. */
+  .mission-console .rigbar { height: 64px; flex-basis: 64px; padding: 6px; }
+  .mission-console .rigbar-connect.btn, .mission-console .rigbar-collapse.btn, .mission-console .rigbar-toggle { min-height: 40px; }
   .mission-console .statusbar .clock { min-width: 100px; flex: 0 0 100px; overflow: hidden; }
   .mission-console .clock-zone:first-child { display: none; }
   .mission-console .clock-zone { width: 100%; min-width: 0; padding: 0 8px; border-right: 0; }
