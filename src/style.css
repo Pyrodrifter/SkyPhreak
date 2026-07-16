@@ -1010,7 +1010,7 @@ html.ui-lg .mission-console {
   box-shadow: inset 0 1px rgba(255,255,255,.025), 0 5px 16px rgba(0,0,0,.2);
 }
 .mission-console .rigbar-brand, .mission-console .rigbar-title, .mission-console .rigbar-readout, .mission-console .rigbar-target, .mission-console .rigbar-shift { display: flex; align-items: center; min-width: 0; height: 46px; padding: 0 12px; border-right: 1px solid var(--line); }
-.mission-console .rigbar-brand { gap: 9px; min-width: 150px; border: 1px solid color-mix(in srgb, #b77cff 22%, var(--line)); border-radius: 7px; background: rgba(8,17,31,.8); color: var(--text-dim); font: inherit; text-align: left; cursor: pointer; }
+.mission-console .rigbar-brand { gap: 9px; min-width: 150px; height: 52px; border: 1px solid color-mix(in srgb, #b77cff 22%, var(--line)); border-radius: 8px; background: rgba(8,17,31,.8); color: var(--text-dim); font: inherit; text-align: left; cursor: pointer; }
 .mission-console .rigbar-brand:hover { border-color: color-mix(in srgb, #b77cff 62%, var(--line)); background: rgba(22,22,48,.94); }
 .mission-console .rigbar-title { gap: 9px; min-width: 132px; }
 .mission-console .rigbar-title-icon { display: inline-grid; place-items: center; width: 31px; height: 31px; border: 1px solid #b77cff; border-radius: 50%; color: #b77cff; box-shadow: inset 0 0 8px rgba(183,124,255,.18); }
@@ -1045,9 +1045,11 @@ html.ui-lg .mission-console {
    same trick the statusbar buttons use, so these match the 52px rotator buttons. */
 .mission-console .rigbar-connect.btn { min-width: 94px; min-height: 52px; border-radius: 8px; }
 .mission-console .rigbar-collapse.btn { display: inline-grid; place-items: center; min-width: 34px; width: 34px; min-height: 52px; border-radius: 8px; padding: 0; }
-.mission-console .rigbar.collapsed { height: 36px; flex-basis: 36px; padding-top: 3px; padding-bottom: 3px; }
+.mission-console .rigbar.collapsed { height: 46px; flex-basis: 46px; padding: 5px 8px; }
+/* Shrink the chevron to fit the slim collapsed bar (matches the statusbar). */
+.mission-console .rigbar.collapsed .rigbar-collapse.btn { min-height: 34px; }
 .mission-console .rigbar.collapsed .rigbar-title, .mission-console .rigbar.collapsed .rigbar-readout, .mission-console .rigbar.collapsed .rigbar-target, .mission-console .rigbar.collapsed .rigbar-shift, .mission-console .rigbar.collapsed .rigbar-spectrum, .mission-console .rigbar.collapsed .rigbar-toggle, .mission-console .rigbar.collapsed .rigbar-connect { display: none; }
-.mission-console .rigbar.collapsed .rigbar-brand { height: 28px; margin-left: auto; }
+.mission-console .rigbar.collapsed .rigbar-brand { height: 34px; margin-left: auto; }
 @media (max-width: 1350px) {
   .mission-console .rigbar-spectrum { display: none; }
 }
