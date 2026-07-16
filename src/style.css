@@ -1050,6 +1050,10 @@ html.ui-lg .mission-console {
 .mission-console .rigbar.collapsed .rigbar-collapse.btn { min-height: 34px; }
 .mission-console .rigbar.collapsed .rigbar-title, .mission-console .rigbar.collapsed .rigbar-readout, .mission-console .rigbar.collapsed .rigbar-target, .mission-console .rigbar.collapsed .rigbar-shift, .mission-console .rigbar.collapsed .rigbar-spectrum, .mission-console .rigbar.collapsed .rigbar-toggle, .mission-console .rigbar.collapsed .rigbar-connect { display: none; }
 .mission-console .rigbar.collapsed .rigbar-brand { height: 34px; margin-left: auto; }
+/* Only the LED + state fit the slim collapsed box; the label and endpoint would
+   stack to three lines and spill out of it. */
+.mission-console .rigbar.collapsed .rigbar-brand small, .mission-console .rigbar.collapsed .rigbar-endpoint { display: none; }
+.mission-console .rigbar.collapsed .rigbar-brand > div { justify-content: center; }
 @media (max-width: 1350px) {
   .mission-console .rigbar-spectrum { display: none; }
 }
@@ -1172,7 +1176,11 @@ html.ui-lg .mission-console {
 .mission-console .statusbar.collapsed { height: 46px; padding: 5px 8px; }
 .mission-console .statusbar.collapsed .sb-item, .mission-console .statusbar.collapsed .sb-sep,
 .mission-console .statusbar.collapsed .park-btn, .mission-console .statusbar.collapsed .sb-rot-action { display: none; }
-.mission-console .statusbar.collapsed .clock-zone { flex-direction: row; align-items: baseline; gap: 7px; min-width: 0; }
+/* Collapsed: the clock must sit compact and vertically centred. The default
+   `.clock { align-items: stretch }` otherwise forces the zone to full height and
+   top-aligns the value in the slim bar. */
+.mission-console .statusbar.collapsed .clock { align-items: center; }
+.mission-console .statusbar.collapsed .clock-zone { flex-direction: row; align-items: center; height: auto; gap: 7px; min-width: 0; }
 .mission-console .statusbar.collapsed .clock-zone small { margin-bottom: 0; }
 .mission-console .statusbar.collapsed .clock-zone b { font-size: 14px; }
 .mission-console .statusbar.collapsed .clock-zone em { display: none; }
