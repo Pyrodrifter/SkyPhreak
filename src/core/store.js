@@ -20,6 +20,8 @@ const DEFAULTS = {
   sideCollapsed: false, // left satellite-browser panel collapsed
   rightCollapsed: false, // right info/settings panel collapsed
   sbCollapsed: false, // bottom status bar collapsed to a slim strip
+  showStatusbar: true, // show the bottom rotator status/control bar at all
+  showRigbar: true, // show the bottom rigctld radio deck bar at all
   followSat: false, // keep the active view centred on the selected satellite
   passSort: 'time', // Passes tab order: 'time' (soonest) | 'el' (highest first)
   notifyPasses: false, // desktop notification before a tracked pass rises

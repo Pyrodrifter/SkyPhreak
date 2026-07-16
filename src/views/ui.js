@@ -607,10 +607,18 @@ export function createUI(handlers) {
     followBtn.classList.toggle('active', !!state.followSat);
     statusbar.classList.toggle('collapsed', !!state.sbCollapsed);
     rigbar.classList.toggle('collapsed', !!state.rigBarCollapsed);
+    statusbar.style.display = state.showStatusbar === false ? 'none' : '';
+    rigbar.style.display = state.showRigbar === false ? 'none' : '';
     sbCollapseBtn.textContent = state.sbCollapsed ? '⌃' : '⌄';
     applyWakeLock(!!state.fieldMode);
   }
   applyLayout(store.get());
+  // Toolbar visibility reacts directly (not only via main's onState) so the Setup
+  // toggles take effect immediately regardless of the render loop.
+  store.subscribe((s) => {
+    statusbar.style.display = s.showStatusbar === false ? 'none' : '';
+    rigbar.style.display = s.showRigbar === false ? 'none' : '';
+  });
 
   // Keyboard-shortcut help overlay (toggled by the ? key / toolbar button).
   const helpOverlay = h('div', { class: 'help-overlay', style: 'display:none', onclick: (e) => { if (e.target === helpOverlay) toggleHelp(false); } }, [
@@ -1754,6 +1762,17 @@ function buildStationPane(pane, handlers) {
       mk('Pass-list min el (°)', store.get().minEl, '1', (v) => store.patch({ minEl: v })),
     ]),
     h('div', { class: 'muted' }, 'Pass predictions and look angles are computed for this location.')
+  );
+
+  // Toolbars — show/hide the bottom instrument bars entirely.
+  const showSbChk = checkbox(store.get().showStatusbar !== false, (v) => store.patch({ showStatusbar: v }));
+  const showRigChk = checkbox(store.get().showRigbar !== false, (v) => store.patch({ showRigbar: v }));
+  pane.append(
+    h('hr', { class: 'hr' }),
+    h('div', { class: 'section-title' }, 'Toolbars'),
+    h('div', { class: 'toggle-line switch' }, [h('span', {}, 'Rotator status bar'), showSbChk]),
+    h('div', { class: 'toggle-line switch' }, [h('span', {}, 'Radio (rigctld) bar'), showRigChk]),
+    h('div', { class: 'muted', style: 'margin-top:6px' }, 'Hide the bottom instrument bars entirely to reclaim screen space.')
   );
 
   // Horizon mask — local obstruction profile.
