@@ -2180,11 +2180,13 @@ function buildHwPane(pane, handlers) {
     h('option', { value: 'simple' }, 'Simple — AZ179.4 EL42.1'),
     h('option', { value: 'csv' }, 'CSV — 179.4,42.1'),
     h('option', { value: 'json' }, 'JSON — {name,az,el}'),
+    h('option', { value: 'pyrolcd' }, 'PyroLCD — sat/az/el + pass (AOS/LOS…)'),
   ]);
   lcdFormat.value = hw.lcd.format || 'simple';
   const lcdTransport = h('select', { onchange: (e) => { store.patchIn('hw.lcd', { transport: e.target.value }); renderLcdDynamic(); } }, [
     h('option', { value: 'serial' }, 'USB serial'),
-    h('option', { value: 'tcp' }, 'WiFi / TCP'),
+    h('option', { value: 'tcp' }, 'WiFi / TCP (we dial the display)'),
+    h('option', { value: 'server' }, 'Listen / TCP server (display dials us)'),
   ]);
   lcdTransport.value = hw.lcd.transport;
   const lcdConn = h('div', {});
@@ -2211,6 +2213,11 @@ function buildHwPane(pane, handlers) {
         h('label', { class: 'fld' }, [h('span', {}, 'Baud'), inputNum(l.baud, '1', (v) => store.patchIn('hw.lcd', { baud: Math.max(300, Math.round(v)) }))]),
       );
       refreshLcdPorts();
+    } else if (l.transport === 'server') {
+      lcdConn.append(
+        h('label', { class: 'fld' }, [h('span', {}, 'Listen port'), inputNum(l.port, '1', (v) => store.patchIn('hw.lcd', { port: Math.round(v) }))]),
+        h('div', { class: 'muted', style: 'font-size:11px' }, 'Enter this PC’s IP and the port above in the display’s "Satellite feed" — it connects in. The connected address shows in the status line above once listening.'),
+      );
     } else {
       lcdConn.append(h('div', { class: 'grid2' }, [
         h('label', { class: 'fld' }, [h('span', {}, 'Host'),
@@ -2226,7 +2233,7 @@ function buildHwPane(pane, handlers) {
     lcdConn,
     h('label', { class: 'fld' }, [h('span', {}, 'Line format'), lcdFormat]),
     lcdConnect,
-    h('div', { class: 'muted', style: 'font-size:11px' }, 'One-way output to a standalone display (Arduino/ESP32 + LCD). Streams the selected target’s bearing once a second — e.g. "AZ179.4 EL42.1" + newline. Elevation goes negative below the horizon. Independent of the rotator.'),
+    h('div', { class: 'muted', style: 'font-size:11px' }, 'One-way output to a standalone display (Arduino/ESP32 + LCD). Streams the selected target’s bearing once a second — elevation goes negative below the horizon. For the PyroLCD ESP32, use Listen / TCP server + PyroLCD format. Independent of the rotator.'),
   ]);
 
   pane.append(

@@ -1,5 +1,17 @@
 const net = require('node:net');
+const os = require('node:os');
 const { EventEmitter } = require('node:events');
+
+// Best-guess LAN IPv4 to show the user which address to type into the display.
+function lanIp() {
+  const ifs = os.networkInterfaces();
+  for (const name of Object.keys(ifs)) {
+    for (const i of ifs[name] || []) {
+      if (i.family === 'IPv4' && !i.internal) return i.address;
+    }
+  }
+  return '127.0.0.1';
+}
 
 /**
  * LCD repeater — a one-way az/el output port, independent of the rotator/radio.
@@ -10,16 +22,23 @@ const { EventEmitter } = require('node:events');
  * serial or TCP port and write short text lines; any bytes the device sends back
  * are drained and ignored.
  *
- * Transport mirrors the rotator:
- *   { transport: 'tcp',    host, port }
+ * Transport:
+ *   { transport: 'tcp',    host, port }   — we dial out to a listening display
+ *   { transport: 'server', port }         — WE listen; the display connects in
  *   { transport: 'serial', path, baud }
+ *
+ * Server mode exists for displays that are themselves TCP clients (e.g. the
+ * PyroLCD ESP32, which dials out to a "SkyPhreak IP:port"). We listen and
+ * broadcast each line to every connected display.
  */
 class LcdRepeater extends EventEmitter {
   constructor() {
     super();
     this.transport = null;
-    this.port = null;   // SerialPort instance
-    this.socket = null; // net.Socket instance
+    this.port = null;    // SerialPort instance
+    this.socket = null;  // net.Socket instance (client mode)
+    this.server = null;  // net.Server instance (server mode)
+    this.clients = new Set(); // connected display sockets (server mode)
     this.connected = false;
   }
 
@@ -29,7 +48,34 @@ class LcdRepeater extends EventEmitter {
 
   connect(conf = {}) {
     this.close();
-    return conf.transport === 'serial' ? this._connectSerial(conf) : this._connectTcp(conf);
+    if (conf.transport === 'serial') return this._connectSerial(conf);
+    if (conf.transport === 'server') return this._listen(conf);
+    return this._connectTcp(conf);
+  }
+
+  // Listen for inbound display connections (the display is the TCP client).
+  _listen({ port, host = '0.0.0.0' }) {
+    this.transport = 'server';
+    return new Promise((resolve) => {
+      const server = net.createServer((sock) => {
+        this.clients.add(sock);
+        sock.on('data', () => {}); // display may chatter — drain and ignore
+        sock.on('error', () => {});
+        sock.on('close', () => { this.clients.delete(sock); this.emitStatus({ port, ip: lanIp(), clients: this.clients.size }); });
+        this.emitStatus({ port, ip: lanIp(), clients: this.clients.size });
+      });
+      this.server = server;
+      server.on('error', (err) => {
+        this.connected = false;
+        this.emitStatus({ error: err.message });
+        resolve({ ok: false, error: err.message });
+      });
+      server.listen(port, host, () => {
+        this.connected = true;
+        this.emitStatus({ port, ip: lanIp(), clients: 0 });
+        resolve({ ok: true });
+      });
+    });
   }
 
   _connectTcp({ host, port }) {
@@ -99,6 +145,12 @@ class LcdRepeater extends EventEmitter {
 
   /** Write one already-formatted line (caller appends its own newline). */
   send(line) {
+    if (this.transport === 'server') {
+      if (!this.clients.size) return false;
+      let ok = false;
+      for (const s of this.clients) { try { s.write(line); ok = true; } catch { /* drop */ } }
+      return ok;
+    }
     const w = this.transport === 'serial' ? this.port : this.socket;
     if (!this.connected || !w) return false;
     try { w.write(line); return true; } catch { return false; }
@@ -109,6 +161,9 @@ class LcdRepeater extends EventEmitter {
       if (this.socket) { this.socket.destroy(); this.socket = null; }
       if (this.port && this.port.isOpen) this.port.close(() => {});
       this.port = null;
+      for (const s of this.clients) { try { s.destroy(); } catch { /* ignore */ } }
+      this.clients.clear();
+      if (this.server) { this.server.close(); this.server = null; }
     } catch { /* ignore */ }
     if (this.connected) { this.connected = false; this.emitStatus(); }
     this.transport = null;

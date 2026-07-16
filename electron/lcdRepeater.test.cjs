@@ -33,3 +33,32 @@ test('reports a friendly failure for an unreachable TCP endpoint', async () => {
   assert.ok(typeof r.error === 'string' && r.error.length > 0);
   lcd.close();
 });
+
+test('server mode: a display connects in and receives broadcast lines', async () => {
+  const lcd = new LcdRepeater();
+  const r = await lcd.connect({ transport: 'server', host: '127.0.0.1', port: 0 });
+  assert.equal(r.ok, true);
+  assert.equal(lcd.connected, true);
+  const port = lcd.server.address().port;
+
+  // No display yet → send is a no-op.
+  assert.equal(lcd.send('{"sat":"ISS"}\n'), false);
+
+  // The display (a TCP client, like the PyroLCD ESP32) dials in.
+  const received = [];
+  const display = net.connect(port, '127.0.0.1');
+  await new Promise((res) => display.on('connect', res));
+  display.on('data', (d) => received.push(d.toString('utf8')));
+  await new Promise((res) => setTimeout(res, 30)); // let the server register the socket
+
+  assert.equal(lcd.send('{"sat":"ISS (ZARYA)","az":123.4,"el":45.6,"state":"tracking"}\n'), true);
+  await new Promise((res) => setTimeout(res, 40));
+  assert.equal(received.join(''), '{"sat":"ISS (ZARYA)","az":123.4,"el":45.6,"state":"tracking"}\n');
+  const parsed = JSON.parse(received.join('').trim());
+  assert.equal(parsed.sat, 'ISS (ZARYA)');
+  assert.equal(parsed.state, 'tracking');
+
+  display.destroy();
+  lcd.close();
+  assert.equal(lcd.connected, false);
+});

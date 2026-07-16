@@ -1063,10 +1063,16 @@ function wireHardwareStatus() {
   window.pyro.lcd.onStatus((s) => {
     lcdConnected = s.connected;
     if (ui.hw.lcdPill) {
-      const where = s.transport === 'serial' ? (s.path || 'serial') : `${s.host || ''}:${s.port || ''}`;
-      ui.hw.lcdPill._set(s.connected, s.connected ? `Display connected ${where}` : (s.error ? 'Display: ' + s.error : 'Display disconnected'));
+      let msg;
+      if (!s.connected) msg = s.error ? 'Display: ' + s.error : 'Display disconnected';
+      else if (s.transport === 'server') {
+        const n = s.clients || 0;
+        msg = `Listening ${s.ip || '?'}:${s.port || ''} · ${n} display${n === 1 ? '' : 's'}`;
+      } else if (s.transport === 'serial') msg = `Display connected ${s.path || 'serial'}`;
+      else msg = `Display connected ${s.host || ''}:${s.port || ''}`;
+      ui.hw.lcdPill._set(s.connected, msg);
     }
-    if (ui.hw.lcdConnect) ui.hw.lcdConnect.textContent = s.connected ? 'Disconnect' : 'Connect';
+    if (ui.hw.lcdConnect) ui.hw.lcdConnect.textContent = s.connected ? (s.transport === 'server' ? 'Stop' : 'Disconnect') : 'Connect';
   });
   window.pyro.radio.onStatus((s) => {
     if (s.connected !== radConnected) blackbox.event('radio', s.connected ? 'connected' : 'disconnected');
@@ -1103,18 +1109,45 @@ async function connectLcd() {
   const l = store.get().hw.lcd;
   const conf = l.transport === 'serial'
     ? { transport: 'serial', path: l.path, baud: l.baud }
-    : { transport: 'tcp', host: l.host, port: l.port };
+    : l.transport === 'server'
+      ? { transport: 'server', host: '0.0.0.0', port: l.port }
+      : { transport: 'tcp', host: l.host, port: l.port };
   const r = await window.pyro.lcd.connect(conf);
   if (!r.ok) ui.hw.lcdPill && ui.hw.lcdPill._set(false, 'Display: ' + (r.error || 'failed'));
 }
 
 // Format one az/el output line for the display, per the configured protocol.
 // az normalized 0–360; el may be negative (target below the horizon).
-function formatLcdLine(name, az, el, format) {
+// `focus` is the selected target's current/next pass item (or null), `now` is ms.
+function formatLcdLine(name, az, el, format, lcdState, focus, now) {
   const a = (((az % 360) + 360) % 360).toFixed(1);
   const e = el.toFixed(1);
   if (format === 'csv') return `${a},${e}\n`;
   if (format === 'json') return JSON.stringify({ name, az: +a, el: +e }) + '\n';
+  // 'pyrolcd' — the PyroLCD ESP32 satellite feed. Base fields {sat, az, el, state}
+  // are joined by the whole hero-card pass picture when a pass is known. Extra keys
+  // are ignored by older firmware, so this stays backward-compatible.
+  if (format === 'pyrolcd') {
+    const o = { sat: name, az: +a, el: +e, state: lcdState };
+    if (focus && focus.pass) {
+      const p = focus.pass;
+      const aosMs = p.aos.getTime();
+      const losMs = p.los.getTime();
+      o.live = now >= aosMs && now <= losMs;
+      o.aos = Math.round(aosMs / 1000);       // epoch seconds, UTC
+      o.los = Math.round(losMs / 1000);
+      if (p.peakTime) o.tca = Math.round(p.peakTime.getTime() / 1000);
+      o.maxEl = Math.round(p.maxEl * 10) / 10;
+      o.dur = p.durationS;                    // seconds
+      o.aosAz = Math.round(p.aosAz);
+      o.losAz = Math.round(p.losAz);
+      o.secAos = Math.round((aosMs - now) / 1000); // >0 until rise
+      o.secLos = Math.round((losMs - now) / 1000); // >0 until set
+      if (focus.score != null) o.score = focus.score;
+      if (focus.visible) o.vis = true;
+    }
+    return JSON.stringify(o) + '\n';
+  }
   return `AZ${a} EL${e}\n`; // 'simple' — easy to parse on an Arduino
 }
 
@@ -1594,10 +1627,17 @@ function driveHardware(frame, date, live = true) {
     lastBlackboxSample = date.getTime();
   }
 
-  // LCD repeater: stream the SELECTED target's az/el (+ name) to the bench display
-  // once per tick, whatever the rotator is doing. Below-horizon el is sent as-is.
+  // LCD repeater: stream the SELECTED target's az/el (+ name + state) to the bench
+  // display once per tick, whatever the rotator is doing. Below-horizon el is sent
+  // as-is. State: 'tracking' when the rotator is on this target, else up/down.
   if (lcdConnected && live && state.hw.lcd?.enabled && selected && selected.look) {
-    window.pyro.lcd.send(formatLcdLine(selected.name, selected.look.az, selected.look.el, state.hw.lcd.format));
+    const el = selected.look.el;
+    const lcdState = activeTrackId === selected.id ? 'tracking' : (el >= 0 ? 'visible' : 'below');
+    const now = date.getTime();
+    // The selected target's current/next pass — the hero card's focus pass — so the
+    // display can show AOS/LOS/max-el/score alongside the live bearing (pyrolcd only).
+    const focus = trackedPassesCache.list.find((it) => it.id === selected.id && it.pass.los.getTime() >= now) || null;
+    window.pyro.lcd.send(formatLcdLine(selected.name, selected.look.az, el, state.hw.lcd.format, lcdState, focus, now));
   }
 }
 
