@@ -1,4 +1,3 @@
-import './style.css';
 import { store } from './core/store.js';
 import { parseCatalog } from './core/tle.js';
 import { parseOem } from './core/oem.js';
@@ -14,7 +13,8 @@ import { resolveProfile, tuning as radioTuning } from './core/radioProfiles.js';
 import { createBlackbox } from './core/blackbox.js';
 import { MotionController } from './core/motion.js';
 import { THEMES, applyTheme } from './core/themes.js';
-import { createUI, colorFor } from './views/ui.js';
+import { createUI } from './ui/app.js';
+import { colorFor } from './ui/colors.js';
 import { Map2D } from './views/map2d.js';
 import { Globe3D } from './views/globe3d.js';
 import { PolarView } from './views/polar.js';

@@ -1,183 +1,188 @@
 /**
- * Theme system. Each theme is a full palette: the CSS custom properties that skin
- * every DOM panel, plus the canvas colors used by the 2D map, polar view, and the
- * 3D globe's vector mode (relief mode is texture-based and mostly theme-neutral).
+ * Theme system. A theme supplies the palette only — the surfaces, hairlines, text
+ * and accent as CSS custom properties, plus the canvas colours the map, globe and
+ * polar views read on every draw.
  *
- * Satellite identity colors (ui.js PALETTE) and the yellow station marker are data
- * colors, not chrome — they stay fixed across themes so targets keep their identity.
+ * A theme changes the colour of the instrument, never its shape: geometry, type
+ * and density live in ui/tokens.css and are identical across every theme.
  *
- * applyTheme() writes the CSS vars onto <html>; the canvas views call palette()
- * every draw (they repaint at 1 Hz anyway), so a theme change propagates within a
- * tick with no per-view wiring.
+ * Track colours (ui/colors.js) are deliberately NOT themed — a satellite's colour
+ * is data, and it must not change identity when the operator switches palette
+ * halfway through a pass.
+ *
+ * applyTheme() writes the vars onto <html>; the canvas views call palette() every
+ * draw (they repaint at 1 Hz anyway), so a change propagates within a tick.
  */
 
 export const THEMES = {
-  // Mission Control — the SkyPhreak house look: deep navy HUD with sky-blue / cyan
-  // accents (matches the icon sheet: Sky Blue #4fc3ff, Accent Cyan #00e5ff).
+  // House look: near-black navy with a sky-blue accent.
   mission: {
     name: 'Mission',
     vars: {
-      '--bg': '#070b12', '--panel': '#0b1220', '--panel-2': '#0f1a2b',
-      '--line': '#1b2c44', '--text': '#dbe7f5', '--text-dim': '#7f93ac',
-      '--accent': '#4fc3ff', '--accent-2': '#00e5ff',
-      '--warn': '#ffc53f', '--danger': '#ff5a5f',
-      '--topbar-hi': '#0c1626', '--topbar-lo': '#08101c',
+      '--bg-0': '#06090d', '--bg-1': '#0a0e14', '--bg-2': '#0f141c', '--bg-3': '#151b25', '--bg-4': '#1c2430',
+      '--line': '#1b2431', '--line-soft': '#131a24', '--line-hard': '#2a3646',
+      '--fg': '#ccd6e2', '--fg-dim': '#7e8da0', '--fg-mute': '#56626f',
+      '--accent': '#4db8ff', '--accent-fg': '#04121d',
+      '--ok': '#3fb984', '--warn': '#d9a441', '--alert': '#e0574f',
     },
     map: {
-      bg: '#08182b', land: '#123553', landStroke: 'rgba(90,180,255,0.55)',
-      graticule: 'rgba(100,170,230,0.10)', equator: 'rgba(100,170,230,0.18)',
-      terminator: 'rgba(2,6,14,0.50)', labelBg: 'rgba(6,12,22,0.7)',
-      labelText: 'rgba(220,235,250,0.85)', moonShadow: '#14243a',
+      bg: '#070d16', land: '#101f30', landStroke: 'rgba(77,184,255,0.42)',
+      graticule: 'rgba(126,141,160,0.09)', equator: 'rgba(126,141,160,0.16)',
+      terminator: 'rgba(2,5,10,0.52)', labelBg: 'rgba(6,9,13,0.78)',
+      labelText: 'rgba(204,214,226,0.9)', moonShadow: '#121a26',
     },
     polar: {
-      grid: 'rgba(100,180,255,0.22)', gridDim: 'rgba(100,180,255,0.15)',
-      ticks: 'rgba(100,180,255,0.45)', labels: 'rgba(180,220,255,0.85)',
+      grid: 'rgba(42,54,70,0.95)', gridDim: 'rgba(27,36,49,0.95)',
+      ticks: 'rgba(126,141,160,0.7)', labels: 'rgba(204,214,226,0.8)',
     },
     globe: {
-      atmosphere: '#4fc3ff', polyCap: 'rgba(30,90,140,0.9)',
-      polySide: 'rgba(18,55,85,0.4)', polyStroke: 'rgba(90,180,255,0.6)',
-      sphere: '#08182b', sphereEmissive: '#050f1c',
+      atmosphere: '#4db8ff', polyCap: 'rgba(22,54,84,0.92)',
+      polySide: 'rgba(14,34,54,0.42)', polyStroke: 'rgba(77,184,255,0.5)',
+      sphere: '#070d16', sphereEmissive: '#040a11',
     },
   },
 
   midnight: {
     name: 'Midnight',
     vars: {
-      '--bg': '#0a0e14', '--panel': '#0e141d', '--panel-2': '#121a25',
-      '--line': '#1d2733', '--text': '#d7e0ee', '--text-dim': '#8b97a8',
-      '--accent': '#4a9fd4', '--accent-2': '#57d0a0',
-      '--warn': '#ffd23f', '--danger': '#ff6b6b',
-      '--topbar-hi': '#0f1620', '--topbar-lo': '#0b1118',
+      '--bg-0': '#07090c', '--bg-1': '#0b0e13', '--bg-2': '#10141a', '--bg-3': '#161b23', '--bg-4': '#1d232d',
+      '--line': '#1c232e', '--line-soft': '#141922', '--line-hard': '#2b3442',
+      '--fg': '#d0d8e4', '--fg-dim': '#828e9e', '--fg-mute': '#59636f',
+      '--accent': '#5aa9e6', '--accent-fg': '#04101a',
+      '--ok': '#4ab98a', '--warn': '#dba94a', '--alert': '#e05f56',
     },
     map: {
-      bg: '#0c1a2b', land: '#16314a', landStroke: 'rgba(120,190,230,0.55)',
-      graticule: 'rgba(120,160,200,0.10)', equator: 'rgba(120,160,200,0.18)',
-      terminator: 'rgba(3,6,16,0.45)', labelBg: 'rgba(8,12,20,0.7)',
-      labelText: 'rgba(220,230,245,0.85)', moonShadow: '#1a2433',
+      bg: '#08111c', land: '#132435', landStroke: 'rgba(90,169,230,0.4)',
+      graticule: 'rgba(130,142,158,0.09)', equator: 'rgba(130,142,158,0.16)',
+      terminator: 'rgba(3,5,9,0.5)', labelBg: 'rgba(7,9,12,0.78)',
+      labelText: 'rgba(208,216,228,0.9)', moonShadow: '#141c27',
     },
     polar: {
-      grid: 'rgba(120,160,200,0.22)', gridDim: 'rgba(120,160,200,0.15)',
-      ticks: 'rgba(120,160,200,0.45)', labels: 'rgba(180,210,235,0.8)',
+      grid: 'rgba(43,52,66,0.95)', gridDim: 'rgba(28,35,46,0.95)',
+      ticks: 'rgba(130,142,158,0.7)', labels: 'rgba(208,216,228,0.8)',
     },
     globe: {
-      atmosphere: '#4a9fd4', polyCap: 'rgba(36,90,130,0.9)',
-      polySide: 'rgba(20,50,75,0.4)', polyStroke: 'rgba(120,190,230,0.6)',
-      sphere: '#0a1626', sphereEmissive: '#06101c',
+      atmosphere: '#5aa9e6', polyCap: 'rgba(26,56,84,0.92)',
+      polySide: 'rgba(16,36,54,0.42)', polyStroke: 'rgba(90,169,230,0.5)',
+      sphere: '#08111c', sphereEmissive: '#050b12',
     },
   },
 
-  // PyroLabs house colors — charcoal + ember orange (matches the PyroRotator badge).
+  // Charcoal and ember — the PyroLabs hardware palette.
   ember: {
     name: 'Ember',
     vars: {
-      '--bg': '#120d09', '--panel': '#1a120c', '--panel-2': '#221810',
-      '--line': '#36271b', '--text': '#eee1d4', '--text-dim': '#a8917e',
-      '--accent': '#ff7a45', '--accent-2': '#ffb03f',
-      '--warn': '#ffd23f', '--danger': '#ff5252',
-      '--topbar-hi': '#1c130c', '--topbar-lo': '#140d08',
+      '--bg-0': '#0c0805', '--bg-1': '#120d08', '--bg-2': '#19120c', '--bg-3': '#211812', '--bg-4': '#2b2017',
+      '--line': '#2e2118', '--line-soft': '#221810', '--line-hard': '#443124',
+      '--fg': '#e6dace', '--fg-dim': '#a08d7c', '--fg-mute': '#6d5c4e',
+      '--accent': '#ff8a4c', '--accent-fg': '#1a0c04',
+      '--ok': '#5cba7d', '--warn': '#e8b23c', '--alert': '#e85c4a',
     },
     map: {
-      bg: '#170f08', land: '#3a2415', landStroke: 'rgba(235,150,90,0.55)',
-      graticule: 'rgba(210,150,100,0.10)', equator: 'rgba(210,150,100,0.18)',
-      terminator: 'rgba(10,4,0,0.45)', labelBg: 'rgba(20,10,4,0.7)',
-      labelText: 'rgba(245,225,205,0.85)', moonShadow: '#2b1c10',
+      bg: '#130c06', land: '#2e1e12', landStroke: 'rgba(255,138,76,0.38)',
+      graticule: 'rgba(160,141,124,0.09)', equator: 'rgba(160,141,124,0.16)',
+      terminator: 'rgba(8,4,1,0.5)', labelBg: 'rgba(12,8,5,0.78)',
+      labelText: 'rgba(230,218,206,0.9)', moonShadow: '#241810',
     },
     polar: {
-      grid: 'rgba(210,150,100,0.22)', gridDim: 'rgba(210,150,100,0.15)',
-      ticks: 'rgba(210,150,100,0.45)', labels: 'rgba(235,200,170,0.8)',
+      grid: 'rgba(68,49,36,0.95)', gridDim: 'rgba(46,33,24,0.95)',
+      ticks: 'rgba(160,141,124,0.7)', labels: 'rgba(230,218,206,0.8)',
     },
     globe: {
-      atmosphere: '#ff7a45', polyCap: 'rgba(130,70,35,0.9)',
-      polySide: 'rgba(75,40,20,0.4)', polyStroke: 'rgba(235,150,90,0.6)',
-      sphere: '#1c120a', sphereEmissive: '#120a05',
+      atmosphere: '#ff8a4c', polyCap: 'rgba(92,52,26,0.92)',
+      polySide: 'rgba(58,32,16,0.42)', polyStroke: 'rgba(255,138,76,0.5)',
+      sphere: '#130c06', sphereEmissive: '#0c0703',
     },
   },
 
-  // Red-on-black field mode: preserves night-adapted vision at the telescope/antenna.
+  // Red-only: preserves dark adaptation at the antenna. Paired with Field mode.
   nightops: {
     name: 'Night Ops',
     vars: {
-      '--bg': '#0d0405', '--panel': '#150708', '--panel-2': '#1d0a0c',
-      '--line': '#361316', '--text': '#f0b2b2', '--text-dim': '#a06565',
-      '--accent': '#ff4545', '--accent-2': '#ff8060',
-      '--warn': '#ffb03f', '--danger': '#ff2020',
-      '--topbar-hi': '#170708', '--topbar-lo': '#100405',
+      '--bg-0': '#0a0304', '--bg-1': '#100506', '--bg-2': '#170809', '--bg-3': '#1f0c0e', '--bg-4': '#291012',
+      '--line': '#2c1214', '--line-soft': '#1f0d0f', '--line-hard': '#451c1f',
+      '--fg': '#ecb3b3', '--fg-dim': '#a86a6a', '--fg-mute': '#734848',
+      '--accent': '#ff4d4d', '--accent-fg': '#140303',
+      '--ok': '#e08585', '--warn': '#ffa04d', '--alert': '#ff2f2f',
     },
     map: {
-      bg: '#120406', land: '#320d12', landStroke: 'rgba(255,95,95,0.5)',
-      graticule: 'rgba(255,110,110,0.10)', equator: 'rgba(255,110,110,0.18)',
-      terminator: 'rgba(8,0,0,0.45)', labelBg: 'rgba(18,4,4,0.7)',
-      labelText: 'rgba(245,190,190,0.85)', moonShadow: '#2a1013',
+      bg: '#0e0405', land: '#2a0e11', landStroke: 'rgba(255,77,77,0.4)',
+      graticule: 'rgba(168,106,106,0.09)', equator: 'rgba(168,106,106,0.16)',
+      terminator: 'rgba(6,0,0,0.5)', labelBg: 'rgba(10,3,4,0.78)',
+      labelText: 'rgba(236,179,179,0.9)', moonShadow: '#210c0e',
     },
     polar: {
-      grid: 'rgba(255,110,110,0.22)', gridDim: 'rgba(255,110,110,0.15)',
-      ticks: 'rgba(255,110,110,0.45)', labels: 'rgba(245,180,180,0.8)',
+      grid: 'rgba(69,28,31,0.95)', gridDim: 'rgba(44,18,20,0.95)',
+      ticks: 'rgba(168,106,106,0.7)', labels: 'rgba(236,179,179,0.8)',
     },
     globe: {
-      atmosphere: '#ff4545', polyCap: 'rgba(120,30,35,0.9)',
-      polySide: 'rgba(70,15,20,0.4)', polyStroke: 'rgba(255,95,95,0.6)',
-      sphere: '#1a0709', sphereEmissive: '#100304',
+      atmosphere: '#ff4d4d', polyCap: 'rgba(94,24,28,0.92)',
+      polySide: 'rgba(58,14,17,0.42)', polyStroke: 'rgba(255,77,77,0.5)',
+      sphere: '#0e0405', sphereEmissive: '#080202',
     },
   },
 
-  // Green CRT radar-terminal retro.
+  // Green CRT radar terminal.
   phosphor: {
     name: 'Phosphor',
     vars: {
-      '--bg': '#060c07', '--panel': '#0a140b', '--panel-2': '#0e1c10',
-      '--line': '#1d3322', '--text': '#c9eecd', '--text-dim': '#7da884',
-      '--accent': '#3ce07a', '--accent-2': '#9ae05a',
-      '--warn': '#ffd23f', '--danger': '#ff6b6b',
-      '--topbar-hi': '#0b160c', '--topbar-lo': '#071008',
+      '--bg-0': '#040806', '--bg-1': '#070d09', '--bg-2': '#0b140d', '--bg-3': '#101c13', '--bg-4': '#16261a',
+      '--line': '#152218', '--line-soft': '#0f1911', '--line-hard': '#254029',
+      '--fg': '#c3e6c9', '--fg-dim': '#7ba383', '--fg-mute': '#526e58',
+      '--accent': '#48d67f', '--accent-fg': '#03140a',
+      '--ok': '#48d67f', '--warn': '#d8c84a', '--alert': '#e06a5a',
     },
     map: {
-      bg: '#07130b', land: '#153b23', landStroke: 'rgba(110,225,150,0.5)',
-      graticule: 'rgba(110,220,140,0.10)', equator: 'rgba(110,220,140,0.18)',
-      terminator: 'rgba(0,8,3,0.45)', labelBg: 'rgba(4,14,7,0.7)',
-      labelText: 'rgba(205,240,215,0.85)', moonShadow: '#12281a',
+      bg: '#05100a', land: '#0f2617', landStroke: 'rgba(72,214,127,0.38)',
+      graticule: 'rgba(123,163,131,0.09)', equator: 'rgba(123,163,131,0.16)',
+      terminator: 'rgba(0,5,2,0.5)', labelBg: 'rgba(4,8,6,0.78)',
+      labelText: 'rgba(195,230,201,0.9)', moonShadow: '#122016',
     },
     polar: {
-      grid: 'rgba(110,220,140,0.22)', gridDim: 'rgba(110,220,140,0.15)',
-      ticks: 'rgba(110,220,140,0.45)', labels: 'rgba(180,235,195,0.8)',
+      grid: 'rgba(37,64,41,0.95)', gridDim: 'rgba(21,34,24,0.95)',
+      ticks: 'rgba(123,163,131,0.7)', labels: 'rgba(195,230,201,0.8)',
     },
     globe: {
-      atmosphere: '#3ce07a', polyCap: 'rgba(30,105,55,0.9)',
-      polySide: 'rgba(15,60,30,0.4)', polyStroke: 'rgba(110,225,150,0.6)',
-      sphere: '#0a1a10', sphereEmissive: '#05100a',
+      atmosphere: '#48d67f', polyCap: 'rgba(24,74,44,0.92)',
+      polySide: 'rgba(14,46,27,0.42)', polyStroke: 'rgba(72,214,127,0.5)',
+      sphere: '#05100a', sphereEmissive: '#030a06',
     },
   },
 };
 
-let active = THEMES.midnight;
+let active = THEMES.mission;
 
 /** The active theme's canvas palette — views read this on every draw. */
 export const palette = () => active;
 
-// Shift a #rrggbb toward white by `amt` (0..1) — used to derive a lighter secondary
-// accent for custom themes so chips/links still read as a related tint.
-function lighten(hex, amt) {
+/** Relative luminance, for deciding whether text on the accent should be dark. */
+function luminance(hex) {
   const n = parseInt(hex.replace('#', ''), 16);
-  const mix = (c) => Math.round(c + (255 - c) * amt);
-  const r = mix((n >> 16) & 255), g = mix((n >> 8) & 255), b = mix(n & 255);
-  return `#${((1 << 24) | (r << 16) | (g << 8) | b).toString(16).slice(1)}`;
+  const f = (c) => { const s = c / 255; return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4; };
+  return 0.2126 * f((n >> 16) & 255) + 0.7152 * f((n >> 8) & 255) + 0.0722 * f(n & 255);
 }
 
-// Build a 'custom' theme: a base palette with the user's accent applied to the DOM
-// chrome and the globe atmosphere. Everything else inherits the (dark) base.
+/**
+ * Build the user 'custom' theme: a base palette with their accent swapped in.
+ * `--accent-fg` is recomputed from the accent's luminance so a light accent still
+ * gets readable dark text on filled buttons.
+ */
 function buildCustom(custom) {
-  const base = THEMES[custom && custom.base] || THEMES.midnight;
+  const base = THEMES[(custom && custom.base)] || THEMES.midnight;
   const accent = (custom && custom.accent) || base.vars['--accent'];
   return {
     ...base,
     name: 'Custom',
-    vars: { ...base.vars, '--accent': accent, '--accent-2': lighten(accent, 0.25) },
+    vars: { ...base.vars, '--accent': accent, '--accent-fg': luminance(accent) > 0.45 ? '#080d12' : '#f2f7fc' },
+    // Only the atmosphere picks up the accent; the map and polar palettes stay on
+    // the base so a wild accent choice can't wash out the basemap.
     globe: { ...base.globe, atmosphere: accent },
   };
 }
 
-/** Apply a theme by id (or a built 'custom' theme): set CSS vars + canvas palette. */
+/** Apply a theme by id (or the built 'custom' theme): set CSS vars + canvas palette. */
 export function applyTheme(id, custom) {
-  active = id === 'custom' ? buildCustom(custom) : (THEMES[id] || THEMES.midnight);
+  active = id === 'custom' ? buildCustom(custom) : (THEMES[id] || THEMES.mission);
   const root = document.documentElement;
   for (const [k, v] of Object.entries(active.vars)) root.style.setProperty(k, v);
   return active;

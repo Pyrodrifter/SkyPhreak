@@ -1,0 +1,395 @@
+/**
+ * Base layer: reset, typography and the control vocabulary every panel uses.
+ * Panels should almost never define their own button/input styling — if a panel
+ * needs a control that isn't here, it belongs here.
+ */
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body, #app { height: 100%; margin: 0; }
+
+body {
+  background: var(--bg-0);
+  color: var(--fg);
+  font-family: var(--font);
+  font-size: var(--fs-body);
+  line-height: 1.4;
+  overflow: hidden;
+  user-select: none;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Every readout is monospace with tabular figures so digits hold their column
+   while counting. Applied by class, and baked into the elements that are always
+   numeric. */
+.num, .mono, input[type="number"], kbd, code {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1, "zero" 1;
+}
+
+/* ---- Label / value pairing ---------------------------------------------- */
+/* The core idiom of the whole UI: a small dim uppercase label above or beside a
+   larger bright value. Used in the top bar, panel headers, stat blocks, tables. */
+.label {
+  display: block;
+  color: var(--fg-dim);
+  font-size: var(--fs-label);
+  font-weight: 600;
+  letter-spacing: var(--ls-label);
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.value {
+  color: var(--fg);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--fs-data);
+  white-space: nowrap;
+}
+.value.big  { font-size: var(--fs-big); font-weight: 600; letter-spacing: -0.01em; }
+.value.hero { font-size: var(--fs-hero); font-weight: 600; letter-spacing: -0.02em; line-height: 1.05; }
+.value.ok { color: var(--ok); }
+.value.warn { color: var(--warn); }
+.value.alert { color: var(--alert); }
+.value.live { color: var(--accent); }
+.value.mute { color: var(--fg-mute); }
+
+.muted { color: var(--fg-dim); }
+.dim   { color: var(--fg-mute); }
+
+/* ---- Focus -------------------------------------------------------------- */
+/* One focus treatment everywhere. Accent is legitimate here: focus is state. */
+:focus { outline: none; }
+:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* ---- Buttons ------------------------------------------------------------ */
+button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: var(--ctl);
+  min-width: var(--ctl);
+  padding: 0 10px;
+  border: 1px solid var(--line-hard);
+  border-radius: var(--r);
+  background: var(--bg-2);
+  color: var(--fg);
+  font-size: var(--fs-body);
+  font-weight: 500;
+  white-space: nowrap;
+  transition: background-color .1s linear, border-color .1s linear, color .1s linear;
+}
+.btn:hover:not(:disabled) { background: var(--bg-3); border-color: var(--line-hard); }
+.btn:active:not(:disabled) { background: var(--bg-4); }
+.btn:disabled { color: var(--fg-mute); background: var(--bg-1); border-color: var(--line); cursor: default; }
+
+/* Filled accent — reserve for the single primary action in a region. */
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); font-weight: 600; }
+.btn.primary:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 85%, white); border-color: color-mix(in srgb, var(--accent) 85%, white); }
+.btn.primary:active:not(:disabled) { background: color-mix(in srgb, var(--accent) 80%, black); }
+
+/* Destructive — stop, park, disconnect. */
+.btn.danger { color: var(--alert); border-color: color-mix(in srgb, var(--alert) 40%, var(--line-hard)); }
+.btn.danger:hover:not(:disabled) { background: var(--alert); border-color: var(--alert); color: #0b0406; }
+
+/* On state — a toggle that is currently engaged. */
+.btn.on { color: var(--accent); border-color: var(--accent-line); background: var(--accent-weak); }
+
+/* Quiet — toolbar/icon buttons that shouldn't draw a box until touched. */
+.btn.quiet { background: transparent; border-color: transparent; color: var(--fg-dim); }
+.btn.quiet:hover:not(:disabled) { background: var(--bg-3); color: var(--fg); }
+.btn.quiet.on { color: var(--accent); background: var(--accent-weak); }
+
+.btn.sm { height: calc(var(--ctl) - 4px); min-width: 0; padding: 0 7px; font-size: var(--fs-label); }
+.btn.icon { padding: 0; width: var(--ctl); }
+.btn.block { width: 100%; }
+
+/* ---- Segmented control -------------------------------------------------- */
+/* Mutually exclusive choice. Butted cells sharing hairlines, not floating pills. */
+.seg {
+  display: inline-flex;
+  height: var(--ctl);
+  border: 1px solid var(--line-hard);
+  border-radius: var(--r);
+  overflow: hidden;
+}
+.seg > button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  flex: 1 1 auto;
+  padding: 0 10px;
+  background: var(--bg-2);
+  color: var(--fg-dim);
+  font-size: var(--fs-body);
+  font-weight: 500;
+  white-space: nowrap;
+  border-right: 1px solid var(--line-hard);
+  transition: background-color .1s linear, color .1s linear;
+}
+.seg > button:last-child { border-right: 0; }
+.seg > button:hover:not(.active) { background: var(--bg-3); color: var(--fg); }
+.seg > button.active { background: var(--accent); color: var(--accent-fg); font-weight: 600; }
+.seg.sm { height: calc(var(--ctl) - 4px); }
+.seg.sm > button { padding: 0 8px; font-size: var(--fs-label); }
+
+/* ---- Inputs ------------------------------------------------------------- */
+input[type="text"], input[type="number"], input[type="search"], select, textarea {
+  height: var(--ctl);
+  width: 100%;
+  padding: 0 7px;
+  border: 1px solid var(--line-hard);
+  border-radius: var(--r);
+  background: var(--bg-0);
+  color: var(--fg);
+  font-family: var(--font);
+  font-size: var(--fs-body);
+}
+input[type="number"] { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+textarea { height: auto; padding: 5px 7px; resize: vertical; font-family: var(--font-mono); font-size: var(--fs-label); line-height: 1.5; }
+input:hover:not(:disabled), select:hover:not(:disabled), textarea:hover { border-color: var(--line-hard); background: var(--bg-1); }
+input:focus-visible, select:focus-visible, textarea:focus-visible { border-color: var(--accent); outline-offset: -1px; }
+input::placeholder, textarea::placeholder { color: var(--fg-mute); }
+input:disabled, select:disabled { color: var(--fg-mute); background: var(--bg-1); }
+
+select {
+  appearance: none;
+  padding-right: 20px;
+  /* Chevron drawn as a background gradient pair — no extra element, no icon font. */
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--fg-dim) 50%),
+    linear-gradient(135deg, var(--fg-dim) 50%, transparent 50%);
+  background-position: right 11px center, right 7px center;
+  background-size: 4px 4px, 4px 4px;
+  background-repeat: no-repeat;
+  cursor: pointer;
+}
+select option { background: var(--bg-2); color: var(--fg); }
+
+/* Checkbox: a square that fills with accent when checked. No rounded tick-box. */
+input[type="checkbox"] {
+  appearance: none;
+  width: 14px; height: 14px;
+  flex: 0 0 14px;
+  margin: 0;
+  border: 1px solid var(--line-hard);
+  border-radius: var(--r);
+  background: var(--bg-0);
+  cursor: pointer;
+  position: relative;
+}
+input[type="checkbox"]:hover { border-color: var(--fg-mute); }
+input[type="checkbox"]:checked { background: var(--accent); border-color: var(--accent); }
+input[type="checkbox"]:checked::after {
+  content: '';
+  position: absolute;
+  left: 4px; top: 1px;
+  width: 3px; height: 7px;
+  border: solid var(--accent-fg);
+  border-width: 0 1.5px 1.5px 0;
+  transform: rotate(42deg);
+}
+input[type="color"] {
+  width: 34px; height: var(--ctl); padding: 2px;
+  border: 1px solid var(--line-hard); border-radius: var(--r);
+  background: var(--bg-0); cursor: pointer;
+}
+input[type="color"]::-webkit-color-swatch { border: 0; border-radius: 1px; }
+input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; }
+
+input[type="range"] { width: 100%; height: var(--ctl); accent-color: var(--accent); background: none; border: 0; padding: 0; }
+
+/* ---- Field rows --------------------------------------------------------- */
+/* A labelled control. Stacked by default; .field.inline puts the label on the
+   left for dense settings lists. */
+.field { display: block; margin-bottom: var(--gap); }
+.field > .label { margin-bottom: 3px; }
+.field.inline {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: var(--gap);
+}
+.field.inline > .label { margin-bottom: 0; }
+.field.inline > input, .field.inline > select { width: auto; min-width: 92px; }
+.field.inline > input[type="checkbox"] { min-width: 0; justify-self: end; }
+.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: var(--gap); }
+.grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--gap); }
+.row { display: flex; align-items: center; gap: var(--gap); }
+.row.wrap { flex-wrap: wrap; }
+.spacer { flex: 1 1 auto; min-width: 0; }
+
+/* ---- Section rule ------------------------------------------------------- */
+/* A labelled divider inside a scrolling panel: label on the left, hairline
+   filling the rest of the width. Cheaper than a boxed card, and it scans. */
+.rule {
+  display: flex;
+  align-items: center;
+  gap: var(--gap);
+  margin: calc(var(--pad) * 1.5) 0 var(--pad);
+  color: var(--fg-dim);
+  font-size: var(--fs-label);
+  font-weight: 600;
+  letter-spacing: var(--ls-label);
+  text-transform: uppercase;
+}
+.rule::after { content: ''; flex: 1 1 auto; height: 1px; background: var(--line); }
+.rule:first-child { margin-top: 0; }
+
+/* ---- Collapsible group -------------------------------------------------- */
+.group { border-top: 1px solid var(--line); }
+.group:first-child { border-top: 0; }
+.group-head {
+  display: flex;
+  align-items: center;
+  gap: var(--gap);
+  width: 100%;
+  height: var(--head);
+  color: var(--fg-dim);
+  font-size: var(--fs-label);
+  font-weight: 600;
+  letter-spacing: var(--ls-label);
+  text-transform: uppercase;
+  text-align: left;
+}
+.group-head:hover { color: var(--fg); }
+.group-head .chev { color: var(--fg-mute); font-size: 8px; width: 9px; transition: transform .12s linear; }
+.group-head[aria-expanded="true"] .chev { transform: rotate(90deg); }
+.group-body { padding: 2px 0 var(--pad); }
+
+/* ---- Status dot --------------------------------------------------------- */
+/* Square, not round — a round dot reads as a mobile badge. */
+.dot {
+  width: 7px; height: 7px;
+  flex: 0 0 7px;
+  border-radius: 1px;
+  background: var(--fg-mute);
+}
+.dot.ok { background: var(--ok); }
+.dot.warn { background: var(--warn); }
+.dot.alert { background: var(--alert); }
+.dot.live { background: var(--accent); }
+/* The only animation in the chrome, and only for genuinely live hardware. */
+.dot.pulse { animation: dot-pulse 2s ease-in-out infinite; }
+@keyframes dot-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) { .dot.pulse { animation: none; } }
+
+/* ---- Chip / badge ------------------------------------------------------- */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 15px;
+  padding: 0 5px;
+  border: 1px solid var(--line-hard);
+  border-radius: var(--r);
+  color: var(--fg-dim);
+  font-size: var(--fs-micro);
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.chip.ok    { color: var(--ok);    border-color: color-mix(in srgb, var(--ok) 40%, var(--line-hard));    background: var(--ok-weak); }
+.chip.warn  { color: var(--warn);  border-color: color-mix(in srgb, var(--warn) 40%, var(--line-hard));  background: var(--warn-weak); }
+.chip.alert { color: var(--alert); border-color: color-mix(in srgb, var(--alert) 40%, var(--line-hard)); background: var(--alert-weak); }
+.chip.live  { color: var(--accent); border-color: var(--accent-line); background: var(--accent-weak); }
+.chip.num   { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+
+/* ---- Data table --------------------------------------------------------- */
+/* Rows separated by soft hairlines, header on the raised surface, numerics right
+   aligned. This is the default way to show a list of anything. */
+.tbl { width: 100%; border-collapse: collapse; }
+.tbl th {
+  position: sticky; top: 0; z-index: 1;
+  height: var(--head);
+  padding: 0 var(--pad);
+  background: var(--bg-2);
+  border-bottom: 1px solid var(--line);
+  color: var(--fg-dim);
+  font-size: var(--fs-label);
+  font-weight: 600;
+  letter-spacing: var(--ls-label);
+  text-transform: uppercase;
+  text-align: left;
+  white-space: nowrap;
+}
+.tbl td {
+  height: var(--row);
+  padding: 0 var(--pad);
+  border-bottom: 1px solid var(--line-soft);
+  font-size: var(--fs-body);
+  white-space: nowrap;
+}
+.tbl th.n, .tbl td.n { text-align: right; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.tbl tbody tr { cursor: default; }
+.tbl tbody tr.pick { cursor: pointer; }
+.tbl tbody tr.pick:hover { background: var(--bg-2); }
+/* Selection is a left accent bar plus a wash — never a full accent fill, which
+   would fight with the accent used for live values inside the row. */
+.tbl tbody tr.sel { background: var(--accent-weak); box-shadow: inset 2px 0 0 var(--accent); }
+
+/* ---- Scrollbars --------------------------------------------------------- */
+* { scrollbar-width: thin; scrollbar-color: var(--line-hard) transparent; }
+::-webkit-scrollbar { width: 9px; height: 9px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--line-hard); border: 2px solid var(--bg-1); border-radius: 0; }
+::-webkit-scrollbar-thumb:hover { background: var(--fg-mute); }
+::-webkit-scrollbar-corner { background: transparent; }
+
+/* ---- Empty state -------------------------------------------------------- */
+.empty {
+  padding: calc(var(--pad) * 2.5) var(--pad);
+  color: var(--fg-mute);
+  font-size: var(--fs-body);
+  text-align: center;
+}
+
+/* ---- Floating layers ---------------------------------------------------- */
+/* The only place shadows are allowed: things that genuinely sit above the plane. */
+.pop {
+  position: absolute;
+  z-index: 200;
+  border: 1px solid var(--line-hard);
+  border-radius: var(--r-lg);
+  background: var(--bg-2);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .55);
+}
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(3, 6, 10, .62);
+}
+kbd {
+  display: inline-block;
+  min-width: 18px;
+  padding: 1px 5px;
+  border: 1px solid var(--line-hard);
+  border-radius: var(--r);
+  background: var(--bg-2);
+  color: var(--fg);
+  font-size: var(--fs-label);
+  text-align: center;
+}
+code { color: var(--accent); font-size: var(--fs-label); }
+hr { height: 1px; margin: var(--pad) 0; border: 0; background: var(--line); }

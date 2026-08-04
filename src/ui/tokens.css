@@ -1,0 +1,103 @@
+/**
+ * SkyPhreak design tokens — instrument-panel language.
+ *
+ * The rules this file encodes, in order of how often they get broken:
+ *
+ *  1. ACCENT IS STATE, NOT DECORATION. --accent means live / selected / focused.
+ *     A heading is never accent-coloured. If everything is highlighted, nothing is.
+ *  2. Corners are 2px. Panels, buttons, inputs, chips — all of them. Nothing is a pill.
+ *  3. One hairline weight (1px, --line). Separation comes from rules and spacing,
+ *     never from shadows or glows. The only shadow in the app is on floating layers
+ *     (menus, dialogs) which genuinely sit above the plane.
+ *  4. Every number the operator reads is --font-mono with tabular figures, so digits
+ *     do not jitter as they count down.
+ *  5. Labels are 10px uppercase --fg-dim. Values are larger and --fg. The label/value
+ *     contrast does the work that a bold colour would otherwise do.
+ *
+ * Themes (core/themes.js) override the palette block only. Geometry, type and density
+ * are theme-independent — a theme changes the colour of the instrument, not its shape.
+ */
+
+:root {
+  /* ---- Surfaces -------------------------------------------------------- */
+  /* Four steps, deliberately close together. Depth reads from the hairlines
+     between surfaces, not from big luminance jumps. */
+  --bg-0: #06090d;   /* app background, gutters between docks */
+  --bg-1: #0a0e14;   /* panel body */
+  --bg-2: #0f141c;   /* raised: panel headers, tab strips, inputs, table heads */
+  --bg-3: #151b25;   /* hover fill */
+  --bg-4: #1c2430;   /* pressed / active fill */
+
+  /* ---- Hairlines ------------------------------------------------------- */
+  --line:      #1b2431;  /* default rule between regions */
+  --line-soft: #131a24;  /* rule inside a region (table rows, list separators) */
+  --line-hard: #2a3646;  /* rule that must survive on a raised surface */
+
+  /* ---- Text ------------------------------------------------------------ */
+  --fg:      #ccd6e2;  /* values, primary content */
+  --fg-dim:  #7e8da0;  /* labels, secondary */
+  --fg-mute: #56626f;  /* tertiary, disabled, placeholder */
+
+  /* ---- Accent: LIVE / SELECTED / FOCUSED ONLY -------------------------- */
+  --accent:      #4db8ff;
+  --accent-fg:   #04121d;  /* text on a filled accent surface */
+  --accent-weak: color-mix(in srgb, var(--accent) 14%, transparent);
+  --accent-line: color-mix(in srgb, var(--accent) 45%, var(--line));
+
+  /* ---- Status ---------------------------------------------------------- */
+  --ok:    #3fb984;
+  --warn:  #d9a441;
+  --alert: #e0574f;
+  --ok-weak:    color-mix(in srgb, var(--ok) 12%, transparent);
+  --warn-weak:  color-mix(in srgb, var(--warn) 12%, transparent);
+  --alert-weak: color-mix(in srgb, var(--alert) 12%, transparent);
+
+  /* ---- Geometry -------------------------------------------------------- */
+  --r:    2px;  /* everything */
+  --r-lg: 3px;  /* floating layers only */
+
+  /* ---- Type ------------------------------------------------------------ */
+  --font: ui-sans-serif, system-ui, "Segoe UI", Roboto, sans-serif;
+  /* Cascadia/SF Mono/Consolas all carry true tabular figures. */
+  --font-mono: ui-monospace, "Cascadia Mono", "SF Mono", Menlo, Consolas, monospace;
+
+  --fs-label: 10px;   /* uppercase section + field labels */
+  --fs-micro: 9px;    /* chip text, badges */
+  --fs-body: 12px;    /* prose, list rows */
+  --fs-data: 13px;    /* readouts in tables */
+  --fs-big: 19px;     /* panel-level headline numbers */
+  --fs-hero: 30px;    /* the one number the operator is waiting on */
+
+  --ls-label: 0.09em; /* uppercase needs tracking to stay legible */
+
+  /* ---- Density --------------------------------------------------------- */
+  /* html.d-compact / .d-normal / .d-roomy override these. Normal is the default
+     and is tuned for a 1440-wide desktop with three docks open. */
+  --row: 26px;     /* list row height */
+  --ctl: 26px;     /* button / input height */
+  --head: 26px;    /* panel header + tab strip height */
+  --bar: 30px;     /* top bar / status bar height */
+  --pad: 8px;      /* panel padding */
+  --gap: 6px;      /* gap between sibling controls */
+  --gutter: 3px;   /* gap between docks */
+}
+
+html.d-compact {
+  --row: 22px; --ctl: 22px; --head: 22px; --bar: 26px;
+  --pad: 6px; --gap: 4px; --gutter: 2px;
+  --fs-body: 11px; --fs-data: 12px; --fs-big: 17px; --fs-hero: 25px;
+}
+
+html.d-roomy {
+  --row: 34px; --ctl: 34px; --head: 32px; --bar: 38px;
+  --pad: 11px; --gap: 8px; --gutter: 4px;
+  --fs-label: 11px; --fs-body: 13px; --fs-data: 15px; --fs-big: 22px; --fs-hero: 36px;
+}
+
+/* Field mode: roomy density plus fatter hit targets, for gloves and a headlamp.
+   Paired with the Night Ops theme by the Field toggle. */
+html.field {
+  --row: 40px; --ctl: 40px; --head: 34px; --bar: 44px;
+  --pad: 12px; --gap: 10px;
+  --fs-label: 11px; --fs-body: 14px; --fs-data: 16px; --fs-big: 24px; --fs-hero: 40px;
+}

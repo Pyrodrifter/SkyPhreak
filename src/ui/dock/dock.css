@@ -1,0 +1,135 @@
+/**
+ * Dock chrome. Panels sit on --bg-1 islands separated by --bg-0 gutters, so the
+ * workspace reads as discrete instruments bolted to a rack rather than as cards
+ * floating on a page. No shadows, no radius beyond 2px, no gradients.
+ */
+
+.dk-root { position: relative; width: 100%; height: 100%; min-height: 0; overflow: hidden; }
+
+.dk-split { display: flex; width: 100%; height: 100%; min-width: 0; min-height: 0; }
+.dk-split.dk-row { flex-direction: row; }
+.dk-split.dk-col { flex-direction: column; }
+.dk-pane { display: flex; min-width: 0; min-height: 0; overflow: hidden; }
+.dk-pane > * { flex: 1 1 auto; min-width: 0; min-height: 0; }
+
+/* ---- Splitters ----------------------------------------------------------- */
+/* The gutter itself is the hit target; a hairline is painted down its middle so
+   the visible seam stays 1px while the grab area is comfortable. */
+.dk-sizer { position: relative; flex: 0 0 var(--gutter); background: var(--bg-0); }
+.dk-sizer::before {
+  content: '';
+  position: absolute;
+  background: transparent;
+  transition: background-color .1s linear;
+}
+.dk-sizer.dk-row { cursor: col-resize; }
+.dk-sizer.dk-col { cursor: row-resize; }
+.dk-sizer.dk-row::before { inset: 0 -2px; }
+.dk-sizer.dk-col::before { inset: -2px 0; }
+.dk-sizer:hover::before, .dk-sizer.drag::before { background: var(--accent); }
+
+/* ---- Dock ---------------------------------------------------------------- */
+.dk-dock {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: var(--bg-1);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  overflow: hidden;
+}
+
+/* ---- Tab strip ----------------------------------------------------------- */
+.dk-tabs {
+  display: flex;
+  align-items: stretch;
+  flex: 0 0 var(--head);
+  height: var(--head);
+  background: var(--bg-2);
+  border-bottom: 1px solid var(--line);
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+.dk-tabs::-webkit-scrollbar { display: none; }
+
+.dk-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  max-width: 190px;
+  padding: 0 9px;
+  border-right: 1px solid var(--line);
+  background: transparent;
+  color: var(--fg-mute);
+  font-size: var(--fs-label);
+  font-weight: 600;
+  letter-spacing: var(--ls-label);
+  text-transform: uppercase;
+  white-space: nowrap;
+  transition: color .1s linear, background-color .1s linear;
+}
+.dk-tab:hover { color: var(--fg-dim); background: var(--bg-3); }
+.dk-tab-t { overflow: hidden; text-overflow: ellipsis; }
+
+/* Active tab: brought up to the panel surface and marked with a top accent rule,
+   so the eye reads which body belongs to which tab without a colour fill. */
+.dk-tab.active {
+  background: var(--bg-1);
+  color: var(--fg);
+  box-shadow: inset 0 2px 0 var(--accent);
+}
+.dk-tab.dragging { opacity: .4; }
+
+.dk-tab-x {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 13px; height: 13px;
+  border-radius: var(--r);
+  color: var(--fg-mute);
+  font-size: 13px;
+  line-height: 1;
+  opacity: 0;
+}
+.dk-tab:hover .dk-tab-x, .dk-tab.active .dk-tab-x { opacity: 1; }
+.dk-tab-x:hover { background: var(--alert); color: #fff; }
+
+/* ---- Body ---------------------------------------------------------------- */
+.dk-body { flex: 1 1 auto; min-height: 0; display: flex; overflow: hidden; }
+.dk-body > * { flex: 1 1 auto; min-width: 0; min-height: 0; }
+
+/* ---- Drag feedback ------------------------------------------------------- */
+/* Drag hit-testing uses elementFromPoint, so descendants must KEEP pointer-events.
+   Only the two cursor-following layers opt out (see .dk-ghost / .dk-drop below). */
+body.dk-dragging { cursor: grabbing; }
+body.dk-dragging .dk-tab:hover { background: transparent; }
+
+.dk-ghost {
+  position: fixed;
+  left: 0; top: 0;
+  z-index: 400;
+  padding: 3px 9px;
+  border: 1px solid var(--accent);
+  border-radius: var(--r);
+  background: var(--bg-2);
+  color: var(--fg);
+  font-size: var(--fs-label);
+  font-weight: 600;
+  letter-spacing: var(--ls-label);
+  text-transform: uppercase;
+  pointer-events: none;
+}
+
+/* The drop target: an accent wash with a solid outline, matching exactly the
+   region the panel will occupy after the drop. */
+.dk-drop {
+  position: fixed;
+  z-index: 390;
+  background: var(--accent-weak);
+  border: 1px solid var(--accent);
+  pointer-events: none;
+}
+.dk-drop.thin { background: var(--accent); border: 0; }

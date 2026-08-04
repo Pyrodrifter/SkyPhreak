@@ -13,15 +13,15 @@ const DEFAULTS = {
   tleStore: {}, // { id: { name, line1, line2 } } — cached TLEs for tracked sats (offline)
   tleSched: { auto: true, maxAgeDays: 2 }, // auto-refresh cached TLEs so they stay < maxAgeDays old
   view: '2d', // '2d' | '3d'
-  theme: 'midnight', // UI theme id — see core/themes.js (midnight/ember/nightops/phosphor/custom)
-  customTheme: { base: 'midnight', accent: '#4a9fd4' }, // user 'custom' theme: a base + accent
-  uiScale: 'md', // UI size: 'sm' | 'md' | 'lg'
-  fieldMode: false, // one-tap field mode (large + Night Ops)
-  sideCollapsed: false, // left satellite-browser panel collapsed
-  rightCollapsed: false, // right info/settings panel collapsed
-  sbCollapsed: false, // bottom status bar collapsed to a slim strip
-  showStatusbar: true, // show the bottom rotator status/control bar at all
-  showRigbar: true, // show the bottom rigctld radio deck bar at all
+  theme: 'mission', // UI theme id — see core/themes.js (mission/midnight/ember/nightops/phosphor/custom)
+  customTheme: { base: 'midnight', accent: '#4db8ff' }, // user 'custom' theme: a base + accent
+  uiScale: 'md', // UI density: 'sm' (compact) | 'md' (normal) | 'lg' (roomy)
+  fieldMode: false, // one-tap field mode (oversized + Night Ops)
+  // Dockable workspace: which built-in preset is selected, and the live panel
+  // layout tree (see ui/dock/dock.js). The layout wins on load so a rearranged
+  // workspace survives a restart; picking a preset overwrites it.
+  workspacePreset: 'tracking',
+  workspaceLayout: null,
   followSat: false, // keep the active view centred on the selected satellite
   passSort: 'time', // Passes tab order: 'time' (soonest) | 'el' (highest first)
   notifyPasses: false, // desktop notification before a tracked pass rises
@@ -128,7 +128,6 @@ const DEFAULTS = {
   // uplinkHz, uplinkMode, invert, label }. Override the single global downlink so
   // each bird tunes to its own up/down pair. See core/radioProfiles.js.
   radioProfiles: {},
-  rigBarCollapsed: false,
 };
 
 const listeners = new Set();
