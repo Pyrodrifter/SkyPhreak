@@ -15,30 +15,32 @@
  */
 
 export const THEMES = {
-  // House look: near-black navy with a sky-blue accent.
+  // House look: warm-neutral charcoal with a violet accent. Violet because green,
+  // amber and red are spoken for by ok / warn / alert, and on an instrument panel
+  // amber already means caution — an amber accent would read as a permanent warning.
   mission: {
     name: 'Mission',
     vars: {
-      '--bg-0': '#06090d', '--bg-1': '#0a0e14', '--bg-2': '#0f141c', '--bg-3': '#151b25', '--bg-4': '#1c2430',
-      '--line': '#1b2431', '--line-soft': '#131a24', '--line-hard': '#2a3646',
-      '--fg': '#ccd6e2', '--fg-dim': '#7e8da0', '--fg-mute': '#56626f',
-      '--accent': '#4db8ff', '--accent-fg': '#04121d',
-      '--ok': '#3fb984', '--warn': '#d9a441', '--alert': '#e0574f',
+      '--bg-0': '#0a0b11', '--bg-1': '#11131b', '--bg-2': '#171a24', '--bg-3': '#1f2330', '--bg-4': '#282d3d',
+      '--line': '#262b3a', '--line-soft': '#1c202b', '--line-hard': '#363d51',
+      '--fg': '#dae0ec', '--fg-dim': '#949db4', '--fg-mute': '#69718a',
+      '--accent': '#b07dff', '--accent-fg': '#150a26',
+      '--ok': '#4ecb92', '--warn': '#e8b04a', '--alert': '#f2645a',
     },
     map: {
-      bg: '#070d16', land: '#101f30', landStroke: 'rgba(77,184,255,0.42)',
-      graticule: 'rgba(126,141,160,0.09)', equator: 'rgba(126,141,160,0.16)',
-      terminator: 'rgba(2,5,10,0.52)', labelBg: 'rgba(6,9,13,0.78)',
-      labelText: 'rgba(204,214,226,0.9)', moonShadow: '#121a26',
+      bg: '#0b0e1a', land: '#1a1f36', landStroke: 'rgba(176,125,255,0.42)',
+      graticule: 'rgba(148,157,180,0.09)', equator: 'rgba(148,157,180,0.17)',
+      terminator: 'rgba(4,4,9,0.52)', labelBg: 'rgba(10,11,17,0.8)',
+      labelText: 'rgba(218,224,236,0.9)', moonShadow: '#1c2033',
     },
     polar: {
-      grid: 'rgba(42,54,70,0.95)', gridDim: 'rgba(27,36,49,0.95)',
-      ticks: 'rgba(126,141,160,0.7)', labels: 'rgba(204,214,226,0.8)',
+      grid: 'rgba(54,61,81,0.95)', gridDim: 'rgba(38,43,58,0.95)',
+      ticks: 'rgba(148,157,180,0.7)', labels: 'rgba(218,224,236,0.82)',
     },
     globe: {
-      atmosphere: '#4db8ff', polyCap: 'rgba(22,54,84,0.92)',
-      polySide: 'rgba(14,34,54,0.42)', polyStroke: 'rgba(77,184,255,0.5)',
-      sphere: '#070d16', sphereEmissive: '#040a11',
+      atmosphere: '#b07dff', polyCap: 'rgba(52,42,92,0.92)',
+      polySide: 'rgba(32,26,58,0.42)', polyStroke: 'rgba(176,125,255,0.5)',
+      sphere: '#0b0e1a', sphereEmissive: '#07080f',
     },
   },
 

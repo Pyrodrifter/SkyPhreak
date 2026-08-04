@@ -20,29 +20,40 @@
 
 :root {
   /* ---- Surfaces -------------------------------------------------------- */
-  /* Four steps, deliberately close together. Depth reads from the hairlines
-     between surfaces, not from big luminance jumps. */
-  --bg-0: #06090d;   /* app background, gutters between docks */
-  --bg-1: #0a0e14;   /* panel body */
-  --bg-2: #0f141c;   /* raised: panel headers, tab strips, inputs, table heads */
-  --bg-3: #151b25;   /* hover fill */
-  --bg-4: #1c2430;   /* pressed / active fill */
+  /* Four steps, close together. Depth reads from hairlines and the machined
+     top-highlight below, not from big luminance jumps. Neutrals carry a slight
+     violet cast so the chrome sits in the same family as the accent instead of
+     looking like grey with a coloured sticker on it. */
+  --bg-0: #0a0b11;   /* app background, gutters between docks */
+  --bg-1: #11131b;   /* panel body */
+  --bg-2: #171a24;   /* raised: panel headers, tab strips, inputs, table heads */
+  --bg-3: #1f2330;   /* hover fill */
+  --bg-4: #282d3d;   /* pressed / active fill */
 
   /* ---- Hairlines ------------------------------------------------------- */
-  --line:      #1b2431;  /* default rule between regions */
-  --line-soft: #131a24;  /* rule inside a region (table rows, list separators) */
-  --line-hard: #2a3646;  /* rule that must survive on a raised surface */
+  --line:      #262b3a;  /* default rule between regions */
+  --line-soft: #1c202b;  /* rule inside a region (table rows, list separators) */
+  --line-hard: #363d51;  /* rule that must survive on a raised surface */
+
+  /* Machined edge: a 1px light line along the top of a raised surface. This is
+     what stops flat dark panels reading as holes cut in the background — real
+     instrument faces catch light on their top bevel. Used sparingly. */
+  --hl: inset 0 1px 0 rgba(255, 255, 255, .045);
 
   /* ---- Text ------------------------------------------------------------ */
-  --fg:      #ccd6e2;  /* values, primary content */
-  --fg-dim:  #7e8da0;  /* labels, secondary */
-  --fg-mute: #56626f;  /* tertiary, disabled, placeholder */
+  --fg:      #dae0ec;  /* values, primary content */
+  --fg-dim:  #949db4;  /* labels, secondary */
+  --fg-mute: #69718a;  /* tertiary, disabled, placeholder */
 
   /* ---- Accent: LIVE / SELECTED / FOCUSED ONLY -------------------------- */
-  --accent:      #4db8ff;
-  --accent-fg:   #04121d;  /* text on a filled accent surface */
-  --accent-weak: color-mix(in srgb, var(--accent) 14%, transparent);
+  /* Violet, not blue: green / amber / red are already committed to ok / warn /
+     alert, and amber-as-accent would collide with the convention that amber
+     means caution on an instrument panel. */
+  --accent:      #b07dff;
+  --accent-fg:   #150a26;  /* text on a filled accent surface */
+  --accent-weak: color-mix(in srgb, var(--accent) 15%, transparent);
   --accent-line: color-mix(in srgb, var(--accent) 45%, var(--line));
+  --accent-glow: color-mix(in srgb, var(--accent) 38%, transparent);
 
   /* ---- Status ---------------------------------------------------------- */
   --ok:    #3fb984;
@@ -53,8 +64,10 @@
   --alert-weak: color-mix(in srgb, var(--alert) 12%, transparent);
 
   /* ---- Geometry -------------------------------------------------------- */
-  --r:    2px;  /* everything */
-  --r-lg: 3px;  /* floating layers only */
+  /* 3px, not 2: enough to read as machined rather than laser-cut, still far
+     short of anything that looks like a phone app. Nothing is ever a pill. */
+  --r:    3px;  /* everything */
+  --r-lg: 4px;  /* floating layers only */
 
   /* ---- Type ------------------------------------------------------------ */
   --font: ui-sans-serif, system-ui, "Segoe UI", Roboto, sans-serif;

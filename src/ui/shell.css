@@ -19,8 +19,13 @@
   gap: 0;
   height: calc(var(--bar) * 1.7);
   padding: 0 var(--pad) 0 0;
-  background: var(--bg-1);
+  /* Faint accent wash off the brand corner, so the cluster reads as the lit
+     master panel rather than another grey strip. */
+  background:
+    radial-gradient(70% 220% at 0% 0%, color-mix(in srgb, var(--accent) 10%, transparent), transparent 60%),
+    linear-gradient(180deg, var(--bg-2), var(--bg-1));
   border-bottom: 1px solid var(--line);
+  box-shadow: var(--hl);
 }
 
 .brand {
@@ -58,8 +63,12 @@
 }
 .cell-sub { color: var(--fg-mute); font-size: var(--fs-micro); letter-spacing: 0.06em; text-transform: uppercase; white-space: nowrap; }
 
-.topbar .spacer { flex: 1 1 auto; border-right: 0; }
-.top-actions { display: flex; align-items: center; gap: var(--gap); padding-left: 12px; }
+.topbar .spacer { flex: 1 1 auto; border-right: 0; min-width: 0; }
+/* The workspace controls must never be pushed off — the cluster gives way first,
+   clipping its rightmost cells (which are the least critical: MAX EL, DURATION). */
+.top-actions { display: flex; align-items: center; gap: var(--gap); flex: 0 0 auto; padding-left: 12px; }
+.brand { flex: 0 0 auto; }
+.cluster { flex: 0 1 auto; }
 
 /* ---- Status bar ---------------------------------------------------------- */
 .statusbar {
@@ -68,8 +77,9 @@
   gap: 0;
   height: var(--bar);
   padding: 0 var(--pad) 0 0;
-  background: var(--bg-1);
+  background: linear-gradient(180deg, var(--bg-2), var(--bg-1));
   border-top: 1px solid var(--line);
+  box-shadow: var(--hl);
   font-size: var(--fs-label);
 }
 .sb-item {
@@ -109,8 +119,34 @@ button.sb-item:hover { background: var(--bg-3); }
   background: var(--bg-1);
 }
 .p-tools.wrap { flex-wrap: wrap; }
+/* A docked panel can be any width the operator drags it to, so panels size their
+   own internals against the panel rather than the viewport. Only padded bodies
+   become containers — `flush` bodies host canvases, and the containment would
+   interfere with their sizing. */
 .p-body { flex: 1 1 auto; min-height: 0; overflow: auto; }
 .p-body.pad { padding: var(--pad); }
+.p-body:not(.flush) { container-type: inline-size; container-name: panel; }
+
+/* Below this the two-up grids stop being readable and stack instead. */
+@container panel (max-width: 280px) {
+  .grid-2, .grid-3, .pz-lead-stats { grid-template-columns: minmax(0, 1fr); }
+  .pz-lead-body { flex-direction: column; }
+  .pz-lead-plot { align-self: center; }
+  .nf-point { grid-template-columns: minmax(0, 1fr); }
+  .snd.has-chk { grid-template-columns: 1fr auto; }
+}
+/* Narrower still: drop the sky-track thumbnail and the arm button from pass rows
+   so the countdown and the name keep their space. */
+@container panel (max-width: 215px) {
+  .pz-mini, .pz-arm { display: none; }
+  .pz-mid-3 { display: none; }
+}
+/* Wide: a two-up stat grid stretched across a full-width panel reads as mostly
+   empty space, so the pass stats go four-up instead. */
+@container panel (min-width: 520px) {
+  .pz-lead-stats { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .pz-lead { padding: calc(var(--pad) * 1.25) var(--pad); }
+}
 /* Panels whose content is a canvas fill edge to edge. */
 .p-body.flush { padding: 0; display: flex; }
 .p-body.flush > * { flex: 1 1 auto; min-width: 0; min-height: 0; }

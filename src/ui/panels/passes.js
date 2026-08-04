@@ -40,7 +40,9 @@ export function buildPasses(handlers) {
   // rides in this block's header as a chip rather than as a second banner.
   function leadBlock(it, now) {
     const p = it.pass;
-    const live = now >= p.aos && now <= p.los;
+    const aos = p.aos.getTime();
+    const los = p.los.getTime();
+    const live = now >= aos && now <= los;
     const canvas = h('canvas', { class: 'pz-track', title: 'Sky track — north up, horizon at the rim' });
 
     const chip = readiness && readiness.passId === it.id ? readinessChip() : '';
@@ -48,25 +50,36 @@ export function buildPasses(handlers) {
       h('span', { class: 'label' }, label), h('span', { class: 'value ' + (cls || '') }, value),
     ]);
 
+    // Progress rail: during a pass it fills AOS→LOS; before one it fills over the
+    // last hour of the wait, so a glance tells you how close you are without
+    // reading the clock. Genuinely useful, and it gives the card a live edge.
+    const frac = live
+      ? (now - aos) / Math.max(1, los - aos)
+      : 1 - Math.min(1, Math.max(0, (aos - now) / 3600000));
+    const rail = h('div', { class: 'pz-rail' + (live ? ' live' : '') }, [
+      h('i', { style: `width:${(frac * 100).toFixed(2)}%` }),
+    ]);
+
     const block = h('div', { class: 'pz-lead' + (live ? ' live' : '') }, [
       h('div', { class: 'pz-lead-top' }, [
         h('span', { class: 'label' }, live ? 'Active pass' : 'Next pass'),
         h('span', { class: 'spacer' }),
         chip,
-        h('span', { class: 'chip' + (live ? ' live' : '') }, live ? 'LIVE' : 'STANDBY'),
+        h('span', { class: 'chip' + (live ? ' live' : '') }, [h('span', { class: 'dot' + (live ? ' live pulse' : '') }), live ? 'LIVE' : 'STANDBY']),
+      ]),
+      h('div', { class: 'pz-lead-name' }, [
+        h('span', { class: 'pz-swatch', style: `background:${it.color};box-shadow:0 0 8px ${it.color}66` }),
+        h('span', { class: 'pz-name' }, it.name),
+        it.score != null ? scoreChip(it.score, it.scoreParts) : '',
       ]),
       h('div', { class: 'pz-lead-body' }, [
         h('div', { class: 'pz-lead-main' }, [
-          h('div', { class: 'pz-lead-name' }, [
-            h('span', { class: 'tg-dot', style: `background:${it.color}` }),
-            h('span', { class: 'pz-name' }, it.name),
-            it.score != null ? scoreChip(it.score, it.scoreParts) : '',
-          ]),
           h('div', { class: 'pz-lead-clock' }, [
             h('span', { class: 'label' }, live ? 'LOS in' : 'AOS in'),
-            h('span', { class: 'value hero' + (live ? ' live' : '') }, countdown((live ? p.los : p.aos).getTime() - now)),
-            h('span', { class: 'pz-lead-when' }, `${hhmmss(p.aos)} · ${dayShort(p.aos)}`),
+            h('span', { class: 'value hero' + (live ? ' live' : '') }, countdown((live ? los : aos) - now)),
+            h('span', { class: 'pz-lead-when' }, `AOS ${hhmmss(p.aos)} · ${dayShort(p.aos)}`),
           ]),
+          rail,
           h('div', { class: 'pz-lead-stats' }, [
             cell('Max el', deg(p.maxEl), p.maxEl >= 45 ? 'ok' : ''),
             cell('Duration', duration(p.durationS)),
@@ -82,7 +95,7 @@ export function buildPasses(handlers) {
     // blow out the flex row until the frame lands — and rAF is starved entirely
     // when the window is occluded. drawSkyTrack takes an explicit size and never
     // measures the DOM, so there is nothing to wait for.
-    drawSkyTrack(canvas, it.arc, it.color, 116);
+    drawSkyTrack(canvas, it.arc, it.color, 124);
     return block;
   }
 

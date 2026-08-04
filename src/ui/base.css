@@ -87,21 +87,30 @@ button {
   padding: 0 10px;
   border: 1px solid var(--line-hard);
   border-radius: var(--r);
-  background: var(--bg-2);
+  /* A hair of top-lit gradient plus the machined edge — enough that a control
+     reads as a physical key rather than a flat rectangle, at no cost in contrast. */
+  background: linear-gradient(180deg, var(--bg-3), var(--bg-2));
+  box-shadow: var(--hl);
   color: var(--fg);
   font-size: var(--fs-body);
   font-weight: 500;
   white-space: nowrap;
   transition: background-color .1s linear, border-color .1s linear, color .1s linear;
 }
-.btn:hover:not(:disabled) { background: var(--bg-3); border-color: var(--line-hard); }
-.btn:active:not(:disabled) { background: var(--bg-4); }
-.btn:disabled { color: var(--fg-mute); background: var(--bg-1); border-color: var(--line); cursor: default; }
+.btn:hover:not(:disabled) { background: linear-gradient(180deg, var(--bg-4), var(--bg-3)); border-color: var(--fg-mute); }
+.btn:active:not(:disabled) { background: var(--bg-4); box-shadow: inset 0 1px 2px rgba(0, 0, 0, .35); }
+.btn:disabled { color: var(--fg-mute); background: var(--bg-1); border-color: var(--line); box-shadow: none; cursor: default; }
 
 /* Filled accent — reserve for the single primary action in a region. */
-.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); font-weight: 600; }
-.btn.primary:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 85%, white); border-color: color-mix(in srgb, var(--accent) 85%, white); }
-.btn.primary:active:not(:disabled) { background: color-mix(in srgb, var(--accent) 80%, black); }
+.btn.primary {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 88%, white), var(--accent));
+  border-color: color-mix(in srgb, var(--accent) 70%, black);
+  color: var(--accent-fg);
+  font-weight: 600;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .25);
+}
+.btn.primary:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 82%, white); }
+.btn.primary:active:not(:disabled) { background: color-mix(in srgb, var(--accent) 82%, black); box-shadow: inset 0 1px 3px rgba(0, 0, 0, .4); }
 
 /* Destructive — stop, park, disconnect. */
 .btn.danger { color: var(--alert); border-color: color-mix(in srgb, var(--alert) 40%, var(--line-hard)); }

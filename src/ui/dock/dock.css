@@ -46,7 +46,8 @@
   align-items: stretch;
   flex: 0 0 var(--head);
   height: var(--head);
-  background: var(--bg-2);
+  background: linear-gradient(180deg, var(--bg-3), var(--bg-2));
+  box-shadow: var(--hl);
   border-bottom: 1px solid var(--line);
   overflow-x: auto;
   overflow-y: hidden;
@@ -74,12 +75,12 @@
 .dk-tab:hover { color: var(--fg-dim); background: var(--bg-3); }
 .dk-tab-t { overflow: hidden; text-overflow: ellipsis; }
 
-/* Active tab: brought up to the panel surface and marked with a top accent rule,
-   so the eye reads which body belongs to which tab without a colour fill. */
+/* Active tab: dropped to the panel surface and capped with an accent rule, so the
+   eye reads which body belongs to which tab without a colour fill. */
 .dk-tab.active {
   background: var(--bg-1);
   color: var(--fg);
-  box-shadow: inset 0 2px 0 var(--accent);
+  box-shadow: inset 0 2px 0 var(--accent), 0 0 14px -4px var(--accent-glow);
 }
 .dk-tab.dragging { opacity: .4; }
 

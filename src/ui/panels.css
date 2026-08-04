@@ -6,11 +6,14 @@
 .tg-scroll > .seg { margin: var(--pad) var(--pad) 0; flex: 0 0 auto; }
 .tg-source { padding: var(--pad); border-bottom: 1px solid var(--line); flex: 0 0 auto; }
 .tg-stamp { margin-top: 6px; color: var(--fg-mute); font-size: var(--fs-micro); }
+/* Wraps rather than clips: at roomy density in a narrow Targets dock the count
+   and the two bulk buttons do not fit on one line. */
 .tg-bulk {
-  display: flex; align-items: center; gap: var(--gap); flex: 0 0 auto;
+  display: flex; align-items: center; flex-wrap: wrap; gap: calc(var(--gap) / 2) var(--gap); flex: 0 0 auto;
   padding: calc(var(--pad) / 2) var(--pad);
   border-bottom: 1px solid var(--line); background: var(--bg-2);
 }
+.tg-bulk .label { flex: 1 0 100%; }
 .tg-list { flex: 1 1 auto; }
 
 .tg-row {
@@ -96,22 +99,81 @@ button.tg-dot { cursor: pointer; }
 }
 .pz-plan .value { font-size: var(--fs-data); }
 
-/* ---- Lead block: the pass you are waiting on ---- */
-.pz-lead { padding: var(--pad); border-bottom: 1px solid var(--line); background: var(--bg-2); }
-.pz-lead.live { box-shadow: inset 3px 0 0 var(--accent); }
-.pz-lead-top { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
+/* ---- Lead block: the pass you are waiting on -----------------------------
+   The one set-piece in the app, so it gets treatment nothing else does: a lit
+   top bevel, a faint accent bloom behind the countdown, and a scan-grid texture
+   that reads as a backlit instrument face rather than a flat card. */
+.pz-lead {
+  position: relative;
+  padding: var(--pad);
+  border-bottom: 1px solid var(--line);
+  background:
+    radial-gradient(120% 90% at 12% 0%, color-mix(in srgb, var(--accent) 9%, transparent), transparent 62%),
+    repeating-linear-gradient(0deg, rgba(255, 255, 255, .014) 0 1px, transparent 1px 3px),
+    linear-gradient(180deg, var(--bg-3), var(--bg-2) 62%, var(--bg-1));
+  box-shadow: var(--hl);
+  overflow: hidden;
+}
+/* Top edge lights up in the accent while a pass is actually running. */
+.pz-lead::before {
+  content: '';
+  position: absolute; inset: 0 0 auto 0; height: 1px;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  opacity: 0;
+  transition: opacity .25s linear;
+}
+.pz-lead.live::before { opacity: .9; }
+.pz-lead.live { box-shadow: var(--hl), inset 3px 0 0 var(--accent); }
+
+.pz-lead-top { display: flex; align-items: center; gap: 6px; margin-bottom: 7px; }
+.pz-lead-name { display: flex; align-items: center; gap: 8px; margin-bottom: 9px; }
+.pz-swatch { width: 9px; height: 9px; flex: 0 0 9px; border-radius: 1px; }
+.pz-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-data); font-weight: 650; letter-spacing: .01em; }
+
 .pz-lead-body { display: flex; gap: var(--pad); align-items: flex-start; }
 .pz-lead-main { flex: 1 1 auto; min-width: 0; overflow: hidden; }
 .pz-lead-plot { flex: 0 0 auto; }
-.pz-lead .value.hero { overflow: hidden; text-overflow: ellipsis; }
-.pz-lead-name { display: flex; align-items: center; gap: 7px; margin-bottom: 6px; }
-.pz-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
-.pz-lead-clock { display: flex; flex-direction: column; gap: 1px; margin-bottom: 9px; }
-.pz-lead-when { color: var(--fg-mute); font-size: var(--fs-micro); font-family: var(--font-mono); }
-.pz-lead-stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1px; background: var(--line-soft); border: 1px solid var(--line); }
-.pz-lead-stats .stat { background: var(--bg-1); padding: 4px 7px; }
-.pz-lead-plot { flex: 0 0 auto; }
-.pz-track { display: block; }
+
+.pz-lead-clock { display: flex; flex-direction: column; gap: 0; }
+/* The number you are actually waiting on. Slight negative tracking keeps the
+   monospace digits from looking gappy at display size. */
+.pz-lead .value.hero {
+  overflow: hidden; text-overflow: ellipsis;
+  line-height: 1.02;
+  letter-spacing: -0.035em;
+  text-shadow: 0 0 22px var(--accent-glow);
+}
+.pz-lead .value.hero.live { color: var(--accent); text-shadow: 0 0 26px var(--accent-glow); }
+.pz-lead-when { margin-top: 2px; color: var(--fg-mute); font-size: var(--fs-micro); font-family: var(--font-mono); }
+
+/* Pass-progress rail — fills AOS→LOS while live, or over the final hour of the
+   wait beforehand. */
+.pz-rail {
+  position: relative;
+  height: 3px;
+  margin: 9px 0;
+  border-radius: 2px;
+  background: var(--bg-0);
+  box-shadow: inset 0 0 0 1px var(--line);
+  overflow: hidden;
+}
+.pz-rail > i {
+  display: block; height: 100%;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 45%, transparent), var(--fg-mute));
+  transition: width .9s linear;
+}
+.pz-rail.live > i {
+  background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 55%, transparent), var(--accent));
+  box-shadow: 0 0 9px var(--accent-glow);
+}
+
+.pz-lead-stats {
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1px;
+  background: var(--line); border: 1px solid var(--line); border-radius: var(--r);
+  overflow: hidden;
+}
+.pz-lead-stats .stat { background: var(--bg-1); padding: 5px 8px; }
+.pz-track { display: block; filter: drop-shadow(0 0 10px rgba(0, 0, 0, .45)); }
 
 /* ---- Pre-pass checklist, expanded from the chip ---- */
 .pz-checks { margin-top: var(--pad); border: 1px solid var(--line); border-radius: var(--r); background: var(--bg-1); }
