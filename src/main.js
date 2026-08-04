@@ -183,7 +183,7 @@ async function boot() {
 
   map2d = new Map2D(ui.view2d);
   globe3d = new Globe3D(ui.view3d);
-  polar = mountPolar(ui.view2d); // polar overlay lives in the right panel info area? -> use separate mount
+  polar = new PolarView(ui.polarHost); // radar plot lives in the Info tab, under the readouts
   map2d.onSelect = (id) => store.patch({ selected: id });
   globe3d.onSelect = (id) => store.patch({ selected: id });
 
@@ -272,16 +272,6 @@ function updateTleStatus() {
   }
   ui.setStaleIds(stale);
   ui.setTleStatus({ maxDays, stale: stale.size, auto: !!(st.tleSched && st.tleSched.auto), online: navigator.onLine });
-}
-
-/* ----------------------------- Polar mount ----------------------------- */
-// The polar/radar view sits in the Info tab beneath the readouts so it stays
-// visible alongside either map. It is created lazily into a dedicated host.
-function mountPolar() {
-  const host = document.createElement('div');
-  host.id = 'polar-host';
-  host.style.cssText = 'position:relative;height:240px;margin-top:8px;border:1px solid var(--line);border-radius:8px;background:var(--panel-2);';
-  return new PolarView(host);
 }
 
 /* ------------------------------- TLE load ------------------------------ */
@@ -688,7 +678,6 @@ function tick() {
   if (state.view === '2d') map2d.draw(frame);
   else globe3d.draw(frame);
   polar.draw(frame);
-  ensurePolarMounted();
 
   ui.updateClock(date, timeWarpOffset);
   updateSelectedInfo(frame, date);
@@ -930,17 +919,6 @@ function updateReadiness() {
     peakClearanceDeg: focus.peakClearanceDeg,
   });
   ui.setReadiness({ ...result, passId: focus.id, passName: focus.name });
-}
-
-// Insert the polar canvas host into the Info tab once it exists in the DOM.
-function ensurePolarMounted() {
-  if (polar._mounted) return;
-  const infoPane = document.querySelector('.tabpane'); // first pane = info
-  if (infoPane && polar.container && !document.getElementById('polar-host')) {
-    infoPane.appendChild(polar.container);
-    polar._mounted = true;
-    polar._resize();
-  }
 }
 
 // EME (Moon-bounce) metrics for a given frequency: two-way free-space path loss,

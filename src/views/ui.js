@@ -41,6 +41,78 @@ function h(tag, attrs = {}, children = []) {
   return el;
 }
 
+// A collapsible sub-section: the header toggles a body open/closed. Advanced or
+// occasional controls live in these (collapsed by default) so a settings pane isn't
+// a wall of fields. Shared by the Settings and Hardware panes.
+function section(title, children, open = false) {
+  let expanded = open;
+  const body = h('div', { class: 'hw-sec-body', style: expanded ? '' : 'display:none' }, children);
+  const chev = h('span', { class: 'hw-sec-chev' }, expanded ? '▾' : '▸');
+  const head = h('button', { class: 'hw-sec-head', type: 'button', 'aria-expanded': String(expanded), onclick: () => {
+    expanded = !expanded;
+    body.style.display = expanded ? '' : 'none';
+    chev.textContent = expanded ? '▾' : '▸';
+    head.setAttribute('aria-expanded', String(expanded));
+  } }, [chev, h('span', {}, title)]);
+  return h('div', { class: 'hw-sec' }, [head, body]);
+}
+
+// UI size / theme / custom palette / field mode. Returns a fresh set of rows each
+// call so the topbar popover and the Settings pane can each hold a copy; a store
+// subscription keeps every copy showing the current values.
+function buildAppearanceControls() {
+  const sizeDefs = [['sm', 'S'], ['md', 'M'], ['lg', 'L']];
+  const sizeBtns = {};
+  // Changing size by hand is an explicit choice, so it drops out of Field mode.
+  const sizeSeg = h('div', { class: 'seg size-seg', title: 'UI size' }, sizeDefs.map(([k, l]) =>
+    (sizeBtns[k] = h('button', { type: 'button', onclick: () => store.patch({ uiScale: k, fieldMode: false }) }, l))));
+
+  // Theme picker — restyles the whole app (panels + map/globe/polar) live. The last
+  // option is a user 'Custom' theme: a base palette plus an accent colour.
+  const themeSel = h('select', { class: 'theme-sel', title: 'Colour theme', onchange: (e) => store.patch({ theme: e.target.value }) }, [
+    ...Object.entries(THEMES).map(([id, t]) => h('option', { value: id }, t.name)),
+    h('option', { value: 'custom' }, 'Custom…'),
+  ]);
+  const baseSel = h('select', {
+    class: 'theme-sel', title: 'Palette the custom theme is built on',
+    onchange: (e) => store.patchIn('customTheme', { base: e.target.value }),
+  }, Object.entries(THEMES).map(([id, t]) => h('option', { value: id }, t.name)));
+  const accentInp = h('input', {
+    type: 'color', class: 'theme-accent', title: 'Custom accent colour',
+    oninput: (e) => store.patchIn('customTheme', { accent: e.target.value }),
+  });
+
+  // Field mode: one tap → large controls + Night Ops theme (and back).
+  const fieldBtn = h('button', {
+    class: 'btn sm field-btn', type: 'button',
+    title: 'Field mode — large touch controls + Night Ops theme',
+    onclick: () => store.patch(store.get().fieldMode
+      ? { fieldMode: false, uiScale: 'md', theme: 'midnight' }
+      : { fieldMode: true, uiScale: 'lg', theme: 'nightops' }),
+  }, '⛶ Field');
+
+  const apRow = (label, control) => h('div', { class: 'ap-row' }, [h('span', { class: 'ap-label' }, label), control]);
+  const baseRow = apRow('Custom base', baseSel);
+  const accentRow = apRow('Accent', accentInp);
+  const rows = [apRow('Size', sizeSeg), apRow('Theme', themeSel), baseRow, accentRow, apRow('Field mode', fieldBtn)];
+
+  function sync() {
+    const st = store.get();
+    for (const [k] of sizeDefs) sizeBtns[k].classList.toggle('active', k === (st.uiScale || 'md'));
+    themeSel.value = st.theme;
+    baseSel.value = (st.customTheme && st.customTheme.base) || 'midnight';
+    accentInp.value = (st.customTheme && st.customTheme.accent) || '#4a9fd4';
+    // The base/accent pair only means anything while the Custom theme is selected.
+    const custom = st.theme === 'custom';
+    baseRow.style.display = custom ? '' : 'none';
+    accentRow.style.display = custom ? '' : 'none';
+    fieldBtn.classList.toggle('active', !!st.fieldMode);
+  }
+  sync();
+  store.subscribe(sync);
+  return { rows, fieldBtn };
+}
+
 export function createUI(handlers) {
   const app = document.getElementById('app');
   app.innerHTML = '';
@@ -48,69 +120,26 @@ export function createUI(handlers) {
 
   /* ------------------------------- Topbar -------------------------------- */
   const clockEl = h('div', { class: 'clock' });
-  const selReadout = h('div', { class: 'sel-readout' });
   const btn2d = h('button', { class: 'active', onclick: () => store.patch({ view: '2d' }) }, [h('span', { html: icon('map', 15) }), h('span', {}, 'Map')]);
   const btn3d = h('button', { onclick: () => store.patch({ view: '3d' }) }, [h('span', { html: icon('globe', 15) }), h('span', {}, 'Globe')]);
 
-  // Theme picker — restyles the whole app (panels + map/globe/polar) live. The last
-  // option is a user 'Custom' theme (a base palette + an accent colour you choose).
-  const themeSel = h('select', {
-    class: 'theme-sel',
-    title: 'Color theme',
-    onchange: (e) => { store.patch({ theme: e.target.value }); syncThemeCustom(); },
-  }, [
-    ...Object.entries(THEMES).map(([id, t]) => h('option', { value: id }, t.name)),
-    h('option', { value: 'custom' }, 'Custom…'),
-  ]);
-  themeSel.value = store.get().theme;
-  const themeAccent = h('input', {
-    type: 'color', class: 'theme-accent', title: 'Custom accent colour',
-    value: store.get().customTheme?.accent || '#4a9fd4',
-    oninput: (e) => store.patchIn('customTheme', { accent: e.target.value }),
-  });
-  function syncThemeCustom() { if (apAccentRow) apAccentRow.style.display = store.get().theme === 'custom' ? '' : 'none'; }
-
-  // UI size (S/M/L). Changing it manually exits Field mode.
-  const sizeDefs = [['sm', 'S'], ['md', 'M'], ['lg', 'L']];
-  const sizeBtns = {};
-  const sizeSeg = h('div', { class: 'seg size-seg', title: 'UI size' }, sizeDefs.map(([k, l]) =>
-    (sizeBtns[k] = h('button', { onclick: () => store.patch({ uiScale: k, fieldMode: false }) }, l))));
-
-  // Field mode: one tap → large controls + Night Ops theme (and back).
-  const fieldBtn = h('button', {
-    class: 'btn sm field-btn',
-    title: 'Field mode — large touch controls + Night Ops theme',
-    onclick: () => {
-      const on = !store.get().fieldMode;
-      store.patch(on
-        ? { fieldMode: true, uiScale: 'lg', theme: 'nightops' }
-        : { fieldMode: false, uiScale: 'md', theme: 'midnight' });
-      themeSel.value = store.get().theme;
-      syncThemeCustom();
-    },
-  }, '⛶ Field');
-
-  // Appearance popover — size, theme, accent and field mode consolidated behind one
-  // ⚙ button so the topbar stays to brand · target · view.
-  const apAccentRow = h('div', { class: 'ap-row' }, [h('span', { class: 'ap-label' }, 'Accent'), themeAccent]);
-  const appearancePop = h('div', { class: 'appearance-pop', style: 'display:none' }, [
-    h('div', { class: 'ap-row' }, [h('span', { class: 'ap-label' }, 'Size'), sizeSeg]),
-    h('div', { class: 'ap-row' }, [h('span', { class: 'ap-label' }, 'Theme'), themeSel]),
-    apAccentRow,
-    h('div', { class: 'ap-row' }, [h('span', { class: 'ap-label' }, 'Field mode'), fieldBtn]),
-  ]);
+  // Appearance popover — size, theme, accent and field mode behind one button so the
+  // map toolbar stays to view · tools. The same controls also appear in Settings ▸
+  // Appearance; both copies are independent DOM kept in step through the store.
+  const appearance = buildAppearanceControls();
+  const fieldBtn = appearance.fieldBtn; // the 'F' shortcut / palette entry drive this one
+  const appearancePop = h('div', { class: 'appearance-pop', style: 'display:none' }, appearance.rows);
   let apOpen = false;
   const onApDocDown = (e) => { if (!appearanceWrap.contains(e.target)) closeAppearance(); };
   function closeAppearance() { appearancePop.style.display = 'none'; apOpen = false; document.removeEventListener('mousedown', onApDocDown, true); }
   function openAppearance() { appearancePop.style.display = ''; apOpen = true; setTimeout(() => document.addEventListener('mousedown', onApDocDown, true), 0); }
-  const appearanceBtn = h('button', { class: 'topbar-settings', title: 'Display settings — size, theme, field mode', 'aria-label': 'Display settings', onclick: () => (apOpen ? closeAppearance() : openAppearance()) }, [h('span', { html: icon('setup', 15) }), h('span', {}, 'Settings')]);
+  const appearanceBtn = h('button', { class: 'topbar-settings', title: 'Appearance — UI size, theme, field mode', 'aria-label': 'Appearance', onclick: () => (apOpen ? closeAppearance() : openAppearance()) }, [h('span', { html: icon('setup', 15) }), h('span', {}, 'Appearance')]);
   const appearanceWrap = h('div', { class: 'appearance-wrap' }, [appearanceBtn, appearancePop]);
   const displayControls = h('div', { class: 'topbar-controls stage-display-controls' }, [
     h('span', { class: 'topbar-controls-label' }, 'Display'),
     h('div', { class: 'toggle view-switch' }, [btn2d, btn3d]),
     appearanceWrap,
   ]);
-  syncThemeCustom();
 
   const missionTargetDot = h('div', { class: 'mission-target-dot' });
   const missionName = h('div', { class: 'mission-target-name' }, 'Select a target');
@@ -311,7 +340,7 @@ export function createUI(handlers) {
   /* ----------------------------- Right panel ----------------------------- */
   const tabPanes = {};
   const tabBtns = {};
-  const tabNames = { passes: 'Passes', info: 'Info', station: 'Setup', hw: 'Hardware' };
+  const tabNames = { passes: 'Passes', info: 'Info', station: 'Settings', hw: 'Hardware' };
   const tabIcons = { info: 'info', passes: 'passes', station: 'setup', hw: 'hardware' };
   const tabsBar = h('div', { class: 'tabs' });
   let activeTab = 'passes';
@@ -337,14 +366,17 @@ export function createUI(handlers) {
   const hwRefs = buildHwPane(tabPanes.hw, handlers);
 
   // The Info pane has a text block (rebuilt each tick), a persistent space-weather
-  // strip (glanceable, not buried in settings), plus the polar/radar canvas mounted
-  // once — both must survive the per-tick rebuild of infoText.
+  // strip (glanceable, not buried in settings), plus the polar/radar canvas. Only
+  // infoText is rebuilt per tick; the other two are siblings so they survive it.
   const infoText = h('div');
   const spaceWxEl = h('div', { class: 'space-wx' }, 'Kp —');
   const infoWx = h('div', { class: 'info-wx', title: 'Geomagnetic activity (NOAA planetary K-index)' }, [
     h('span', { class: 'info-wx-k' }, '☀ Space wx'), spaceWxEl,
   ]);
-  tabPanes.info.append(infoText, infoWx);
+  // Host for the polar/radar view — main.js mounts PolarView straight into this,
+  // so the plot can't be collected by another pane's re-render.
+  const polarHost = h('div', { class: 'polar-host' });
+  tabPanes.info.append(infoText, infoWx, polarHost);
 
   /* ----------------------------- Status bar ------------------------------ */
   // Persistent bottom strip: clock, hardware connection state, and what the rotator
@@ -541,7 +573,10 @@ export function createUI(handlers) {
     h('button', { class: 'btn sm park-btn', title: 'Park the rotator (to the default preset)', onclick: () => handlers.parkRotator() }, [h('span', { class: 'sb-btn-icon' }, 'P'), h('span', {}, 'Park')]),
     h('button', { class: 'btn sm danger', title: 'Stop the rotator (Esc)', onclick: () => handlers.stopRotator() }, [h('span', { class: 'sb-stop-icon' }), h('span', {}, 'Stop Tracking')]),
     h('div', { class: 'sb-sep' }),
+    // Both links live here, not just the rotator: the radio deck (rigbar) can be
+    // hidden from Settings, and this stays the one always-present quick connect.
     sbRot.el,
+    sbRad.el,
     sbCollapseBtn,
   ]);
   function setStatus({ rotConnected, radConnected, tracking, slewing }) {
@@ -602,8 +637,6 @@ export function createUI(handlers) {
     const root = document.documentElement;
     root.classList.remove('ui-sm', 'ui-md', 'ui-lg');
     root.classList.add('ui-' + (state.uiScale || 'md'));
-    if (sizeBtns) for (const [k] of sizeDefs) sizeBtns[k].classList.toggle('active', k === (state.uiScale || 'md'));
-    if (fieldBtn) fieldBtn.classList.toggle('active', !!state.fieldMode);
     followBtn.classList.toggle('active', !!state.followSat);
     statusbar.classList.toggle('collapsed', !!state.sbCollapsed);
     rigbar.classList.toggle('collapsed', !!state.rigBarCollapsed);
@@ -972,7 +1005,6 @@ export function createUI(handlers) {
     // A non-satellite sky target (Moon / Sun / planet / DSO) is selected.
     if (selBody) {
       const up = selBody.el >= 0;
-      selReadout.innerHTML = `<b>${selBody.name}</b> &nbsp; ${selBody.el.toFixed(1)}° el / ${selBody.az.toFixed(0)}° az`;
       missionName.textContent = selBody.name;
       missionKind.textContent = selBody.kind === 'dso' ? 'Deep-sky object' : selBody.kind === 'moon' ? 'Lunar target' : 'Solar-system target';
       missionState.textContent = up ? 'ABOVE HORIZON' : 'BELOW HORIZON';
@@ -994,7 +1026,6 @@ export function createUI(handlers) {
     }
 
     if (!info) {
-      selReadout.innerHTML = '<span class="muted">No target selected</span>';
       missionName.textContent = 'Select a target';
       missionKind.textContent = 'SkyPhreak tracking station';
       missionState.textContent = 'STANDBY';
@@ -1005,9 +1036,6 @@ export function createUI(handlers) {
       sbTle.textContent = '—';
       infoText.append(h('div', { class: 'empty' }, 'Select a satellite, planet, the Moon, or a deep-sky object'));
     } else {
-      selReadout.innerHTML = info.aboveHorizon
-        ? `<b>${info.name}</b> &nbsp; ${info.el.toFixed(1)}° el / ${info.az.toFixed(0)}° az`
-        : `<b>${info.name}</b> &nbsp; ${info.statusText}`;
       missionName.textContent = info.name;
       missionKind.textContent = 'NORAD ' + info.noradId + ' · satellite target';
       missionState.textContent = info.statusText.toUpperCase();
@@ -1057,40 +1085,45 @@ export function createUI(handlers) {
     return h('span', { class: 'score-chip ' + tier, title: 'Pass quality — ' + scoreBreakdown({ score, parts: parts || [] }) }, String(score));
   };
 
-  // The Ready / Attention bar shown under the NOW/NEXT hero, expandable to the checklist.
-  function renderReadiness() {
+  // Pre-pass readiness as a compact chip in the hero header. It used to be a second
+  // full-width banner under the hero; as a chip the status still reads at a glance
+  // but the checklist only takes space once you ask for it.
+  function readinessChip() {
     const r = lastReadiness;
-    if (!r) return document.createComment('');
+    if (!r) return '';
     const attention = r.items.filter((i) => i.state === 'warn' || i.state === 'fail').length;
-    const label = r.state === 'ready' ? 'READY' : r.state === 'fail' ? 'ATTENTION REQUIRED' : 'ATTENTION';
-    const sub = r.state === 'ready' ? 'all pre-pass checks passed' : `${attention} item${attention === 1 ? '' : 's'} to review`;
-    const bar = h('button', {
-      class: 'readiness-bar ' + r.state, title: 'Pre-pass readiness',
-      onclick: () => { readinessOpen = !readinessOpen; updatePasses(lastPassItems, Date.now()); },
+    return h('button', {
+      class: 'rdy-chip ' + r.state,
+      title: r.state === 'ready'
+        ? 'All pre-pass checks passed — click for the checklist'
+        : `${attention} pre-pass check${attention === 1 ? '' : 's'} need attention — click for details`,
+      onclick: (e) => { e.stopPropagation(); readinessOpen = !readinessOpen; updatePasses(lastPassItems, Date.now()); },
     }, [
       h('span', { class: 'rdy-dot' }),
-      h('span', { class: 'rdy-label' }, label),
-      h('span', { class: 'rdy-sub' }, sub),
+      h('span', { class: 'rdy-label' }, r.state === 'ready' ? 'READY' : `${attention} TO CHECK`),
       h('span', { class: 'rdy-chev' }, readinessOpen ? '▾' : '▸'),
     ]);
-    if (!readinessOpen) return bar;
-    const glyph = { ok: '✓', warn: '!', fail: '✕', off: '·' };
-    return h('div', { class: 'readiness-wrap' }, [bar, h('div', { class: 'readiness-list' },
-      r.items.map((it) => h('div', { class: 'rdy-item ' + it.state }, [
-        h('span', { class: 'rdy-item-ic' }, glyph[it.state] || '·'),
-        h('span', { class: 'rdy-item-label' }, it.label),
-        h('span', { class: 'rdy-item-detail' }, it.detail || ''),
-      ])))]);
   }
 
-  // Conflict planner banner: only shown when passes actually overlap. Summarises
-  // the optimal non-conflicting plan and offers a one-click "arm the next planned
-  // pass" so the operator can commit to the recommendation.
+  // The expanded checklist, rendered inside the hero card under the chip.
+  function readinessList() {
+    const r = lastReadiness;
+    if (!r || !readinessOpen) return '';
+    const glyph = { ok: '✓', warn: '!', fail: '✕', off: '·' };
+    return h('div', { class: 'readiness-list' }, r.items.map((it) => h('div', { class: 'rdy-item ' + it.state }, [
+      h('span', { class: 'rdy-item-ic' }, glyph[it.state] || '·'),
+      h('span', { class: 'rdy-item-label' }, it.label),
+      h('span', { class: 'rdy-item-detail' }, it.detail || ''),
+    ])));
+  }
+
+  // Conflict planner strip: only shown when passes actually overlap. Leads with the
+  // overlap count (the thing you act on) — the plan size and score are secondary, so
+  // they sit in the tooltip rather than taking a second line above the hero.
   function renderPlanner(pane, items, schedule, passKey, now) {
     if (!schedule || schedule.conflictIds.size === 0) return;
-    const upcoming = items.filter((it) => it.pass.los.getTime() >= now);
-    const planned = upcoming.filter((it) => schedule.planIds.has(passKey(it)));
-    const clashes = upcoming.filter((it) => schedule.conflictIds.has(passKey(it))).length;
+    const planned = items.filter((it) => schedule.planIds.has(passKey(it)));
+    const clashes = items.filter((it) => schedule.conflictIds.has(passKey(it))).length;
     // Soonest planned pass that isn't already the armed one.
     const ap = store.get().hw.rotator.armedPass;
     const next = [...planned].sort((a, b) => a.pass.aos - b.pass.aos)
@@ -1098,12 +1131,15 @@ export function createUI(handlers) {
     const armBtn = next ? h('button', {
       class: 'planner-arm', title: `Arm ${next.name} (${next.pass.aos.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}) — the next pass in the optimal plan`,
       onclick: (e) => { e.stopPropagation(); handlers.armPass(next.id, next.pass.aos.getTime(), next.pass.los.getTime()); },
-    }, '⤴ Arm next planned') : '';
-    pane.append(h('div', { class: 'planner-bar' }, [
+    }, '⤴ Arm next') : '';
+    pane.append(h('div', {
+      class: 'planner-bar',
+      title: `The rotator can only follow one satellite at a time. ${planned.length} of ${items.length} upcoming passes fit a non-overlapping plan (score ${Math.round(schedule.totalScore)}); the rest are badged "clash".`,
+    }, [
       h('span', { class: 'planner-ic' }, '⧉'),
-      h('div', { class: 'planner-txt' }, [
-        h('b', {}, `${planned.length} pass${planned.length === 1 ? '' : 'es'} in optimal plan`),
-        h('span', {}, `${clashes} overlap${clashes === 1 ? '' : 's'} · plan score ${Math.round(schedule.totalScore)}`),
+      h('span', { class: 'planner-txt' }, [
+        h('b', {}, `${clashes} overlap${clashes === 1 ? '' : 's'}`),
+        h('span', {}, ` · ${planned.length} in plan`),
       ]),
       armBtn,
     ]));
@@ -1136,8 +1172,14 @@ export function createUI(handlers) {
     pane.append(tl);
   }
 
-  function updatePasses(items, now) {
-    lastPassItems = items || [];
+  function updatePasses(rawItems, now) {
+    lastPassItems = rawItems || [];
+    // The pass list is only recomputed every 15 minutes, so by now it can still hold
+    // passes that have already set. Drop them here: a finished pass has a negative
+    // countdown, which fmtCountShort renders as "now" — it would sit at the top of
+    // the list claiming to be live. A pass still in progress has los >= now, so this
+    // keeps it (and its already-past AOS event in the timeline).
+    const items = lastPassItems.filter((it) => it.pass.los.getTime() >= now);
     const pane = tabPanes.passes;
     pane.innerHTML = '';
     const sort = store.get().passSort || 'time';
@@ -1159,7 +1201,7 @@ export function createUI(handlers) {
 
     if (passesView === 'timeline') { renderTimeline(pane, items, now); return; }
 
-    if (!items || !items.length) {
+    if (!items.length) {
       const anyTracked = store.get().tracked.length;
       pane.append(h('div', { class: 'empty' }, anyTracked
         ? 'No passes for your tracked satellites in the next 48 h above the horizon'
@@ -1193,10 +1235,16 @@ export function createUI(handlers) {
       missionDur.textContent = `${Math.floor(p.durationS / 60)}m ${p.durationS % 60}s`;
       const heroMini = h('canvas', { class: 'mission-pass-polar', title: 'Pass sky track' });
       const hstat = (l, v, cls) => h('div', { class: 'mc-stat' + (cls ? ' ' + cls : '') }, [h('small', {}, l), h('b', {}, v)]);
+      // Readiness belongs to this pass, so it rides in the hero header rather than
+      // stacking a third box between the hero and the pass rows.
+      const showRdy = !!(lastReadiness && lastReadiness.passId === missionPass.id);
       pane.append(h('div', { class: 'mission-pass-hero' + (live ? ' live' : '') }, [
         h('div', { class: 'mission-hero-top' }, [
           h('span', { class: 'mission-pass-eyebrow' }, live ? 'NOW · ACTIVE PASS' : 'NOW / NEXT PASS'),
-          h('span', { class: 'mission-live' + (live ? ' on' : '') }, [h('span', { class: 'mission-live-dot' }), live ? 'LIVE' : 'STANDBY']),
+          h('div', { class: 'mission-hero-badges' }, [
+            showRdy ? readinessChip() : '',
+            h('span', { class: 'mission-live' + (live ? ' on' : '') }, [h('span', { class: 'mission-live-dot' }), live ? 'LIVE' : 'STANDBY']),
+          ]),
         ]),
         h('div', { class: 'mission-hero-body' }, [
           h('div', { class: 'mission-hero-info' }, [
@@ -1219,9 +1267,9 @@ export function createUI(handlers) {
           ]),
           h('div', { class: 'mission-hero-polar' }, [heroMini]),
         ]),
+        showRdy ? readinessList() : '',
       ]));
       drawPassMini(heroMini, missionPass.arc, missionPass.color, 112);
-      if (lastReadiness && lastReadiness.passId === missionPass.id) pane.append(renderReadiness());
     } else {
       missionAos.textContent = '—'; missionMax.textContent = '—'; missionDur.textContent = '—';
     }
@@ -1413,7 +1461,7 @@ export function createUI(handlers) {
   }
 
   return {
-    view2d, view3d,
+    view2d, view3d, polarHost,
     renderList, updateClock, updateInfo, updatePasses, setActiveView, setTleStamp, setStatus,
     setStaleIds, setTleStatus, syncAutoMode, setRotorConnected, applyLayout, updateSky, isSkyActive,
     setCableWrap, setRadioTuning, setSpaceWeather, setReadiness,
@@ -1461,7 +1509,7 @@ function trackTitle(m) {
 // Horizon-mask editor: a compass silhouette of local obstructions (trees, hills,
 // buildings) that raises the effective min-elevation per azimuth. Drawn live as a
 // polar plot; edited as a list of az→el points; seedable from presets.
-function buildHorizonMask(pane) {
+function buildHorizonMask() {
   const wrap = h('div', {});
   const canvas = h('canvas', { class: 'hmask-canvas', width: 260, height: 260 });
   const list = h('div', { class: 'hmask-list' });
@@ -1571,18 +1619,16 @@ function buildHorizonMask(pane) {
   const clearBtn = h('button', { class: 'btn sm', onclick: () => { save([]); refresh(); } }, 'Clear');
 
   wrap.append(
-    h('hr', { class: 'hr' }),
-    h('div', { class: 'section-title' }, 'Horizon mask'),
     h('div', { class: 'toggle-line switch' }, [h('span', {}, 'Apply obstruction mask to passes'), applyChk]),
     h('div', { class: 'hmask-top' }, [canvas]),
     h('div', { class: 'hmask-ctl' }, [presetSel, addBtn, clearBtn]),
     list,
     h('div', { class: 'muted', style: 'margin-top:6px' }, 'Define minimum elevation per compass bearing. Passes clipped by the mask are down-scored, and the readiness check flags ones stuck behind terrain.')
   );
-  pane.append(wrap);
   refresh();
   // Redraw on theme change so the silhouette picks up new CSS colors.
   store.subscribe(() => draw());
+  return wrap;
 }
 
 // Per-satellite radio profile editor: pin an up/down/mode/transponder set to each
@@ -1749,8 +1795,10 @@ function buildStationPane(pane, handlers) {
   const st = store.get().station;
   const mk = (label, value, step, on) =>
     h('label', { class: 'fld' }, [h('span', {}, label), inputNum(value, step, on)]);
-  pane.append(
-    h('div', { class: 'section-title' }, 'Ground station'),
+
+  // --- Ground station: the one thing every other calculation depends on, so it is
+  // the only section open by default.
+  const stationSection = section('Ground station', [
     h('label', { class: 'fld' }, [h('span', {}, 'Name'),
       h('input', { type: 'text', value: st.name, oninput: (e) => store.patchIn('station', { name: e.target.value }) })]),
     h('div', { class: 'grid2' }, [
@@ -1761,37 +1809,37 @@ function buildStationPane(pane, handlers) {
       mk('Altitude (m)', Math.round(st.altKm * 1000), '1', (v) => store.patchIn('station', { altKm: v / 1000 })),
       mk('Pass-list min el (°)', store.get().minEl, '1', (v) => store.patch({ minEl: v })),
     ]),
-    h('div', { class: 'muted' }, 'Pass predictions and look angles are computed for this location.')
-  );
+    h('div', { class: 'muted' }, 'Pass predictions and look angles are computed for this location.'),
+  ], true);
 
-  // Toolbars — show/hide the bottom instrument bars entirely.
+  // --- Appearance & layout: the same controls as the map-toolbar popover, plus the
+  // bottom-bar visibility toggles (which are layout, not station config).
   const showSbChk = checkbox(store.get().showStatusbar !== false, (v) => store.patch({ showStatusbar: v }));
   const showRigChk = checkbox(store.get().showRigbar !== false, (v) => store.patch({ showRigbar: v }));
-  pane.append(
+  const appearanceSection = section('Appearance & layout', [
+    ...buildAppearanceControls().rows,
     h('hr', { class: 'hr' }),
-    h('div', { class: 'section-title' }, 'Toolbars'),
+    h('div', { class: 'sub-label' }, 'Bottom bars'),
     h('div', { class: 'toggle-line switch' }, [h('span', {}, 'Rotator status bar'), showSbChk]),
-    h('div', { class: 'toggle-line switch' }, [h('span', {}, 'Radio (rigctld) bar'), showRigChk]),
-    h('div', { class: 'muted', style: 'margin-top:6px' }, 'Hide the bottom instrument bars entirely to reclaim screen space.')
-  );
+    h('div', { class: 'toggle-line switch' }, [h('span', {}, 'Radio (rigctld) deck'), showRigChk]),
+    h('div', { class: 'muted', style: 'margin-top:6px' }, 'Hide the bottom instrument bars entirely to reclaim screen space.'),
+  ]);
 
-  // Horizon mask — local obstruction profile.
-  buildHorizonMask(pane);
+  // --- Horizon mask: local obstruction profile.
+  const horizonSection = section('Horizon mask', [buildHorizonMask()]);
 
-  // TLE freshness scheduler.
+  // --- TLE freshness scheduler.
   const sched = store.get().tleSched;
   const autoChk = checkbox(sched.auto, (v) => store.patchIn('tleSched', { auto: v }));
   const maxAgeInp = inputNum(sched.maxAgeDays, '1', (v) => store.patchIn('tleSched', { maxAgeDays: Math.max(1, Math.round(v)) }));
   const tleStatusEl = h('div', { class: 'tle-status', style: 'margin-top:8px' }, '');
-  pane.append(
-    h('hr', { class: 'hr' }),
-    h('div', { class: 'section-title' }, 'Orbit elements (TLE / OMM)'),
+  const orbitSection = section('Orbit elements (TLE / OMM)', [
     h('div', { class: 'toggle-line switch' }, [h('span', {}, 'Auto-update cached elements'), autoChk]),
     h('label', { class: 'fld' }, [h('span', {}, 'Max element age (days)'), maxAgeInp]),
     h('button', { class: 'btn', onclick: () => handlers.updateTlesNow() }, 'Update now'),
     tleStatusEl,
-    h('div', { class: 'muted', style: 'margin-top:6px' }, 'Celestrak is fetched as OMM (JSON), falling back to TLE; both carry the same epoch, so this age check covers either. Loaded OEM ephemerides take priority and are used as-is (no auto-refresh).')
-  );
+    h('div', { class: 'muted', style: 'margin-top:6px' }, 'Celestrak is fetched as OMM (JSON), falling back to TLE; both carry the same epoch, so this age check covers either. Loaded OEM ephemerides take priority and are used as-is (no auto-refresh).'),
+  ]);
 
   // Pass alerts (desktop notifications).
   const notifyChk = checkbox(store.get().notifyPasses, async (v) => {
@@ -1806,30 +1854,18 @@ function buildStationPane(pane, handlers) {
     store.patch({ notifySound: v });
     if (v) window.playPassAlert?.();
   });
-  const soundStyle = h('select', {
-    onchange: (e) => { store.patch({ notifySoundStyle: e.target.value }); window.playPassAlert?.(e.target.value); },
-  }, [
-    h('option', { value: 'chime' }, 'Chime'),
-    h('option', { value: 'radar' }, 'Radar'),
-    h('option', { value: 'urgent' }, 'Urgent'),
-    h('option', { value: 'sonar' }, 'Sonar'),
-    h('option', { value: 'soft' }, 'Soft arpeggio'),
-    h('option', { value: 'beacon' }, 'Beacon'),
-    h('option', { value: 'sparkle' }, 'Sparkle'),
-    h('option', { value: 'descending' }, 'Descending'),
-    h('option', { value: 'digital' }, 'Digital'),
-    h('option', { value: 'double' }, 'Double tone'),
-    h('option', { value: 'low' }, 'Low tone'),
-    h('option', { value: 'motor' }, 'Motor sweep'),
-    h('option', { value: 'lock' }, 'Target lock'),
-  ]);
-  soundStyle.value = store.get().notifySoundStyle || 'chime';
+  // One list for every cue picker in the pane — the keys must match the waveform
+  // patterns in main.js playPassAlert().
   const alertSoundOptions = [
     ['chime', 'Chime'], ['radar', 'Radar'], ['urgent', 'Urgent'], ['sonar', 'Sonar'],
     ['soft', 'Soft arpeggio'], ['beacon', 'Beacon'], ['sparkle', 'Sparkle'],
     ['descending', 'Descending'], ['digital', 'Digital'], ['double', 'Double tone'], ['low', 'Low tone'],
     ['motor', 'Motor sweep'], ['lock', 'Target lock'],
   ];
+  const soundStyle = h('select', {
+    onchange: (e) => { store.patch({ notifySoundStyle: e.target.value }); window.playPassAlert?.(e.target.value); },
+  }, alertSoundOptions.map(([value, name]) => h('option', { value }, name)));
+  soundStyle.value = store.get().notifySoundStyle || 'chime';
   const eventControl = (label, enabledKey, soundKey, fallback) => {
     const enabled = enabledKey ? checkbox(store.get()[enabledKey] !== false, (v) => store.patch({ [enabledKey]: v })) : null;
     const select = h('select', { onchange: (e) => {
@@ -1918,22 +1954,31 @@ function buildStationPane(pane, handlers) {
   } });
   const importBtn = h('button', { class: 'btn sm', onclick: () => importInput.click() }, 'Import settings');
 
-  pane.append(
-    h('hr', { class: 'hr' }),
-    h('div', { class: 'section-title' }, 'Pass alerts'),
+  // --- Pass alerts: the desktop notification + its cue, then the per-event cues.
+  const alertsSection = section('Pass alerts', [
     h('div', { class: 'toggle-line switch' }, [h('span', {}, 'Notify before a pass'), notifyChk]),
+    h('label', { class: 'fld' }, [h('span', {}, 'Lead time (minutes)'), notifyLead]),
     h('div', { class: 'toggle-line switch' }, [h('span', {}, 'Play alert sound'), soundChk]),
     h('label', { class: 'fld' }, [h('span', {}, 'Alert sound'), soundStyle]),
-    h('div', { class: 'section-title', style: 'margin-top:10px' }, 'Pass event alerts'),
+    h('div', { class: 'sub-label', style: 'margin-top:10px' }, 'During the pass'),
     eventControl('Satellite rising (AOS)', 'notifyAos', 'notifyAosSound', 'beacon'),
     eventControl('Maximum elevation', 'notifyPeak', 'notifyPeakSound', 'sparkle'),
     eventControl('Pass ending (LOS)', 'notifyLos', 'notifyLosSound', 'descending'),
-    h('div', { class: 'section-title', style: 'margin-top:10px' }, 'Rotator alerts'),
+    h('button', { class: 'btn sm', style: 'margin-top:8px', onclick: () => window.playPassAlert?.() }, 'Test sound'),
+    h('div', { class: 'muted', style: 'font-size:11px;margin-top:6px' }, '“Play alert sound” is the master switch — turning it off silences the rotator cues and the voice too.'),
+  ]);
+
+  // --- Rotator cues: hardware state changes, separate from the pass alerts above.
+  const rotatorSoundSection = section('Rotator sounds', [
     h('div', { class: 'toggle-line switch' }, [h('span', {}, 'Enable rotator sounds'), checkbox(store.get().rotatorSounds !== false, (v) => store.patch({ rotatorSounds: v }))]),
     eventControl('Rotator connected', null, 'rotatorConnectSound', 'digital'),
     eventControl('Rotator disconnected', null, 'rotatorDisconnectSound', 'low'),
     eventControl('Tracking started', null, 'rotatorTrackSound', 'beacon'),
     eventControl('Rotator parked', null, 'rotatorParkSound', 'soft'),
+  ]);
+
+  // --- Voice announcements: the spoken layer over the alerts, with its own wording.
+  const voiceSection = section('Voice announcements', [
     h('div', { class: 'toggle-line switch' }, [h('span', {}, 'Speak pass details'), voiceChk]),
     h('div', { class: 'toggle-line switch' }, [h('span', {}, 'Robotic ship-computer voice'), roboticChk]),
     h('label', { class: 'fld' }, [h('span', {}, 'Voice'), voiceSelect]),
@@ -1942,6 +1987,7 @@ function buildStationPane(pane, handlers) {
       h('label', { class: 'fld' }, [h('span', {}, 'Pitch'), voicePitch]),
       h('label', { class: 'fld' }, [h('span', {}, 'Volume'), voiceVolume]),
     ]),
+    h('div', { class: 'muted', style: 'font-size:11px;margin-top:-2px' }, 'The robotic voice overrides rate and pitch with a flat, deliberate cadence.'),
     h('label', { class: 'fld' }, [h('span', {}, 'Announcement style'), templatePreset]),
     h('label', { class: 'fld' }, [h('span', {}, 'What the announcer says'), voiceTemplate]),
     h('div', { class: 'muted', style: 'font-size:10px;margin-top:-5px;line-height:1.5' }, [
@@ -1949,16 +1995,27 @@ function buildStationPane(pane, handlers) {
       h('code', {}, '{satellite}'), ' name · ', h('code', {}, '{minutes}'), ' until rise · ',
       h('code', {}, '{duration}'), ' pass length · ', h('code', {}, '{maxElevation}'), ' peak angle · ',
       h('code', {}, '{visibility}'), ' viewing note. Use ', h('code', {}, '{minuteWord}'),
-      ' and ', h('code', {}, '{durationWord}'), ' for correct singular/plural wording.'
+      ' and ', h('code', {}, '{durationWord}'), ' for correct singular/plural wording.',
     ]),
-    h('label', { class: 'fld' }, [h('span', {}, 'Lead time (minutes)'), notifyLead]),
-    h('div', { class: 'row', style: 'display:flex;gap:8px' }, [
-      h('button', { class: 'btn sm', onclick: () => window.playPassAlert?.() }, 'Test sound'),
-      h('button', { class: 'btn sm', onclick: () => window.testPassVoice?.() }, 'Test voice'),
-    ]),
-    h('div', { class: 'section-title' }, 'Backup'),
+    h('button', { class: 'btn sm', style: 'margin-top:8px', onclick: () => window.testPassVoice?.() }, 'Test voice'),
+  ]);
+
+  // --- Backup: every setting on this pane (and the rest of the app) as one file.
+  const backupSection = section('Backup & restore', [
     h('div', { class: 'row', style: 'display:flex;gap:8px' }, [exportBtn, importBtn, importInput]),
-    dataMsg
+    dataMsg,
+    h('div', { class: 'muted', style: 'font-size:11px;margin-top:6px' }, 'Exports every setting — station, hardware, tracked satellites and their cached elements — so a field laptop can be restored offline. Importing replaces everything and reloads.'),
+  ]);
+
+  pane.append(
+    stationSection,
+    appearanceSection,
+    horizonSection,
+    orbitSection,
+    alertsSection,
+    rotatorSoundSection,
+    voiceSection,
+    backupSection,
   );
 
   return { tleStatusEl };
@@ -1967,20 +2024,6 @@ function buildStationPane(pane, handlers) {
 /* ----------------------------- Hardware pane ---------------------------- */
 function buildHwPane(pane, handlers) {
   const hw = store.get().hw;
-
-  // A collapsible sub-section: header toggles a body open/closed. Advanced/occasional
-  // controls live in these (collapsed by default) so the pane isn't a wall of fields.
-  function section(title, children, open = false) {
-    let expanded = open;
-    const body = h('div', { class: 'hw-sec-body', style: expanded ? '' : 'display:none' }, children);
-    const chev = h('span', { class: 'hw-sec-chev' }, expanded ? '▾' : '▸');
-    const head = h('button', { class: 'hw-sec-head', type: 'button', onclick: () => {
-      expanded = !expanded;
-      body.style.display = expanded ? '' : 'none';
-      chev.textContent = expanded ? '▾' : '▸';
-    } }, [chev, h('span', {}, title)]);
-    return h('div', { class: 'hw-sec' }, [head, body]);
-  }
 
   // Rotator
   const rotPill = statusPill('Rotator disconnected');
@@ -2031,6 +2074,14 @@ function buildHwPane(pane, handlers) {
     h('label', { class: 'fld' }, [h('span', {}, 'Motion profile'), motionProfileSel]),
     h('label', { class: 'fld' }, [h('span', {}, 'El max (° — 180 enables flip-over)'), inputNum(hw.rotator.elMax, '1', (v) => store.patchIn('hw.rotator', { elMax: v }))]),
     h('div', { class: 'muted', style: 'font-size:11px' }, 'Azimuth is free 360° shortest-path (no travel limit — it can go negative). Set El max to 180 to let the mount flip over the top on high passes instead of whipping the azimuth. Gentle profile spares heavy EME dishes; fast suits light LEO rigs.'),
+    // Cable-wrap thresholds — the gauge in the status bar and the pre-pass readiness
+    // check both read these, so they belong next to the travel settings.
+    h('div', { class: 'sub-label', style: 'margin-top:10px' }, 'Cable wrap'),
+    h('div', { class: 'grid2' }, [
+      h('label', { class: 'fld' }, [h('span', {}, 'Warn at (°)'), inputNum(hw.rotator.wrapWarnDeg, '30', (v) => store.patchIn('hw.rotator', { wrapWarnDeg: Math.max(0, Math.round(v)) }))]),
+      h('label', { class: 'fld' }, [h('span', {}, 'Limit at (°)'), inputNum(hw.rotator.wrapMaxDeg, '30', (v) => store.patchIn('hw.rotator', { wrapMaxDeg: Math.max(0, Math.round(v)) }))]),
+    ]),
+    h('div', { class: 'muted', style: 'font-size:11px' }, 'Accumulated azimuth away from north. The status-bar wrap gauge turns amber past the warning and red past the limit; readiness flags a pass that would run out of cable. 540° = 1.5 turns.'),
     h('button', { class: 'btn sm', style: 'margin-top:6px', title: 'Send the speed limits, offsets and backlash values to the firmware so they persist on the MCU', onclick: () => handlers.pushRotatorConfig() }, 'Push settings to rotator'),
   ]);
 
@@ -2332,9 +2383,6 @@ export function colorFor(id, tracked) {
   return PALETTE[(i < 0 ? tracked.length : i) % PALETTE.length];
 }
 
-function fmtDateTime(d) {
-  return d.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' });
-}
 function fmtAge(days) {
   if (days == null || !isFinite(days)) return '—';
   return days < 1 ? Math.max(0, Math.round(days * 24)) + ' h' : days.toFixed(1) + ' d';

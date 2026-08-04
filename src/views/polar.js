@@ -45,16 +45,26 @@ export class PolarView {
     a.click();
   }
 
-  _resize() {
+  // Re-read the container box and resize the backing store if it moved. Returns
+  // whether anything changed (resizing a canvas clears it, so only do it then).
+  _measure() {
     const r = this.container.getBoundingClientRect();
-    this.dpr = window.devicePixelRatio || 1;
-    this.w = Math.max(1, r.width);
-    this.h = Math.max(1, r.height);
-    this.canvas.width = this.w * this.dpr;
-    this.canvas.height = this.h * this.dpr;
-    this.canvas.style.width = this.w + 'px';
-    this.canvas.style.height = this.h + 'px';
-    this.draw(this.frame);
+    const dpr = window.devicePixelRatio || 1;
+    const w = Math.max(1, r.width);
+    const h = Math.max(1, r.height);
+    if (w === this.w && h === this.h && dpr === this.dpr) return false;
+    this.dpr = dpr;
+    this.w = w;
+    this.h = h;
+    this.canvas.width = w * dpr;
+    this.canvas.height = h * dpr;
+    this.canvas.style.width = w + 'px';
+    this.canvas.style.height = h + 'px';
+    return true;
+  }
+
+  _resize() {
+    if (this._measure()) this.draw(this.frame);
   }
 
   _pos(az, el, cx, cy, R) {
@@ -65,6 +75,10 @@ export class PolarView {
 
   draw(frame) {
     this.frame = frame;
+    // The Info tab is display:none until selected, so the canvas is unsized when it
+    // is first built. Re-measuring on each 1 Hz draw self-heals that (and any panel
+    // collapse / window resize that happened while the tab was hidden).
+    this._measure();
     const ctx = this.ctx;
     ctx.save();
     ctx.scale(this.dpr, this.dpr);
