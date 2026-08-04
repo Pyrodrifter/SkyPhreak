@@ -444,6 +444,7 @@ function mergeOemIntoCatalog() {
 let lastView = null;
 let lastMapStyle = null;
 let lastTheme = null;
+let lastBasemap = null;
 function onState(state) {
   ui.renderList();
   ui.syncAutoMode(); // keep the on-map track buttons + HW dropdown in sync
@@ -456,6 +457,12 @@ function onState(state) {
     lastMapStyle = state.mapStyle;
     map2d.setStyle(state.mapStyle);
     globe3d.setStyle(state.mapStyle);
+  }
+  // Basemap resolution / borders are pure render settings — repaint on change.
+  const basemapKey = `${state.mapDetail}|${state.showBorders}`;
+  if (basemapKey !== lastBasemap) {
+    lastBasemap = basemapKey;
+    map2d.draw(map2d.frame);
   }
   // Theme: set the CSS vars; the 2D/polar canvases pick the palette up on their
   // next repaint, the globe re-applies its materials explicitly. The key includes the

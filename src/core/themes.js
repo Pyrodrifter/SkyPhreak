@@ -28,7 +28,7 @@ export const THEMES = {
       '--ok': '#4ecb92', '--warn': '#e8b04a', '--alert': '#f2645a',
     },
     map: {
-      bg: '#0b0e1a', land: '#1a1f36', landStroke: 'rgba(176,125,255,0.42)',
+      bg: '#0b0e1a', land: '#1a1f36', landStroke: 'rgba(176,125,255,0.42)', border: 'rgba(176,125,255,0.30)',
       graticule: 'rgba(148,157,180,0.09)', equator: 'rgba(148,157,180,0.17)',
       terminator: 'rgba(4,4,9,0.52)', labelBg: 'rgba(10,11,17,0.8)',
       labelText: 'rgba(218,224,236,0.9)', moonShadow: '#1c2033',
@@ -54,7 +54,7 @@ export const THEMES = {
       '--ok': '#4ab98a', '--warn': '#dba94a', '--alert': '#e05f56',
     },
     map: {
-      bg: '#08111c', land: '#132435', landStroke: 'rgba(90,169,230,0.4)',
+      bg: '#08111c', land: '#132435', landStroke: 'rgba(90,169,230,0.4)', border: 'rgba(90,169,230,0.30)',
       graticule: 'rgba(130,142,158,0.09)', equator: 'rgba(130,142,158,0.16)',
       terminator: 'rgba(3,5,9,0.5)', labelBg: 'rgba(7,9,12,0.78)',
       labelText: 'rgba(208,216,228,0.9)', moonShadow: '#141c27',
@@ -81,7 +81,7 @@ export const THEMES = {
       '--ok': '#5cba7d', '--warn': '#e8b23c', '--alert': '#e85c4a',
     },
     map: {
-      bg: '#130c06', land: '#2e1e12', landStroke: 'rgba(255,138,76,0.38)',
+      bg: '#130c06', land: '#2e1e12', landStroke: 'rgba(255,138,76,0.38)', border: 'rgba(255,138,76,0.30)',
       graticule: 'rgba(160,141,124,0.09)', equator: 'rgba(160,141,124,0.16)',
       terminator: 'rgba(8,4,1,0.5)', labelBg: 'rgba(12,8,5,0.78)',
       labelText: 'rgba(230,218,206,0.9)', moonShadow: '#241810',
@@ -108,7 +108,7 @@ export const THEMES = {
       '--ok': '#e08585', '--warn': '#ffa04d', '--alert': '#ff2f2f',
     },
     map: {
-      bg: '#0e0405', land: '#2a0e11', landStroke: 'rgba(255,77,77,0.4)',
+      bg: '#0e0405', land: '#2a0e11', landStroke: 'rgba(255,77,77,0.4)', border: 'rgba(255,77,77,0.30)',
       graticule: 'rgba(168,106,106,0.09)', equator: 'rgba(168,106,106,0.16)',
       terminator: 'rgba(6,0,0,0.5)', labelBg: 'rgba(10,3,4,0.78)',
       labelText: 'rgba(236,179,179,0.9)', moonShadow: '#210c0e',
@@ -135,7 +135,7 @@ export const THEMES = {
       '--ok': '#48d67f', '--warn': '#d8c84a', '--alert': '#e06a5a',
     },
     map: {
-      bg: '#05100a', land: '#0f2617', landStroke: 'rgba(72,214,127,0.38)',
+      bg: '#05100a', land: '#0f2617', landStroke: 'rgba(72,214,127,0.38)', border: 'rgba(72,214,127,0.30)',
       graticule: 'rgba(123,163,131,0.09)', equator: 'rgba(123,163,131,0.16)',
       terminator: 'rgba(0,5,2,0.5)', labelBg: 'rgba(4,8,6,0.78)',
       labelText: 'rgba(195,230,201,0.9)', moonShadow: '#122016',

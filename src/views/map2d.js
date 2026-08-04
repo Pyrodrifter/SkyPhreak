@@ -1,4 +1,5 @@
-import { landRings, project } from '../core/geo.js';
+import { landAt, bordersAt, onBasemapLoad, project } from '../core/geo.js';
+import { store } from '../core/store.js';
 import { palette } from '../core/themes.js';
 import { bakeReliefMap } from './earthTexture.js';
 import {
@@ -46,6 +47,21 @@ export class Map2D {
         this.draw(this.frame);
       }
     });
+
+    // A finer basemap level finished loading in the background — repaint with it.
+    this._offBasemap = onBasemapLoad(() => this.draw(this.frame));
+  }
+
+  /**
+   * Basemap resolution for the current zoom. The thresholds are where the coarser
+   * set starts showing straight-line coastlines: 110m holds up across the whole
+   * world, 50m to roughly 5x, 10m beyond. `mapDetail` pins it when the operator
+   * wants to cap the memory cost (or force maximum detail).
+   */
+  _detailLevel() {
+    const pref = store.get().mapDetail || 'auto';
+    if (pref !== 'auto') return pref;
+    return this.scale >= 5 ? '10m' : this.scale >= 2 ? '50m' : '110m';
   }
 
   _resize() {
@@ -181,6 +197,9 @@ export class Map2D {
       this._drawGraticule(ctx);
       this._drawLand(ctx);
     }
+    // Borders sit over either basemap — they read as political detail on the
+    // relief image just as well as on the vector fill.
+    if (store.get().showBorders) this._drawBorders(ctx);
     if (frame) {
       this._drawTerminator(ctx, frame.date);
       for (const s of frame.sats) this._drawFootprint(ctx, s);
@@ -235,25 +254,56 @@ export class Map2D {
     ctx.stroke();
   }
 
+  /**
+   * Trace a prepared ring (see core/geo.js) at a longitude offset, skipping it
+   * entirely when its bbox falls outside the viewport. The cull is what makes the
+   * 60k- and 409k-point sets affordable: at high zoom almost every ring is off
+   * screen, and rejecting one costs four comparisons instead of a full path.
+   */
+  _traceRing(ctx, ring, off) {
+    const [x0] = this._toScreen(ring.minLon + off, 0);
+    const [x1] = this._toScreen(ring.maxLon + off, 0);
+    if (x1 < 0 || x0 > this.w) return false;
+    const [, yTop] = this._toScreen(0, ring.maxLat);
+    const [, yBot] = this._toScreen(0, ring.minLat);
+    if (yBot < 0 || yTop > this.h) return false;
+
+    const pts = ring.pts;
+    ctx.beginPath();
+    for (let i = 0; i < pts.length; i++) {
+      const [x, y] = this._toScreen(pts[i][0] + off, pts[i][1]);
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    return true;
+  }
+
   _drawLand(ctx) {
     ctx.fillStyle = palette().map.land;
     ctx.strokeStyle = palette().map.landStroke;
     ctx.lineWidth = 0.8;
-    for (const ring of landRings) {
-      // Unwrap longitudes so dateline-crossing polygons (Russia, Antarctica,
-      // Fiji…) stay continuous instead of smearing a band across the map.
-      const uw = unwrapRing(ring);
-      // Draw at -360/0/+360 so the wrapped half shows on the correct side; the
-      // canvas clips the copies that fall outside the viewport.
+    const rings = landAt(this._detailLevel());
+    // Drawn at -360/0/+360 so a polygon wrapped past the antimeridian still shows
+    // on the correct side; the bbox cull discards the copies that miss the view.
+    for (const ring of rings) {
       for (const off of [-360, 0, 360]) {
-        ctx.beginPath();
-        for (let i = 0; i < uw.length; i++) {
-          const [x, y] = this._toScreen(uw[i][0] + off, uw[i][1]);
-          if (i === 0) ctx.moveTo(x, y);
-          else ctx.lineTo(x, y);
-        }
+        if (!this._traceRing(ctx, ring, off)) continue;
         ctx.closePath();
         ctx.fill();
+        ctx.stroke();
+      }
+    }
+  }
+
+  /** Country borders — a separate, lighter stroke over the land fill. */
+  _drawBorders(ctx) {
+    const rings = bordersAt(this._detailLevel());
+    if (!rings) return;
+    ctx.strokeStyle = palette().map.border || palette().map.graticule;
+    ctx.lineWidth = 0.6;
+    for (const ring of rings) {
+      for (const off of [-360, 0, 360]) {
+        if (!this._traceRing(ctx, ring, off)) continue;
         ctx.stroke();
       }
     }
@@ -449,22 +499,6 @@ export class Map2D {
   }
 }
 
-// Make a ring's longitudes continuous by removing ±360° jumps between points.
-function unwrapRing(ring) {
-  const out = [[ring[0][0], ring[0][1]]];
-  let prevRaw = ring[0][0];
-  let cont = ring[0][0];
-  for (let i = 1; i < ring.length; i++) {
-    const raw = ring[i][0];
-    let d = raw - prevRaw;
-    if (d > 180) d -= 360;
-    else if (d < -180) d += 360;
-    cont += d;
-    out.push([cont, ring[i][1]]);
-    prevRaw = raw;
-  }
-  return out;
-}
 
 function hexA(hex, a) {
   const h = hex.replace('#', '');

@@ -76,6 +76,18 @@ export function buildSettings(handlers, workspace) {
   store.subscribe(syncAppearance);
   syncAppearance();
 
+  /* --------------------------------- basemap ------------------------------ */
+  const mapGroup = group('Basemap', [
+    field('Coastline detail', select([
+      ['auto', 'Automatic — follows zoom'],
+      ['110m', 'Low · 1:110m (5k points)'],
+      ['50m', 'Medium · 1:50m (61k points)'],
+      ['10m', 'High · 1:10m (409k points)'],
+    ], st.mapDetail || 'auto', (v) => store.patch({ mapDetail: v }))),
+    fieldInline('Country borders', checkbox(st.showBorders, (v) => store.patch({ showBorders: v }))),
+    h('p', { class: 'nf-note' }, 'Natural Earth vector data, bundled — no network needed. Automatic loads the finer sets only once you zoom past 2× and 5×, so the whole-world view stays light. Pin High if you want maximum coastline detail immediately, or Low on a slow machine.'),
+  ]);
+
   /* ------------------------------ horizon mask ---------------------------- */
   const canvas = h('canvas', { class: 'hm-plot', width: 240, height: 240 });
   const maskList = h('div', { class: 'hm-list' });
@@ -299,7 +311,7 @@ export function buildSettings(handlers, workspace) {
   ]);
 
   const el = panel({
-    body: [stationGroup, appearanceGroup, horizonGroup, elementsGroup, alertsGroup, voiceGroup, backupGroup],
+    body: [stationGroup, appearanceGroup, mapGroup, horizonGroup, elementsGroup, alertsGroup, voiceGroup, backupGroup],
   });
 
   return {

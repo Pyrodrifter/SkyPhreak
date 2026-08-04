@@ -48,7 +48,11 @@ const DEFAULTS = {
   notifyVoiceRobotic: false,
   notifyVoiceTemplate: '{satellite} will rise in {minutes} {minuteWord}. Pass duration is about {duration} {durationWord}, with a maximum elevation of {maxElevation} degrees. {visibility}',
   notifyLead: 5, // minutes before AOS to notify
-  mapStyle: 'vector', // 'vector' = dark blue lines | 'relief' = shaded topographic
+  mapStyle: 'vector', // 'vector' = coastline outlines | 'relief' = shaded topographic
+  // Basemap vector resolution. 'auto' follows zoom (110m → 50m → 10m); pinning a
+  // level caps the memory cost, or forces full detail on a fast machine.
+  mapDetail: 'auto', // 'auto' | '110m' | '50m' | '10m'
+  showBorders: false, // draw country borders over the basemap
   showMoon: true, // draw the Moon on the 2D map
   showPlanets: true, // draw the Sun + planets on the 2D map
   showDso: false, // master show/hide for all deep-sky objects on the sky views
