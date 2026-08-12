@@ -130,10 +130,15 @@ button.sb-item:hover { background: var(--bg-3); }
 /* Below this the two-up grids stop being readable and stack instead. */
 @container panel (max-width: 280px) {
   .grid-2, .grid-3, .pz-lead-stats { grid-template-columns: minmax(0, 1fr); }
-  .pz-lead-body { flex-direction: column; }
-  .pz-lead-plot { align-self: center; }
   .nf-point { grid-template-columns: minmax(0, 1fr); }
   .snd.has-chk { grid-template-columns: 1fr auto; }
+}
+/* The lead block stacks earlier than the plain grids do, because its sky-track
+   plot is a fixed 124px: keeping it alongside the text would leave the hero
+   countdown under ~130px, and an 8-character countdown must never ellipsis. */
+@container panel (max-width: 380px) {
+  .pz-lead-body { flex-direction: column; }
+  .pz-lead-plot { align-self: center; }
 }
 /* Narrower still: drop the sky-track thumbnail and the arm button from pass rows
    so the countdown and the name keep their space. */

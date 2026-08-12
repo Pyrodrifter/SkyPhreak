@@ -137,10 +137,14 @@ button.tg-dot { cursor: pointer; }
 .pz-lead-clock { display: flex; flex-direction: column; gap: 0; }
 /* The number you are actually waiting on. Slight negative tracking keeps the
    monospace digits from looking gappy at display size. */
+/* Scales with the panel rather than sitting at a fixed size, so it stays whole in
+   a narrow dock instead of clipping. No ellipsis here on purpose — a truncated
+   countdown is worse than a small one. */
 .pz-lead .value.hero {
-  overflow: hidden; text-overflow: ellipsis;
+  font-size: clamp(21px, 11cqi, var(--fs-hero));
   line-height: 1.02;
   letter-spacing: -0.035em;
+  white-space: nowrap;
   text-shadow: 0 0 22px var(--accent-glow);
 }
 .pz-lead .value.hero.live { color: var(--accent); text-shadow: 0 0 26px var(--accent-glow); }

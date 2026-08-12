@@ -21,19 +21,19 @@
 :root {
   /* ---- Surfaces -------------------------------------------------------- */
   /* Four steps, close together. Depth reads from hairlines and the machined
-     top-highlight below, not from big luminance jumps. Neutrals carry a slight
-     violet cast so the chrome sits in the same family as the accent instead of
-     looking like grey with a coloured sticker on it. */
-  --bg-0: #0a0b11;   /* app background, gutters between docks */
-  --bg-1: #11131b;   /* panel body */
-  --bg-2: #171a24;   /* raised: panel headers, tab strips, inputs, table heads */
-  --bg-3: #1f2330;   /* hover fill */
-  --bg-4: #282d3d;   /* pressed / active fill */
+     top-highlight below, not from big luminance jumps.
+     These :root values mirror the default Foundry theme so there is no flash of
+     a different palette before core/themes.js applies one. */
+  --bg-0: #100e0c;   /* app background, gutters between docks */
+  --bg-1: #181512;   /* panel body */
+  --bg-2: #201c18;   /* raised: panel headers, tab strips, inputs, table heads */
+  --bg-3: #2a2521;   /* hover fill */
+  --bg-4: #352e28;   /* pressed / active fill */
 
   /* ---- Hairlines ------------------------------------------------------- */
-  --line:      #262b3a;  /* default rule between regions */
-  --line-soft: #1c202b;  /* rule inside a region (table rows, list separators) */
-  --line-hard: #363d51;  /* rule that must survive on a raised surface */
+  --line:      #332c26;  /* default rule between regions */
+  --line-soft: #241f1a;  /* rule inside a region (table rows, list separators) */
+  --line-hard: #4a4137;  /* rule that must survive on a raised surface */
 
   /* Machined edge: a 1px light line along the top of a raised surface. This is
      what stops flat dark panels reading as holes cut in the background — real
@@ -41,24 +41,27 @@
   --hl: inset 0 1px 0 rgba(255, 255, 255, .045);
 
   /* ---- Text ------------------------------------------------------------ */
-  --fg:      #dae0ec;  /* values, primary content */
-  --fg-dim:  #949db4;  /* labels, secondary */
-  --fg-mute: #69718a;  /* tertiary, disabled, placeholder */
+  /* Bone, not white. Pure white on a dark panel is the giveaway of a generic
+     dark mode; equipment lettering is always slightly off. */
+  --fg:      #e9e1d3;  /* values, primary content */
+  --fg-dim:  #a89b8b;  /* labels, secondary */
+  --fg-mute: #75695c;  /* tertiary, disabled, placeholder */
 
   /* ---- Accent: LIVE / SELECTED / FOCUSED ONLY -------------------------- */
-  /* Violet, not blue: green / amber / red are already committed to ok / warn /
-     alert, and amber-as-accent would collide with the convention that amber
-     means caution on an instrument panel. */
-  --accent:      #b07dff;
-  --accent-fg:   #150a26;  /* text on a filled accent surface */
+  /* Cool jade against warm chrome. Green / amber / red are committed to
+     ok / warn / alert, so a warm accent collides with them — and blue / violet
+     is the house style of every dark-mode app. The warm-neutral / cool-accent
+     split is what carries the character; see the note in core/themes.js. */
+  --accent:      #3fcfa8;
+  --accent-fg:   #04231b;  /* text on a filled accent surface */
   --accent-weak: color-mix(in srgb, var(--accent) 15%, transparent);
   --accent-line: color-mix(in srgb, var(--accent) 45%, var(--line));
   --accent-glow: color-mix(in srgb, var(--accent) 38%, transparent);
 
   /* ---- Status ---------------------------------------------------------- */
-  --ok:    #3fb984;
-  --warn:  #d9a441;
-  --alert: #e0574f;
+  --ok:    #8ac765;
+  --warn:  #e8a33c;
+  --alert: #e8574a;
   --ok-weak:    color-mix(in srgb, var(--ok) 12%, transparent);
   --warn-weak:  color-mix(in srgb, var(--warn) 12%, transparent);
   --alert-weak: color-mix(in srgb, var(--alert) 12%, transparent);

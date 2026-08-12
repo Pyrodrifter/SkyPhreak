@@ -14,10 +14,109 @@
  * draw (they repaint at 1 Hz anyway), so a change propagates within a tick.
  */
 
+/**
+ * A note on why these differ from each other in more than one channel.
+ *
+ * An earlier set of themes only varied the accent hue over identical cool-grey
+ * neutrals and near-white text. That produces five versions of one look, because
+ * the accent is a few hundred pixels of a screen — the neutral surfaces and the
+ * body text are the other 95%, and those were never changing.
+ *
+ * So each theme below moves three things together: the TEMPERATURE of the
+ * neutrals (warm iron vs cold slate vs petrol), the TEXT colour (bone vs paper
+ * vs phosphor — never plain white), and only then the accent.
+ */
+
 export const THEMES = {
-  // House look: warm-neutral charcoal with a violet accent. Violet because green,
-  // amber and red are spoken for by ok / warn / alert, and on an instrument panel
-  // amber already means caution — an amber accent would read as a permanent warning.
+  // Warm iron and bone with a cool jade accent. The warm/cool split is what makes
+  // it read as machined equipment: the chrome is warm, the live state is cold.
+  // Jade also stays clear of green/amber/red, which are spoken for by the status
+  // colours — and clear of blue/violet, which is every dark-mode app ever built.
+  foundry: {
+    name: 'Foundry',
+    vars: {
+      '--bg-0': '#100e0c', '--bg-1': '#181512', '--bg-2': '#201c18', '--bg-3': '#2a2521', '--bg-4': '#352e28',
+      '--line': '#332c26', '--line-soft': '#241f1a', '--line-hard': '#4a4137',
+      '--fg': '#e9e1d3', '--fg-dim': '#a89b8b', '--fg-mute': '#75695c',
+      '--accent': '#3fcfa8', '--accent-fg': '#04231b',
+      '--ok': '#8ac765', '--warn': '#e8a33c', '--alert': '#e8574a',
+    },
+    map: {
+      bg: '#0d1512', land: '#1d2a24', landStroke: 'rgba(63,207,168,0.40)', border: 'rgba(63,207,168,0.26)',
+      graticule: 'rgba(168,155,139,0.09)', equator: 'rgba(168,155,139,0.17)',
+      terminator: 'rgba(8,6,4,0.52)', labelBg: 'rgba(16,14,12,0.8)',
+      labelText: 'rgba(233,225,211,0.9)', moonShadow: '#26201b',
+    },
+    polar: {
+      grid: 'rgba(74,65,55,0.95)', gridDim: 'rgba(51,44,38,0.95)',
+      ticks: 'rgba(168,155,139,0.7)', labels: 'rgba(233,225,211,0.82)',
+    },
+    globe: {
+      atmosphere: '#3fcfa8', polyCap: 'rgba(28,68,58,0.92)',
+      polySide: 'rgba(18,44,37,0.42)', polyStroke: 'rgba(63,207,168,0.5)',
+      sphere: '#0d1512', sphereEmissive: '#070d0b',
+    },
+  },
+
+  // The front panel of a radio: near-black warm grey, amber readouts, bone labels.
+  // Amber IS the accent here rather than the caution colour — that is the whole
+  // point of the look — so caution moves to a bright yellow and stays separable.
+  sideband: {
+    name: 'Sideband',
+    vars: {
+      '--bg-0': '#0b0a08', '--bg-1': '#12100d', '--bg-2': '#191612', '--bg-3': '#221e19', '--bg-4': '#2c2721',
+      '--line': '#2b251e', '--line-soft': '#1e1a15', '--line-hard': '#443a2e',
+      '--fg': '#e2d9c6', '--fg-dim': '#a2947c', '--fg-mute': '#6f6454',
+      '--accent': '#ffab2e', '--accent-fg': '#1c1102',
+      '--ok': '#67cf7d', '--warn': '#ffe14d', '--alert': '#ff5c4d',
+    },
+    map: {
+      bg: '#0f0d0a', land: '#241d15', landStroke: 'rgba(255,171,46,0.38)', border: 'rgba(255,171,46,0.24)',
+      graticule: 'rgba(162,148,124,0.09)', equator: 'rgba(162,148,124,0.17)',
+      terminator: 'rgba(6,4,2,0.52)', labelBg: 'rgba(11,10,8,0.8)',
+      labelText: 'rgba(226,217,198,0.9)', moonShadow: '#211a12',
+    },
+    polar: {
+      grid: 'rgba(68,58,46,0.95)', gridDim: 'rgba(43,37,30,0.95)',
+      ticks: 'rgba(162,148,124,0.7)', labels: 'rgba(226,217,198,0.82)',
+    },
+    globe: {
+      atmosphere: '#ffab2e', polyCap: 'rgba(72,52,20,0.92)',
+      polySide: 'rgba(46,33,13,0.42)', polyStroke: 'rgba(255,171,46,0.5)',
+      sphere: '#0f0d0a', sphereEmissive: '#080604',
+    },
+  },
+
+  // Petrol-black hull with a warm sand text and a signal-orange accent — the
+  // inverse split to Foundry: cold chrome, warm live state.
+  deepwater: {
+    name: 'Deepwater',
+    vars: {
+      '--bg-0': '#060f10', '--bg-1': '#0b1618', '--bg-2': '#0f1e20', '--bg-3': '#15282b', '--bg-4': '#1c3337',
+      '--line': '#1a2e31', '--line-soft': '#122123', '--line-hard': '#2b494e',
+      '--fg': '#e4e0d2', '--fg-dim': '#8fa39f', '--fg-mute': '#5f7573',
+      '--accent': '#ff8a4d', '--accent-fg': '#1a0c03',
+      '--ok': '#3fcf9c', '--warn': '#f5cf5a', '--alert': '#f0544f',
+    },
+    map: {
+      bg: '#07161a', land: '#11282c', landStroke: 'rgba(255,138,77,0.36)', border: 'rgba(255,138,77,0.24)',
+      graticule: 'rgba(143,163,159,0.09)', equator: 'rgba(143,163,159,0.17)',
+      terminator: 'rgba(2,7,8,0.52)', labelBg: 'rgba(6,15,16,0.8)',
+      labelText: 'rgba(228,224,210,0.9)', moonShadow: '#152a2e',
+    },
+    polar: {
+      grid: 'rgba(43,73,78,0.95)', gridDim: 'rgba(26,46,49,0.95)',
+      ticks: 'rgba(143,163,159,0.7)', labels: 'rgba(228,224,210,0.82)',
+    },
+    globe: {
+      atmosphere: '#ff8a4d', polyCap: 'rgba(20,62,68,0.92)',
+      polySide: 'rgba(12,40,44,0.42)', polyStroke: 'rgba(255,138,77,0.5)',
+      sphere: '#07161a', sphereEmissive: '#040c0e',
+    },
+  },
+
+  // The violet-on-slate build. Kept so an existing install doesn't lose its theme,
+  // but no longer the default — it is the house style of every AI-scaffolded app.
   mission: {
     name: 'Mission',
     vars: {
@@ -152,7 +251,7 @@ export const THEMES = {
   },
 };
 
-let active = THEMES.mission;
+let active = THEMES.foundry;
 
 /** The active theme's canvas palette — views read this on every draw. */
 export const palette = () => active;
@@ -184,7 +283,7 @@ function buildCustom(custom) {
 
 /** Apply a theme by id (or the built 'custom' theme): set CSS vars + canvas palette. */
 export function applyTheme(id, custom) {
-  active = id === 'custom' ? buildCustom(custom) : (THEMES[id] || THEMES.mission);
+  active = id === 'custom' ? buildCustom(custom) : (THEMES[id] || THEMES.foundry);
   const root = document.documentElement;
   for (const [k, v] of Object.entries(active.vars)) root.style.setProperty(k, v);
   return active;

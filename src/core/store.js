@@ -13,8 +13,8 @@ const DEFAULTS = {
   tleStore: {}, // { id: { name, line1, line2 } } — cached TLEs for tracked sats (offline)
   tleSched: { auto: true, maxAgeDays: 2 }, // auto-refresh cached TLEs so they stay < maxAgeDays old
   view: '2d', // '2d' | '3d'
-  theme: 'mission', // UI theme id — see core/themes.js (mission/midnight/ember/nightops/phosphor/custom)
-  customTheme: { base: 'midnight', accent: '#4db8ff' }, // user 'custom' theme: a base + accent
+  theme: 'foundry', // UI theme id — see core/themes.js (foundry/sideband/deepwater/…/custom)
+  customTheme: { base: 'foundry', accent: '#3fcfa8' }, // user 'custom' theme: a base + accent
   uiScale: 'md', // UI density: 'sm' (compact) | 'md' (normal) | 'lg' (roomy)
   fieldMode: false, // one-tap field mode (oversized + Night Ops)
   // Dockable workspace: which built-in preset is selected, and the live panel
