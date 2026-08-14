@@ -308,7 +308,7 @@ export function createUI(handlers) {
   }
 
   const toggleField = () => store.patch(store.get().fieldMode
-    ? { fieldMode: false, uiScale: 'md', theme: 'midnight' }
+    ? { fieldMode: false, uiScale: 'md', theme: 'foundry' }
     : { fieldMode: true, uiScale: 'lg', theme: 'nightops' });
 
   /* ------------------------------- shortcuts ------------------------------ */

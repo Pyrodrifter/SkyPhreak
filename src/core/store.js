@@ -3,6 +3,8 @@
  * satellite IDs, HW config, UI prefs) persist via the Electron main process.
  */
 
+import { resolveTheme } from './themes.js';
+
 const DEFAULTS = {
   station: { name: 'Home', lat: 52.37, lon: 4.9, altKm: 0 }, // Amsterdam-ish placeholder
   group: 'active',
@@ -317,7 +319,7 @@ export const store = {
   /** Replace all settings from an imported object (backup restore), over defaults. */
   importSettings(obj) {
     if (!obj || typeof obj !== 'object') return false;
-    state = deepMerge(structuredClone(DEFAULTS), obj);
+    state = migrate(deepMerge(structuredClone(DEFAULTS), obj));
     emit();
     persist();
     return true;
@@ -327,13 +329,23 @@ export const store = {
   async hydrate() {
     try {
       const saved = await window.pyro.settings.get();
-      if (saved) state = deepMerge(structuredClone(DEFAULTS), saved);
+      if (saved) state = migrate(deepMerge(structuredClone(DEFAULTS), saved));
     } catch {
       /* keep defaults */
     }
     emit();
   },
 };
+
+/**
+ * Bring a saved settings object forward. Runs on both hydrate and import, so a
+ * backup taken before a rename restores onto something that still exists.
+ */
+function migrate(s) {
+  s.theme = resolveTheme(s.theme);
+  if (s.customTheme) s.customTheme.base = resolveTheme(s.customTheme.base);
+  return s;
+}
 
 function emit() {
   for (const fn of listeners) fn(state);

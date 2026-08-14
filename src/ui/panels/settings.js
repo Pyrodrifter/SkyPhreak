@@ -36,9 +36,9 @@ export function buildSettings(handlers, workspace) {
   const themeSel = select([...Object.entries(THEMES).map(([id, t]) => [id, t.name]), ['custom', 'Custom…']],
     st.theme, (v) => store.patch({ theme: v }));
   const baseSel = select(Object.entries(THEMES).map(([id, t]) => [id, t.name]),
-    (st.customTheme && st.customTheme.base) || 'midnight', (v) => store.patchIn('customTheme', { base: v }));
+    (st.customTheme && st.customTheme.base) || 'foundry', (v) => store.patchIn('customTheme', { base: v }));
   const accent = h('input', {
-    type: 'color', value: (st.customTheme && st.customTheme.accent) || '#4db8ff',
+    type: 'color', value: (st.customTheme && st.customTheme.accent) || '#3fcfa8',
     oninput: (e) => store.patchIn('customTheme', { accent: e.target.value }),
   });
   const baseRow = field('Custom base palette', baseSel);
@@ -51,7 +51,7 @@ export function buildSettings(handlers, workspace) {
   const fieldBtn = h('button', {
     class: 'btn', title: 'Field mode — oversized controls and the Night Ops palette',
     onclick: () => store.patch(store.get().fieldMode
-      ? { fieldMode: false, uiScale: 'md', theme: 'midnight' }
+      ? { fieldMode: false, uiScale: 'md', theme: 'foundry' }
       : { fieldMode: true, uiScale: 'lg', theme: 'nightops' }),
   }, 'Field mode');
 
@@ -65,8 +65,8 @@ export function buildSettings(handlers, workspace) {
   function syncAppearance() {
     const s = store.get();
     themeSel.value = s.theme;
-    baseSel.value = (s.customTheme && s.customTheme.base) || 'midnight';
-    accent.value = (s.customTheme && s.customTheme.accent) || '#4db8ff';
+    baseSel.value = (s.customTheme && s.customTheme.base) || 'foundry';
+    accent.value = (s.customTheme && s.customTheme.accent) || '#3fcfa8';
     const custom = s.theme === 'custom';
     baseRow.style.display = custom ? '' : 'none';
     accentRow.style.display = custom ? '' : 'none';
@@ -103,7 +103,7 @@ export function buildSettings(handlers, workspace) {
     const css = getComputedStyle(document.documentElement);
     const line = (css.getPropertyValue('--line-hard') || '#2a3646').trim();
     const dim = (css.getPropertyValue('--fg-mute') || '#56626f').trim();
-    const acc = (css.getPropertyValue('--accent') || '#4db8ff').trim();
+    const acc = (css.getPropertyValue('--accent') || '#3fcfa8').trim();
     const alert = (css.getPropertyValue('--alert') || '#e0574f').trim();
     const at = (az) => (az - 90) * Math.PI / 180;
     const rad = (elv) => R * (1 - Math.max(0, Math.min(90, elv)) / 90);

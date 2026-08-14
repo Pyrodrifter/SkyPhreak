@@ -12,26 +12,28 @@
  *
  * applyTheme() writes the vars onto <html>; the canvas views call palette() every
  * draw (they repaint at 1 Hz anyway), so a change propagates within a tick.
- */
-
-/**
- * A note on why these differ from each other in more than one channel.
  *
- * An earlier set of themes only varied the accent hue over identical cool-grey
- * neutrals and near-white text. That produces five versions of one look, because
- * the accent is a few hundred pixels of a screen — the neutral surfaces and the
- * body text are the other 95%, and those were never changing.
+ * ---------------------------------------------------------------------------
+ * Why these differ from each other in more than one channel.
  *
- * So each theme below moves three things together: the TEMPERATURE of the
- * neutrals (warm iron vs cold slate vs petrol), the TEXT colour (bone vs paper
- * vs phosphor — never plain white), and only then the accent.
+ * An earlier set varied only the accent hue over identical cool-grey neutrals and
+ * near-white text. That produces several versions of one look, because the accent
+ * is a few hundred pixels of the screen — the neutral surfaces and the body text
+ * are the other 95%, and those never changed.
+ *
+ * So each theme moves three things together: the TEMPERATURE of the neutrals, the
+ * TEXT colour (bone, sand or ember — never plain white), and only then the accent.
+ *
+ * Accent hue is constrained. Green, amber and red are committed to ok / warn /
+ * alert and occupy the whole warm arc; blue and violet are the generic dark-mode
+ * palette. Foundry resolves that by keeping the accent cool and putting the
+ * character in the neutrals. Sideband resolves it by reassigning what caution
+ * means. Night Ops sidesteps it entirely — see its note.
  */
 
 export const THEMES = {
-  // Warm iron and bone with a cool jade accent. The warm/cool split is what makes
-  // it read as machined equipment: the chrome is warm, the live state is cold.
-  // Jade also stays clear of green/amber/red, which are spoken for by the status
-  // colours — and clear of blue/violet, which is every dark-mode app ever built.
+  // Warm iron and bone with a cool jade accent. The warm chrome / cold live-state
+  // split is what makes it read as machined equipment rather than a dark UI.
   foundry: {
     name: 'Foundry',
     vars: {
@@ -87,8 +89,8 @@ export const THEMES = {
     },
   },
 
-  // Petrol-black hull with a warm sand text and a signal-orange accent — the
-  // inverse split to Foundry: cold chrome, warm live state.
+  // Petrol-black hull, warm sand text, signal-orange accent — the inverse split to
+  // Foundry: cold chrome, warm live state.
   deepwater: {
     name: 'Deepwater',
     vars: {
@@ -115,141 +117,65 @@ export const THEMES = {
     },
   },
 
-  // The violet-on-slate build. Kept so an existing install doesn't lose its theme,
-  // but no longer the default — it is the house style of every AI-scaffolded app.
-  mission: {
-    name: 'Mission',
-    vars: {
-      '--bg-0': '#0a0b11', '--bg-1': '#11131b', '--bg-2': '#171a24', '--bg-3': '#1f2330', '--bg-4': '#282d3d',
-      '--line': '#262b3a', '--line-soft': '#1c202b', '--line-hard': '#363d51',
-      '--fg': '#dae0ec', '--fg-dim': '#949db4', '--fg-mute': '#69718a',
-      '--accent': '#b07dff', '--accent-fg': '#150a26',
-      '--ok': '#4ecb92', '--warn': '#e8b04a', '--alert': '#f2645a',
-    },
-    map: {
-      bg: '#0b0e1a', land: '#1a1f36', landStroke: 'rgba(176,125,255,0.42)', border: 'rgba(176,125,255,0.30)',
-      graticule: 'rgba(148,157,180,0.09)', equator: 'rgba(148,157,180,0.17)',
-      terminator: 'rgba(4,4,9,0.52)', labelBg: 'rgba(10,11,17,0.8)',
-      labelText: 'rgba(218,224,236,0.9)', moonShadow: '#1c2033',
-    },
-    polar: {
-      grid: 'rgba(54,61,81,0.95)', gridDim: 'rgba(38,43,58,0.95)',
-      ticks: 'rgba(148,157,180,0.7)', labels: 'rgba(218,224,236,0.82)',
-    },
-    globe: {
-      atmosphere: '#b07dff', polyCap: 'rgba(52,42,92,0.92)',
-      polySide: 'rgba(32,26,58,0.42)', polyStroke: 'rgba(176,125,255,0.5)',
-      sphere: '#0b0e1a', sphereEmissive: '#07080f',
-    },
-  },
-
-  midnight: {
-    name: 'Midnight',
-    vars: {
-      '--bg-0': '#07090c', '--bg-1': '#0b0e13', '--bg-2': '#10141a', '--bg-3': '#161b23', '--bg-4': '#1d232d',
-      '--line': '#1c232e', '--line-soft': '#141922', '--line-hard': '#2b3442',
-      '--fg': '#d0d8e4', '--fg-dim': '#828e9e', '--fg-mute': '#59636f',
-      '--accent': '#5aa9e6', '--accent-fg': '#04101a',
-      '--ok': '#4ab98a', '--warn': '#dba94a', '--alert': '#e05f56',
-    },
-    map: {
-      bg: '#08111c', land: '#132435', landStroke: 'rgba(90,169,230,0.4)', border: 'rgba(90,169,230,0.30)',
-      graticule: 'rgba(130,142,158,0.09)', equator: 'rgba(130,142,158,0.16)',
-      terminator: 'rgba(3,5,9,0.5)', labelBg: 'rgba(7,9,12,0.78)',
-      labelText: 'rgba(208,216,228,0.9)', moonShadow: '#141c27',
-    },
-    polar: {
-      grid: 'rgba(43,52,66,0.95)', gridDim: 'rgba(28,35,46,0.95)',
-      ticks: 'rgba(130,142,158,0.7)', labels: 'rgba(208,216,228,0.8)',
-    },
-    globe: {
-      atmosphere: '#5aa9e6', polyCap: 'rgba(26,56,84,0.92)',
-      polySide: 'rgba(16,36,54,0.42)', polyStroke: 'rgba(90,169,230,0.5)',
-      sphere: '#08111c', sphereEmissive: '#050b12',
-    },
-  },
-
-  // Charcoal and ember — the PyroLabs hardware palette.
-  ember: {
-    name: 'Ember',
-    vars: {
-      '--bg-0': '#0c0805', '--bg-1': '#120d08', '--bg-2': '#19120c', '--bg-3': '#211812', '--bg-4': '#2b2017',
-      '--line': '#2e2118', '--line-soft': '#221810', '--line-hard': '#443124',
-      '--fg': '#e6dace', '--fg-dim': '#a08d7c', '--fg-mute': '#6d5c4e',
-      '--accent': '#ff8a4c', '--accent-fg': '#1a0c04',
-      '--ok': '#5cba7d', '--warn': '#e8b23c', '--alert': '#e85c4a',
-    },
-    map: {
-      bg: '#130c06', land: '#2e1e12', landStroke: 'rgba(255,138,76,0.38)', border: 'rgba(255,138,76,0.30)',
-      graticule: 'rgba(160,141,124,0.09)', equator: 'rgba(160,141,124,0.16)',
-      terminator: 'rgba(8,4,1,0.5)', labelBg: 'rgba(12,8,5,0.78)',
-      labelText: 'rgba(230,218,206,0.9)', moonShadow: '#241810',
-    },
-    polar: {
-      grid: 'rgba(68,49,36,0.95)', gridDim: 'rgba(46,33,24,0.95)',
-      ticks: 'rgba(160,141,124,0.7)', labels: 'rgba(230,218,206,0.8)',
-    },
-    globe: {
-      atmosphere: '#ff8a4c', polyCap: 'rgba(92,52,26,0.92)',
-      polySide: 'rgba(58,32,16,0.42)', polyStroke: 'rgba(255,138,76,0.5)',
-      sphere: '#130c06', sphereEmissive: '#0c0703',
-    },
-  },
-
-  // Red-only: preserves dark adaptation at the antenna. Paired with Field mode.
+  /**
+   * Night Ops — kept because it is equipment, not decoration: Field mode switches
+   * to it so a bright screen doesn't destroy the dark adaptation you need at the
+   * antenna. Rod cells barely respond above ~620 nm, so every colour here sits in
+   * the deep red band (hue 3–26°).
+   *
+   * That rules out signalling status by hue — a green "ok" chip would undo the
+   * whole point. Nor can it be a clean brightness ramp: green carries 71% of
+   * relative luminance, so a saturated red always computes dimmer than an orange
+   * and "alert brightest" is unreachable inside the band.
+   *
+   * So status is carried by SATURATION and brightness together, on top of the
+   * ✓ / ! / ✕ glyphs the readiness list already draws:
+   *   ok     dim and desaturated (0.19 luma, 0.46 sat) — recedes into the panel
+   *   warn   bright amber-red    (0.43 luma, 0.67 sat) — the brightest chip
+   *   alert  pure saturated red  (0.25 luma, 0.81 sat) — the only full-chroma
+   *          element anywhere in the theme, so nothing else competes with it
+   */
   nightops: {
     name: 'Night Ops',
     vars: {
-      '--bg-0': '#0a0304', '--bg-1': '#100506', '--bg-2': '#170809', '--bg-3': '#1f0c0e', '--bg-4': '#291012',
-      '--line': '#2c1214', '--line-soft': '#1f0d0f', '--line-hard': '#451c1f',
-      '--fg': '#ecb3b3', '--fg-dim': '#a86a6a', '--fg-mute': '#734848',
-      '--accent': '#ff4d4d', '--accent-fg': '#140303',
-      '--ok': '#e08585', '--warn': '#ffa04d', '--alert': '#ff2f2f',
+      '--bg-0': '#0a0403', '--bg-1': '#120705', '--bg-2': '#1a0a07', '--bg-3': '#24100b', '--bg-4': '#2f150f',
+      '--line': '#2e130e', '--line-soft': '#200c08', '--line-hard': '#4a1f16',
+      '--fg': '#ffb3a0', '--fg-dim': '#b4705f', '--fg-mute': '#7a4a3e',
+      '--accent': '#ff5c3d', '--accent-fg': '#1a0402',
+      '--ok': '#a8685a', '--warn': '#ff9455', '--alert': '#ff3b30',
     },
     map: {
-      bg: '#0e0405', land: '#2a0e11', landStroke: 'rgba(255,77,77,0.4)', border: 'rgba(255,77,77,0.30)',
-      graticule: 'rgba(168,106,106,0.09)', equator: 'rgba(168,106,106,0.16)',
-      terminator: 'rgba(6,0,0,0.5)', labelBg: 'rgba(10,3,4,0.78)',
-      labelText: 'rgba(236,179,179,0.9)', moonShadow: '#210c0e',
+      bg: '#0d0503', land: '#28100b', landStroke: 'rgba(255,92,61,0.38)', border: 'rgba(255,92,61,0.24)',
+      graticule: 'rgba(180,112,95,0.09)', equator: 'rgba(180,112,95,0.17)',
+      terminator: 'rgba(5,0,0,0.52)', labelBg: 'rgba(10,4,3,0.8)',
+      labelText: 'rgba(255,179,160,0.9)', moonShadow: '#24110c',
     },
     polar: {
-      grid: 'rgba(69,28,31,0.95)', gridDim: 'rgba(44,18,20,0.95)',
-      ticks: 'rgba(168,106,106,0.7)', labels: 'rgba(236,179,179,0.8)',
+      grid: 'rgba(74,31,22,0.95)', gridDim: 'rgba(46,19,14,0.95)',
+      ticks: 'rgba(180,112,95,0.7)', labels: 'rgba(255,179,160,0.82)',
     },
     globe: {
-      atmosphere: '#ff4d4d', polyCap: 'rgba(94,24,28,0.92)',
-      polySide: 'rgba(58,14,17,0.42)', polyStroke: 'rgba(255,77,77,0.5)',
-      sphere: '#0e0405', sphereEmissive: '#080202',
-    },
-  },
-
-  // Green CRT radar terminal.
-  phosphor: {
-    name: 'Phosphor',
-    vars: {
-      '--bg-0': '#040806', '--bg-1': '#070d09', '--bg-2': '#0b140d', '--bg-3': '#101c13', '--bg-4': '#16261a',
-      '--line': '#152218', '--line-soft': '#0f1911', '--line-hard': '#254029',
-      '--fg': '#c3e6c9', '--fg-dim': '#7ba383', '--fg-mute': '#526e58',
-      '--accent': '#48d67f', '--accent-fg': '#03140a',
-      '--ok': '#48d67f', '--warn': '#d8c84a', '--alert': '#e06a5a',
-    },
-    map: {
-      bg: '#05100a', land: '#0f2617', landStroke: 'rgba(72,214,127,0.38)', border: 'rgba(72,214,127,0.30)',
-      graticule: 'rgba(123,163,131,0.09)', equator: 'rgba(123,163,131,0.16)',
-      terminator: 'rgba(0,5,2,0.5)', labelBg: 'rgba(4,8,6,0.78)',
-      labelText: 'rgba(195,230,201,0.9)', moonShadow: '#122016',
-    },
-    polar: {
-      grid: 'rgba(37,64,41,0.95)', gridDim: 'rgba(21,34,24,0.95)',
-      ticks: 'rgba(123,163,131,0.7)', labels: 'rgba(195,230,201,0.8)',
-    },
-    globe: {
-      atmosphere: '#48d67f', polyCap: 'rgba(24,74,44,0.92)',
-      polySide: 'rgba(14,46,27,0.42)', polyStroke: 'rgba(72,214,127,0.5)',
-      sphere: '#05100a', sphereEmissive: '#030a06',
+      atmosphere: '#ff5c3d', polyCap: 'rgba(92,30,18,0.92)',
+      polySide: 'rgba(58,18,11,0.42)', polyStroke: 'rgba(255,92,61,0.5)',
+      sphere: '#0d0503', sphereEmissive: '#070201',
     },
   },
 };
+
+/**
+ * Themes that no longer exist, mapped to their nearest survivor. A saved setting
+ * naming one of these is migrated on load rather than silently falling back, so
+ * the Settings dropdown doesn't show an empty selection.
+ */
+export const RETIRED_THEMES = {
+  mission: 'foundry',    // violet on slate
+  midnight: 'deepwater', // blue on slate — closest surviving cool palette
+  ember: 'sideband',     // orange on brown — closest surviving warm palette
+  phosphor: 'foundry',   // green CRT — Foundry's jade accent is the nearest
+};
+
+/** Resolve a possibly-retired theme id to one that exists. */
+export const resolveTheme = (id) => (THEMES[id] ? id : RETIRED_THEMES[id] || (id === 'custom' ? id : 'foundry'));
 
 let active = THEMES.foundry;
 
@@ -269,7 +195,7 @@ function luminance(hex) {
  * gets readable dark text on filled buttons.
  */
 function buildCustom(custom) {
-  const base = THEMES[(custom && custom.base)] || THEMES.midnight;
+  const base = THEMES[resolveTheme(custom && custom.base)] || THEMES.foundry;
   const accent = (custom && custom.accent) || base.vars['--accent'];
   return {
     ...base,
@@ -283,7 +209,7 @@ function buildCustom(custom) {
 
 /** Apply a theme by id (or the built 'custom' theme): set CSS vars + canvas palette. */
 export function applyTheme(id, custom) {
-  active = id === 'custom' ? buildCustom(custom) : (THEMES[id] || THEMES.foundry);
+  active = id === 'custom' ? buildCustom(custom) : (THEMES[resolveTheme(id)] || THEMES.foundry);
   const root = document.documentElement;
   for (const [k, v] of Object.entries(active.vars)) root.style.setProperty(k, v);
   return active;
