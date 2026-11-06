@@ -45,4 +45,6 @@ export function buildTimeline(passes, opts = {}) {
 }
 
 const DIRS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
-function azName(az) { return DIRS[Math.round(((az % 360) / 45)) % 8]; }
+// Normalise into [0, 360) first: a negative azimuth would otherwise index the
+// array negatively and come back undefined.
+function azName(az) { return DIRS[Math.round((((az % 360) + 360) % 360) / 45) % 8]; }

@@ -274,6 +274,15 @@ export function buildPasses(handlers) {
     if (!live.length) return;
     const p2 = (n) => String(n).padStart(2, '0');
     const dt = (d) => `${d.getUTCFullYear()}${p2(d.getUTCMonth() + 1)}${p2(d.getUTCDate())}T${p2(d.getUTCHours())}${p2(d.getUTCMinutes())}${p2(d.getUTCSeconds())}Z`;
+    // RFC 5545 TEXT values must escape backslash, semicolon, comma and newlines.
+    // Satellite names routinely carry commas ("FREGAT DEB, FRAGMENT"), which would
+    // otherwise split SUMMARY into a multi-value property and corrupt the event in
+    // every calendar app that reads it.
+    const esc = (s) => String(s ?? '')
+      .replace(/\\/g, '\\\\')
+      .replace(/;/g, '\\;')
+      .replace(/,/g, '\\,')
+      .replace(/\r?\n/g, '\\n');
     let ics = 'BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//SkyPhreak//Passes//EN\r\n';
     for (const it of live) {
       const p = it.pass;
@@ -281,8 +290,8 @@ export function buildPasses(handlers) {
         + `UID:${it.id}-${p.aos.getTime()}@skyphreak\r\n`
         + `DTSTAMP:${dt(new Date())}\r\n`
         + `DTSTART:${dt(p.aos)}\r\nDTEND:${dt(p.los)}\r\n`
-        + `SUMMARY:${it.name} pass (max ${p.maxEl}°)${it.visible ? ' [visible]' : ''}\r\n`
-        + `DESCRIPTION:AOS ${compass(p.aosAz)} -> LOS ${compass(p.losAz)}\\, max ${p.maxEl}°\r\n`
+        + `SUMMARY:${esc(`${it.name} pass (max ${p.maxEl}°)${it.visible ? ' [visible]' : ''}`)}\r\n`
+        + `DESCRIPTION:${esc(`AOS ${compass(p.aosAz)} -> LOS ${compass(p.losAz)}, max ${p.maxEl}°`)}\r\n`
         + 'END:VEVENT\r\n';
     }
     const a = document.createElement('a');

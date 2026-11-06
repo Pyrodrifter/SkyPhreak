@@ -4,11 +4,14 @@
  *
  *  The maintained, up-to-date firmware is:  PyroRotator/PyroRotator.ino
  *
- *  This TMC2209/UART sketch predates the v0.3 protocol work and is OUT OF SYNC
- *  with the app: it clamps azimuth to [0,450] (the app now uses a free/continuous
- *  shortest-path azimuth) and lacks the C (config), H (home) and U (unwind)
- *  commands plus the extended telemetry the app expects. Do NOT flash this for
- *  use with SkyPhreak v0.3+. Kept only as a UART/StealthChop reference.
+ *  This TMC2209/UART sketch predates the v0.3 protocol work and is still only
+ *  PARTLY in sync with the app. It now parses the sequenced A2 track setpoint the
+ *  app streams (it used to mis-read that as az 2 / el <seq>, i.e. it pointed the
+ *  mount at the wrong place for the whole pass), and it answers C (config),
+ *  H (home), U (unwind) and M (mission) with an explicit "unsupported" rather
+ *  than mis-parsing them. It still clamps azimuth to [0,450] where the app uses a
+ *  free/continuous azimuth, and it does not send the extended telemetry fields.
+ *  Prefer PyroRotator/ for real use; kept as a UART/StealthChop reference.
  *
  *  → If you are not actively using it as a reference, delete this directory and
  *    keep PyroRotator/ as the single source of truth. (Left in place rather than
@@ -31,7 +34,10 @@
  *   - FastAccelStepper                 -> hardware-timer step pulses, jerk-free ramps
  *
  * Protocol (newline-terminated ASCII, same over USB serial or TCP :4533):
- *   A <az> <el> <azRate> <elRate>   track setpoint: position(deg) + velocity(deg/s)
+ *   A2 <seq> <az> <el> <azRate> <elRate>
+ *                                   sequenced track setpoint: position(deg) +
+ *                                   velocity(deg/s); out-of-order seq is rejected
+ *   A <az> <el> <azRate> <elRate>   legacy unsequenced track setpoint
  *   V <azRate> <elRate>             pure velocity (deg/s)
  *   P <az> <el>                     goto (rotctld-style)
  *   S                               stop (decelerate + hold)
@@ -107,6 +113,7 @@ String rxBuf;
 unsigned long lastTelemetry = 0;
 unsigned long lastStreamMs = 0;  // last time an A/V streaming setpoint arrived
 bool streaming = false;          // true while tracking; arms the comms watchdog
+uint32_t lastTrackSeq = 0;       // last accepted A2 sequence number (0 = stream not started)
 
 /* ---------------------------- Driver setup ------------------------------- */
 void setupDriver(TMC2209Stepper& d) {
@@ -198,6 +205,29 @@ void handleLine(String line, Stream& out) {
   line.trim();
   if (!line.length()) return;
   char cmd = line[0];
+
+  // A2 is the sequenced track setpoint the app actually streams:
+  //   A2 <seq> <az> <el> <azRate> <elRate>
+  // It has to be matched BEFORE the generic single-letter parse below, which reads
+  // from line+1 and would take the '2' as the azimuth and the sequence number as
+  // the elevation -- parking the mount at az 2 / el 90 for the whole pass.
+  if (line.startsWith("A2 ")) {
+    unsigned long seq = 0; float az = 0, el = 0, azR = 0, elR = 0;
+    if (sscanf(line.c_str() + 2, "%lu %f %f %f %f", &seq, &az, &el, &azR, &elR) != 5) {
+      reply(out, "ERR bad_A2"); return;
+    }
+    // Reject setpoints that arrive out of order; the subtraction is unsigned so it
+    // stays correct across the sequence counter wrapping.
+    if (streaming && lastTrackSeq && (int32_t)((uint32_t)seq - lastTrackSeq) <= 0) {
+      reply(out, "ERR stale_seq"); return;
+    }
+    lastTrackSeq = (uint32_t)seq;
+    axisMove(azStep, azTargetSteps(az), azR, AZ_SPD);
+    axisMove(elStep, elTargetSteps(el), elR, EL_SPD);
+    lastStreamMs = millis(); streaming = true; // arm comms watchdog
+    reply(out, "OK"); return;
+  }
+
   float a = 0, b = 0, c = 0, d = 0;
   sscanf(line.c_str() + 1, "%f %f %f %f", &a, &b, &c, &d);
   switch (cmd) {
@@ -224,6 +254,14 @@ void handleLine(String line, Stream& out) {
       elStep->moveTo(elTargetSteps(90));
       streaming = false; reply(out, "OK"); break;
     case '?': break; // telemetry sent in loop
+    case 'H': // home
+    case 'U': // cable unwind
+    case 'C': // runtime config
+    case 'M': // mission metadata
+      // These need an elevation endstop, non-volatile storage and a local display,
+      // none of which this reference sketch has. Answer explicitly so the app shows
+      // "unsupported" instead of a bare "unknown command".
+      reply(out, "ERR unsupported_on_tmc2209_reference"); break;
     default:  reply(out, "ERR unknown"); break;
   }
 }
@@ -253,7 +291,12 @@ void loop() {
   pump(Serial, serBuf, Serial);
 
   // TCP transport
-  if (server && !client.connected()) client = server.available();
+  if (server && !client.connected()) {
+    client = server.available();
+    // A fresh connection restarts the setpoint stream, so forget the old sequence
+    // number -- otherwise every setpoint from the new link looks stale.
+    if (client.connected()) { lastTrackSeq = 0; streaming = false; rxBuf = ""; }
+  }
   if (client.connected()) pump(client, rxBuf, client);
 
   // Comms watchdog: if a tracking stream goes silent (link dropped), decelerate and

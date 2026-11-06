@@ -85,6 +85,11 @@ function ndotField(v) {
 
 // Assumed-decimal exponent notation, 8 chars: sign + 5 mantissa digits + expsign + expdigit.
 // e.g. 0.000012345 -> " 12345-4" (= 0.12345 × 10^-4). Used for nddot and BSTAR.
+//
+// The exponent is a SINGLE digit, so the field cannot carry |exp| > 9. Truncating
+// it there would be catastrophic rather than merely lossy (1e-11 would decode as
+// 0.1 — ten orders of magnitude of drag), so clamp instead: anything below the
+// smallest representable magnitude becomes zero, anything above saturates.
 function expField(v) {
   v = +v || 0;
   if (v === 0) return ' 00000+0';
@@ -95,7 +100,9 @@ function expField(v) {
   while (m < 0.1) { m *= 10; exp -= 1; }
   let mant = Math.round(m * 1e5);
   if (mant >= 1e5) { mant = Math.round(mant / 10); exp += 1; } // rounding carry
-  return sign + String(mant).padStart(5, '0').slice(0, 5) + (exp < 0 ? '-' : '+') + String(Math.abs(exp)).slice(-1);
+  if (exp < -9) return ' 00000+0';          // underflows the field — negligible anyway
+  if (exp > 9) { mant = 99999; exp = 9; }   // saturate rather than wrap
+  return sign + String(mant).padStart(5, '0').slice(0, 5) + (exp < 0 ? '-' : '+') + String(Math.abs(exp));
 }
 
 // Cols 9-16 etc.: angle in degrees, "NNN.NNNN" right-justified in 8.

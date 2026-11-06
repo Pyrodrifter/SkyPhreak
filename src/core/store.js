@@ -359,10 +359,18 @@ function persist() {
   }, 400);
 }
 
+// Keys that would reach Object.prototype are skipped: settings come back from a
+// JSON file the user can import, and `{"__proto__": {…}}` in one would otherwise
+// pollute every object in the app (JSON.parse makes __proto__ an own key, so
+// Object.keys lists it and the plain assignment below would apply it).
+const UNSAFE_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+const mergeable = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
+
 function deepMerge(base, over) {
   for (const k of Object.keys(over)) {
-    if (over[k] && typeof over[k] === 'object' && !Array.isArray(over[k])) {
-      base[k] = deepMerge(base[k] ?? {}, over[k]);
+    if (UNSAFE_KEYS.has(k)) continue;
+    if (mergeable(over[k])) {
+      base[k] = deepMerge(mergeable(base[k]) ? base[k] : {}, over[k]);
     } else {
       base[k] = over[k];
     }

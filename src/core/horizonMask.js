@@ -71,7 +71,8 @@ export function clearsHorizon(mask, az, el, marginDeg = 0) {
 /**
  * Given a pass's sampled sky-arc [{az,el}], compute how the horizon mask clips it:
  * the fraction of the arc that is actually above the local horizon, and the peak
- * clearance (min over the arc of el - maskEl, i.e. how comfortably the peak clears).
+ * clearance: the LARGEST (el - maskEl) anywhere on the arc, i.e. how comfortably
+ * the pass clears the skyline at its best point.
  * Returns { obstructed, clearFraction, peakClearanceDeg, blockedAtPeak }.
  */
 export function evaluateArc(mask, arc, peakEl) {

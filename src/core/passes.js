@@ -32,18 +32,18 @@ export function predictPasses(satrec, observer, opts = {}) {
   }
 
   for (let t = start + stepMs; t <= end && passes.length < count; t += stepMs) {
-    const el = elAt(satrec, observer, t);
+    // One propagation per coarse sample, reused for both the threshold test and
+    // the running peak (this used to propagate twice for every in-pass sample).
+    const look = lookAngles(satrec, new Date(t), observer);
+    const el = look ? look.el : -90;
     if (!inPass && el >= minEl && prevEl < minEl) {
       inPass = true;
-      aos = refineCrossing(satrec, observer, prevT, t, minEl);
+      aos = refineCrossing(satrec, observer, prevT, t, minEl, true);
       peak = { el: -Infinity, t: 0, az: 0 };
     }
-    if (inPass) {
-      const look = lookAngles(satrec, new Date(t), observer);
-      if (look && look.el > peak.el) peak = { el: look.el, t, az: look.az };
-    }
+    if (inPass && look && look.el > peak.el) peak = { el: look.el, t, az: look.az };
     if (inPass && el < minEl && prevEl >= minEl) {
-      const los = refineCrossing(satrec, observer, prevT, t, minEl);
+      const los = refineCrossing(satrec, observer, prevT, t, minEl, false);
       const peakLook = lookAngles(satrec, new Date(peak.t), observer);
       passes.push({
         aos: new Date(aos),
@@ -69,9 +69,10 @@ function elAt(satrec, observer, t) {
 }
 
 // Bisection on the minEl crossing between two sample times. Works for both
-// rising (AOS) and falling (LOS) edges by tracking the sign at the low end.
-function refineCrossing(satrec, observer, t0, t1, minEl) {
-  const lowBelow = elAt(satrec, observer, t0) < minEl;
+// rising (AOS) and falling (LOS) edges by tracking the sign at the low end;
+// the caller already knows that sign, so it is passed in rather than resampled.
+function refineCrossing(satrec, observer, t0, t1, minEl, lowBelow) {
+  if (lowBelow === undefined) lowBelow = elAt(satrec, observer, t0) < minEl;
   for (let k = 0; k < 18; k++) {
     const mid = (t0 + t1) / 2;
     const below = elAt(satrec, observer, mid) < minEl;

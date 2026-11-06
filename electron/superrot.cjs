@@ -7,15 +7,24 @@ const { EventEmitter } = require('node:events');
  * Unlike rotctld's position-only `P` (which means "go here and STOP"), SuperRot
  * carries angular velocity so the motor is always in motion and never lurches:
  *
- *   A <az> <el> <azRate> <elRate>   track setpoint: position + feedforward velocity
+ *   A2 <seq> <az> <el> <azRate> <elRate>  track setpoint: position + feedforward
+ *                                         velocity, with a monotonic sequence
+ *                                         number so the firmware can drop setpoints
+ *                                         that arrive out of order (this is what
+ *                                         track() sends; bare `A` is the legacy,
+ *                                         unsequenced form the firmware still accepts)
  *   V <azRate> <elRate>             pure velocity (°/s)
  *   P <az> <el>                     goto (rotctld-compatible, stops on arrival)
  *   S                               stop (decelerate to hold)
  *   K                               park
+ *   H                               run the homing routine
+ *   U                               unwind the azimuth cable
+ *   C key=value ...                 push configuration (limits, offsets, backlash)
+ *   M <target> <state>              mission metadata for the controller's display
  *   ?                               request telemetry
  *
  * Firmware replies are newline-terminated: `OK`, `ERR <msg>`, or telemetry
- * `T <az> <el> <azRate> <elRate>` streamed continuously (~10 Hz).
+ * `T <az> <el> <azRate> <elRate> [key=value ...]` streamed continuously (~10 Hz).
  *
  * Transport is either a USB serial port to the MCU or TCP (ESP32/WiFi). Serial
  * uses the optional `serialport` package, required lazily so the app still loads
@@ -82,6 +91,9 @@ class SuperRotClient extends EventEmitter {
         }
       });
       sock.on('close', () => {
+        // Only disown the socket if it is still the current one — a reconnect can
+        // install the replacement before the old socket's 'close' fires.
+        if (this.socket !== sock) return;
         this.connected = false;
         this.socket = null;
         this.emitStatus();
@@ -126,6 +138,9 @@ class SuperRotClient extends EventEmitter {
         }
       });
       port.on('close', () => {
+        // Same guard as the TCP path: don't disown a port that has already been
+        // replaced by a reconnect.
+        if (this.port !== port) return;
         this.connected = false;
         this.port = null;
         this.emitStatus();

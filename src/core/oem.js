@@ -34,12 +34,22 @@ const EDGE_SLOP_MS = 1000; // tolerance for queries a hair outside the table spa
 /* ------------------------------- Public API ------------------------------- */
 
 // Parse a CCSDS OEM document (KVN text or XML) into TLE-parser-shaped entries.
+let lastError = null;
+/** Why the last parseOem() came back empty, or null if it simply held no data. */
+export const oemParseError = () => (lastError ? lastError.message || String(lastError) : null);
+
 export function parseOem(text) {
   const t = (text || '').trim();
   if (!t) return [];
   try {
+    lastError = null;
     return t.startsWith('<') ? parseOemXml(text) : parseOemKvn(text);
-  } catch {
+  } catch (e) {
+    // Keep returning [] (parseCatalog treats OEM as one of several formats to
+    // try), but remember why — otherwise a real parse failure reaches the user as
+    // "no usable ephemeris found", which sends them looking at the wrong thing.
+    lastError = e;
+    console.error('OEM parse failed:', e);
     return [];
   }
 }
@@ -129,7 +139,11 @@ function buildEntries(segs) {
     const m = s.meta;
     const key = `${(m.OBJECT_ID || m.OBJECT_NAME || 'OBJECT').trim()}|${m.REF_FRAME || ''}|${m.TIME_SYSTEM || ''}`;
     if (!groups.has(key)) groups.set(key, { meta: m, recs: [] });
-    groups.get(key).recs.push(...s.recs);
+    // Append one at a time: `push(...s.recs)` passes every record as an argument
+    // and blows the call stack (RangeError) somewhere past ~125k state vectors,
+    // which a long high-rate ephemeris easily exceeds.
+    const dst = groups.get(key).recs;
+    for (const r of s.recs) dst.push(r);
   }
 
   const out = [];

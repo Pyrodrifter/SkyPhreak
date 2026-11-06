@@ -1,6 +1,6 @@
 import { store } from './core/store.js';
 import { parseCatalog } from './core/tle.js';
-import { parseOem } from './core/oem.js';
+import { parseOem, oemParseError } from './core/oem.js';
 import { subPoint, lookAngles, makeSatrec, tleAgeDays, subSolarPoint } from './core/propagate.js';
 import { moonState, moonLook } from './core/moon.js';
 import { planetState, raDecToAzEl, subPointOf } from './core/bodies.js';
@@ -105,6 +105,39 @@ const BLACKBOX_INTERVAL_MS = 2000;
 
 window.addEventListener('error', (e) => console.error(e.error || e.message));
 window.addEventListener('unhandledrejection', (e) => console.error('unhandledrejection:', e.reason));
+
+/**
+ * Rate-coalescing wrapper for the expensive recomputes. Pass prediction is by far
+ * the heaviest thing the renderer does (SGP4 + arc sampling for every tracked
+ * satellite), and the inputs it depends on are edited through live `oninput`
+ * fields — station coordinates, the horizon-mask points — so a store write per
+ * keystroke would otherwise mean a full recompute per keystroke.
+ *
+ * The first change runs straight away (so discrete edits like ticking a satellite
+ * stay instant) and everything that arrives while the window is open collapses
+ * into one trailing run. The window is sized from how long the last run actually
+ * took, so a heavy catalogue backs off further than a light one.
+ */
+function coalesce(fn, minWait = 120, maxWait = 1500) {
+  const clock = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
+  let timer = null, pending = false, cost = 0;
+  const run = () => { const t0 = clock(); fn(); cost = clock() - t0; };
+  const wait = () => Math.min(maxWait, Math.max(minWait, cost * 2));
+  const tick = () => {
+    timer = null;
+    if (!pending) return;
+    pending = false;
+    run();
+    timer = setTimeout(tick, wait());
+  };
+  return () => {
+    if (timer) { pending = true; return; }
+    run();
+    timer = setTimeout(tick, wait());
+  };
+}
+const scheduleRecomputeSelected = coalesce(() => recomputeSelected());
+const scheduleRecomputeTracked = coalesce(() => recomputeTrackedPasses());
 
 boot().catch((e) => console.error('boot failed:', e));
 
@@ -332,7 +365,10 @@ async function doRefreshPersistedTles() {
     try {
       const res = await window.pyro.tle.fetchOne(id);
       const parsed = parseCatalog(res.text);
-      const s = parsed[0];
+      // Only accept elements that actually belong to the object we asked for —
+      // never overwrite a satellite's TLE with whatever the query happened to
+      // return. A mismatch keeps the cached copy.
+      const s = parsed.find((p) => p.noradId === String(id)) || null;
       if (s) {
         store.setStoredTle(id, { name: s.name, line1: s.line1, line2: s.line2 });
         catalogById.set(id, s);
@@ -418,7 +454,11 @@ async function loadOem() {
       added++;
     }
   }
-  if (!added) { ui.setTleStamp('OEM: no usable ephemeris found in file'); return; }
+  if (!added) {
+    const why = oemParseError();
+    ui.setTleStamp(why ? 'OEM: could not parse file — ' + why : 'OEM: no usable ephemeris found in file');
+    return;
+  }
 
   mergeOemIntoCatalog();
   if (firstId) {
@@ -478,13 +518,21 @@ function onState(state) {
   const key = `${state.selected}|${state.station.lat}|${state.station.lon}|${state.station.altKm}|${state.minEl}|${state.hw.rotator.elMax}`;
   if (key !== selCache.key) {
     selCache.key = key;
-    recomputeSelected();
+    scheduleRecomputeSelected();
   }
-  // Recompute the all-tracked pass list when the checked set (or location) changes.
-  const tkey = `${[...state.tracked].sort().join(',')}|${state.station.lat}|${state.station.lon}|${state.station.altKm}|${state.minEl}|${state.hw.rotator.minEl}`;
+  // Recompute the all-tracked pass list when anything recomputeTrackedPasses()
+  // actually consumes changes: the checked set, the station, either elevation
+  // minimum, the horizon mask, or the scoring inputs (mount ceiling, Sun avoidance).
+  const rotCfg = state.hw.rotator;
+  const tkey = [
+    [...state.tracked].sort().join(','),
+    state.station.lat, state.station.lon, state.station.altKm,
+    state.minEl, rotCfg.minEl, rotCfg.elMax, rotCfg.sunAvoid, rotCfg.sunAvoidDeg,
+    state.horizonMaskOn, state.horizonMaskOn ? JSON.stringify(state.horizonMask) : '',
+  ].join('|');
   if (tkey !== trackedPassesCache.key) {
     trackedPassesCache.key = tkey;
-    recomputeTrackedPasses();
+    scheduleRecomputeTracked();
   }
 }
 
@@ -546,7 +594,12 @@ function recomputeTrackedPasses() {
     if (!sat) continue;
     const passes = predictPasses(sat.satrec, observer, { minEl: state.minEl, hours: 48, count: 8 });
     const color = colorFor(id, state.tracked);
-    const controlPasses = predictPasses(sat.satrec, observer, { minEl: state.hw.rotator.minEl ?? 0, hours: 48, count: 8 });
+    // The rotator's tracking minimum is usually the same as the pass-list minimum;
+    // when it is, reuse the prediction instead of running SGP4 over 48h twice.
+    const rotMinEl = state.hw.rotator.minEl ?? 0;
+    const controlPasses = rotMinEl === state.minEl
+      ? passes
+      : predictPasses(sat.satrec, observer, { minEl: rotMinEl, hours: 48, count: 8 });
     for (const p of controlPasses) rotatorOut.push({ id, name: sat.name, pass: p });
     for (const p of passes) {
       // Sample the sky-track (az/el) AOS→LOS for the row's mini polar plot.
@@ -885,7 +938,16 @@ function checkPassNotifications() {
       }
     }
   }
-  if (notifiedPasses.size > 300) notifiedPasses.clear();
+  // Evict the keys of passes that are well and truly over, rather than clearing
+  // the whole set: a bare clear() re-arms every pass still inside its notification
+  // lead window, so each one alerts a second time.
+  if (notifiedPasses.size > 300) {
+    const cutoff = now - 6 * 3600 * 1000;
+    for (const k of notifiedPasses) {
+      const aosMs = Number(k.slice(k.indexOf('@') + 1).split(':')[0]);
+      if (!Number.isFinite(aosMs) || aosMs < cutoff) notifiedPasses.delete(k);
+    }
+  }
 }
 
 // Pre-pass readiness — evaluate the focus pass (the next upcoming pass for the
@@ -1240,14 +1302,17 @@ const MOTION_PROFILES = {
   fast: { maxAccel: { az: 40, el: 30 }, maxJerk: { az: 300, el: 240 } },
 };
 
-// Push the user's speed limits + selected smoothness profile into the live
-// controller (cheap; called each drive so changes take effect immediately).
+// Push the user's speed limits, elevation ceiling and selected smoothness
+// profile into the live controller (cheap; called on each drive so an edit in
+// Settings takes effect immediately, mid-track).
 function applyMotionProfile(rot) {
-  motion.cfg.maxVel.az = rot.maxVelAz ?? motion.cfg.maxVel.az;
-  motion.cfg.maxVel.el = rot.maxVelEl ?? motion.cfg.maxVel.el;
   const prof = MOTION_PROFILES[rot.motionProfile] || MOTION_PROFILES.normal;
-  motion.cfg.maxAccel = { ...prof.maxAccel };
-  motion.cfg.maxJerk = { ...prof.maxJerk };
+  motion.setCfg({
+    maxVel: { az: rot.maxVelAz, el: rot.maxVelEl },
+    maxAccel: prof.maxAccel,
+    maxJerk: prof.maxJerk,
+    elMax: rot.elMax,
+  });
 }
 
 /* ----------------------------- Park presets ---------------------------- */
@@ -1330,7 +1395,6 @@ function driveToTarget(track, date, rot) {
     const newObject = !motionRunning || track.id !== lastDrivenId;
     applyMotionProfile(rot); // live: speed limits + smoothness profile
     if (!motionRunning) {
-      motion.cfg.elMax = rot.elMax ?? motion.cfg.elMax;
       motion.start();
       motionRunning = true;
     }
@@ -1387,7 +1451,6 @@ function preSlewTo(pre, date, rot) {
   if (rot.protocol === 'superrot') {
     applyMotionProfile(rot);
     if (!motionRunning) {
-      motion.cfg.elMax = rot.elMax ?? motion.cfg.elMax;
       motion.start();
       motionRunning = true;
       if (rotTelemetry && Number.isFinite(rotTelemetry.az)) motion.seed(rotTelemetry.az, rotTelemetry.el);

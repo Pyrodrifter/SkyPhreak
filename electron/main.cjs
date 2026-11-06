@@ -118,15 +118,38 @@ function readJson(file, fallback) {
   }
 }
 
+// Write-to-temp-then-rename. settings.json is rewritten on a 400 ms debounce after
+// every state change, so a crash or power cut during a plain writeFileSync would
+// leave a truncated file behind — which parses as null on the next launch and
+// silently resets every setting to defaults. fsync before the rename so the bytes
+// are on the platter, and the rename itself is atomic (it replaces on Windows too).
 function writeJson(file, data) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, JSON.stringify(data, null, 2), 'utf8');
+  const tmp = `${file}.${process.pid}.tmp`;
+  try {
+    const fd = fs.openSync(tmp, 'w');
+    try {
+      fs.writeFileSync(fd, JSON.stringify(data, null, 2), 'utf8');
+      fs.fsyncSync(fd);
+    } finally {
+      fs.closeSync(fd);
+    }
+    fs.renameSync(tmp, file);
+  } catch (e) {
+    try { fs.rmSync(tmp, { force: true }); } catch { /* nothing to clean up */ }
+    throw e;
+  }
 }
 
 ipcMain.handle('settings:get', () => readJson(settingsPath(), null));
 ipcMain.handle('settings:set', (_e, data) => {
-  writeJson(settingsPath(), data);
-  return true;
+  try {
+    writeJson(settingsPath(), data);
+    return true;
+  } catch (e) {
+    console.error('settings:set failed:', e.message);
+    return false;
+  }
 });
 
 /* ------------------------- SuperRot USB flasher ------------------------- */
@@ -213,9 +236,14 @@ ipcMain.handle('tle:fetch', async (_e, group) => {
   return { group: safe, fetchedAt: cache[safe].fetchedAt, text };
 });
 
-// Fetch a single satellite's current elements by NORAD catalog number.
+// Fetch a single satellite's current elements by catalog designator. Catalog ids
+// are not always numeric: objects past 99999 use Alpha-5 (a leading letter, e.g.
+// "T1234"). Stripping non-digits would turn that into a DIFFERENT, perfectly valid
+// catalog number and quietly store another satellite's elements under this id, so
+// keep the designator intact and let an unknown one come back as a fetch error.
 ipcMain.handle('tle:fetchOne', async (_e, id) => {
-  const safe = String(id || '').replace(/[^0-9]/g, '');
+  const safe = String(id || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 9);
+  if (!safe) return { id: '', text: '' };
   const text = await fetchGp(`CATNR=${safe}`);
   return { id: safe, text };
 });

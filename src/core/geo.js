@@ -97,6 +97,7 @@ function polygonsFrom(topo, key) {
 const landCache = { '110m': ringsFrom(landTopo110, 'land') };
 const borderCache = {};
 const pending = new Set();
+const failed = new Set(); // levels whose chunk could not be fetched — never retried
 const listeners = new Set();
 
 const notify = () => { for (const fn of listeners) fn(); };
@@ -107,9 +108,13 @@ export function onBasemapLoad(fn) {
   return () => listeners.delete(fn);
 }
 
+// Kick off a lazy chunk load at most once. request() is reached from draw(), which
+// runs on every frame of a pan, so a chunk that cannot load (missing asset, broken
+// build) must be remembered as failed: otherwise it is re-requested — and logged —
+// several dozen times a second for the rest of the session.
 function request(kind, level, loaders, cache, objectKey) {
   const tag = kind + ':' + level;
-  if (cache[level] || pending.has(tag) || !loaders[level]) return;
+  if (cache[level] || pending.has(tag) || failed.has(tag) || !loaders[level]) return;
   pending.add(tag);
   loaders[level]()
     .then((mod) => {
@@ -117,7 +122,10 @@ function request(kind, level, loaders, cache, objectKey) {
       cache[level] = ringsFrom(topo, objectKey);
       notify();
     })
-    .catch((err) => console.warn(`basemap ${tag} unavailable`, err))
+    .catch((err) => {
+      failed.add(tag);
+      console.warn(`basemap ${tag} unavailable — staying on the bundled 110m set`, err);
+    })
     .finally(() => pending.delete(tag));
 }
 

@@ -69,6 +69,11 @@ class HamlibClient extends EventEmitter {
       });
 
       sock.on('close', () => {
+        // Only disown the socket if it is still the current one. A reconnect can
+        // create the replacement before the old socket's 'close' fires, and an
+        // unconditional null here would drop the live socket while the status
+        // still said connected.
+        if (this.socket !== sock) return;
         this.connected = false;
         this.socket = null;
         this.emitStatus();
