@@ -5,6 +5,11 @@ import crypto from 'node:crypto';
 import https from 'node:https';
 import { spawnSync } from 'node:child_process';
 
+// Thrown only when fetched bytes do not match the digest upstream published.
+// Everything else (no release yet, 404, offline, no pinned build for this arch) is
+// an "unavailable" condition and is skipped rather than failing the build.
+class IntegrityError extends Error {}
+
 const ROOT = path.resolve(import.meta.dirname, '..');
 const DEST = path.join(ROOT, 'electron', 'superrot-flasher');
 const ESPTOOL_TAG = 'v5.3.0';
@@ -52,7 +57,7 @@ async function installEsptool() {
   if (!asset || !/^sha256:[a-f0-9]{64}$/i.test(asset.digest || '')) throw new Error(`Official ${name} asset or SHA-256 digest is unavailable.`);
   const data = await get(asset.browser_download_url);
   const actual = crypto.createHash('sha256').update(data).digest('hex');
-  if (actual !== asset.digest.slice(7).toLowerCase()) throw new Error(`Checksum failed for ${name}.`);
+  if (actual !== asset.digest.slice(7).toLowerCase()) throw new IntegrityError(`Checksum failed for ${name}.`);
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'skyphreak-esptool-'));
   try {
     const archive = path.join(temp, name); fs.writeFileSync(archive, data); extract(archive, path.join(temp, 'out'));
@@ -68,7 +73,7 @@ async function installFirmware() {
   const asset = release.assets?.find((a) => a.name === 'superrot-universal-esp32.zip');
   if (!asset || !/^sha256:[a-f0-9]{64}$/i.test(asset.digest || '')) throw new Error('No checksummed universal-firmware release is available yet.');
   const data = await get(asset.browser_download_url); const actual = crypto.createHash('sha256').update(data).digest('hex');
-  if (actual !== asset.digest.slice(7).toLowerCase()) throw new Error('Universal-firmware release checksum failed.');
+  if (actual !== asset.digest.slice(7).toLowerCase()) throw new IntegrityError('Universal-firmware release checksum failed.');
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'skyphreak-firmware-'));
   try {
     const archive = path.join(temp, 'firmware.zip'); fs.writeFileSync(archive, data);
@@ -79,6 +84,36 @@ async function installFirmware() {
   } finally { fs.rmSync(temp, { recursive: true, force: true }); }
 }
 
-await installEsptool();
-await installFirmware();
-console.log('Verified SuperRot firmware and flasher assets installed.');
+/**
+ * The bundled USB flasher is an OPTIONAL extra. When its assets are absent the app
+ * reports "Bundled flashing is unavailable" in the SuperRot wizard and everything
+ * else works normally, so a missing upstream release must not take the installer
+ * build down with it.
+ *
+ * It used to. `npm run dist` is `prepare:flasher && vite build && electron-builder`,
+ * and Pyrodrifter/PyroRotator has no published release, so installFirmware() threw
+ * on a 404 and the pipeline died before vite build ever ran -- on all three runners.
+ * That is why v0.5.0-rc.1, v0.5.0-rc.2 and v0.5.0-ui-v1 shipped zero installers.
+ *
+ * A failed checksum is a different matter: those bytes are not what upstream
+ * published, so it stays a hard failure and nothing gets installed.
+ */
+async function optional(label, install) {
+  try {
+    await install();
+    console.log(`  installed ${label}`);
+    return true;
+  } catch (err) {
+    if (err instanceof IntegrityError) throw err;
+    console.warn(`  skipping ${label}: ${err.message}`);
+    return false;
+  }
+}
+
+const haveTool = await optional('the pinned esptool build', installEsptool);
+const haveFirmware = await optional('the SuperRot universal firmware', installFirmware);
+if (haveTool && haveFirmware) {
+  console.log('Verified SuperRot firmware and flasher assets installed.');
+} else {
+  console.warn('SuperRot USB flashing will be disabled in this build. Nothing else is affected.');
+}

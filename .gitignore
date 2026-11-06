@@ -9,3 +9,10 @@ snapshot-*.png
 
 # Firmware lives in its own repo (Pyrodrifter/PyroRotator)
 PyroRotator/
+
+# Flasher payload fetched at build time by `npm run prepare:flasher`
+electron/superrot-flasher/*
+!electron/superrot-flasher/README.txt
+
+# KiCad hardware project, versioned separately
+hardware/
