@@ -4,6 +4,20 @@ name: Release
 # GitHub Release for the pushed tag. Trigger by pushing a version tag, e.g.:
 #   git tag v0.3.0 && git push origin v0.3.0
 # Manual runs (workflow_dispatch) build the artifacts without publishing.
+#
+# Do NOT create the GitHub Release by hand before pushing the tag. electron-builder
+# refuses to upload into an existing release whose type differs from the type it is
+# publishing, and it logs that as a skip rather than an error -- so the build goes
+# green and the release ends up with zero assets. That is what happened to v0.4.0
+# and, on its first attempt, v0.5.0-rc.3:
+#
+#   GitHub release not created  reason=existing type not compatible with publishing
+#   type  existingType=pre-release  publishingType=draft
+#
+# package.json now pins publish.releaseType to "release", so electron-builder
+# creates and publishes the release itself; the step below then flips candidate tags
+# to pre-release afterwards. Always confirm assets landed:
+#   gh release view <tag> --json assets
 on:
   push:
     tags:
@@ -51,3 +65,20 @@ jobs:
           else
             npm run dist -- --publish never
           fi
+
+      # One runner only, so the three jobs cannot race on the same release.
+      - name: Mark candidate tags as pre-release
+        if: github.event_name == 'push' && matrix.os == 'ubuntu-latest'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          case "${GITHUB_REF_NAME}" in
+            *-rc*|*-alpha*|*-beta*)
+              echo "Marking ${GITHUB_REF_NAME} as a pre-release."
+              gh release edit "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" --prerelease
+              ;;
+            *)
+              echo "${GITHUB_REF_NAME} is a final release; leaving the pre-release flag clear."
+              ;;
+          esac

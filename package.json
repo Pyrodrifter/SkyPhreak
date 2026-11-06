@@ -40,7 +40,8 @@
       {
         "provider": "github",
         "owner": "Pyrodrifter",
-        "repo": "SkyPhreak"
+        "repo": "SkyPhreak",
+        "releaseType": "release"
       }
     ],
     "win": {
